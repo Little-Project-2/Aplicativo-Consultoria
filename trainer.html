@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel do Treinador - Consultoria</title>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="bg-glow-1"></div>
+    <div class="bg-glow-2"></div>
+    <div id="app" class="wide"> <!-- Always start wide for trainer dashboard later -->
+
+        <!-- Trainer Screens -->
+        <div id="trainer-login-screen" class="screen active">
+            <button class="btn-back" onclick="window.location.href='index.html'">
+                <i class="ph-bold ph-arrow-left"></i> Voltar ao Início
+            </button>
+
+            <div class="student-login-container" style="margin-top: 2rem;">
+                <h2>Acesso do Treinador</h2>
+                <p class="subtitle" style="text-align: center; margin-bottom: 2rem;">Entre com seu código ou crie sua
+                    consultoria.</p>
+
+                <form class="login-form">
+                    <div class="input-group">
+                        <label for="trainer-login-code">CÓDIGO DA CONSULTORIA</label>
+                        <input type="text" id="trainer-login-code" placeholder="Ex: TR-12345" autocomplete="off"
+                            style="text-transform: uppercase;">
+                    </div>
+                    <button type="button" class="btn-primary" onclick="connectTrainer()">Entrar</button>
+                </form>
+
+                <div class="divider">
+                    <span>OU</span>
+                </div>
+
+                <button class="btn-secondary" onclick="goToTrainerCreate()">Criar Nova Consultoria</button>
+            </div>
+        </div>
+
+        <div id="trainer-create-screen" class="screen">
+            <button class="btn-back" onclick="goToTrainerArea()">
+                <i class="ph-bold ph-arrow-left"></i> Voltar
+            </button>
+
+            <div class="student-login-container" style="margin-top: 2rem;">
+                <h2>Nova Consultoria</h2>
+                <p class="subtitle" style="text-align: center; margin-bottom: 2rem;">Configure os detalhes do seu
+                    serviço.</p>
+
+                <form class="login-form">
+                    <div class="input-group">
+                        <label for="trainer-name">SEU NOME COMPLETO</label>
+                        <input type="text" id="trainer-name" placeholder="Ex: João Silva" required autocomplete="off">
+                    </div>
+
+                    <div class="input-group">
+                        <label>SERVIÇOS OFERECIDOS</label>
+                        <div class="radio-group-vertical">
+                            <label class="radio-card">
+                                <input type="radio" name="services" value="treino" required>
+                                <div class="radio-content">
+                                    <i class="ph-bold ph-barbell"></i>
+                                    <span>Apenas Treino</span>
+                                </div>
+                            </label>
+                            <label class="radio-card">
+                                <input type="radio" name="services" value="dieta" required>
+                                <div class="radio-content">
+                                    <i class="ph-bold ph-apple-logo"></i>
+                                    <span>Apenas Dieta</span>
+                                </div>
+                            </label>
+                            <label class="radio-card">
+                                <input type="radio" name="services" value="ambos" required>
+                                <div class="radio-content">
+                                    <i class="ph-bold ph-arrows-merge"></i>
+                                    <span>Treino + Dieta</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <button type="button" class="btn-primary" style="margin-top: 1rem;"
+                        onclick="createConsultoria()">Criar e Acessar</button>
+                </form>
+            </div>
+        </div>
+
+        <div id="trainer-dashboard-screen" class="screen">
+            <div class="dashboard-layout">
+                <!-- Sidebar -->
+                <aside class="sidebar">
+                    <div class="sidebar-logo">
+                        <div class="logo-icon glow"
+                            style="width: 40px; height: 40px; font-size: 20px; color: #121214; border-radius: 10px;">
+                            <i class="ph-bold ph-barbell"></i>
+                        </div>
+                        <div>
+                            <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-main);">Adicionar nome
+                            </h2>
+                            <p style="font-size: 0.75rem; color: var(--primary-color);">Trainer Admin</p>
+                        </div>
+                    </div>
+
+                    <nav class="sidebar-nav">
+                        <a href="#" class="nav-item active">
+                            <i class="ph-bold ph-squares-four"></i> Dashboard
+                        </a>
+                        <a href="#" class="nav-item">
+                            <i class="ph-bold ph-users"></i> Alunos
+                        </a>
+                        <a href="#" class="nav-item">
+                            <i class="ph-bold ph-barbell"></i> Treinos
+                        </a>
+                        <a href="#" class="nav-item">
+                            <i class="ph-bold ph-file-text"></i> Avaliações
+                        </a>
+                        <a href="#" class="nav-item">
+                            <i class="ph-bold ph-gear"></i> Configurações
+                        </a>
+                    </nav>
+
+                    <div class="sidebar-footer">
+                        <button class="nav-item btn-logout" onclick="window.location.href='index.html'">
+                            <i class="ph-bold ph-sign-out"></i> Sair
+                        </button>
+                    </div>
+                </aside>
+
+                <!-- Main Content -->
+                <main class="main-content">
+                    <header class="top-header">
+                        <h1 class="page-title">Painel de Controle</h1>
+
+                        <div class="header-search">
+                            <i class="ph-bold ph-magnifying-glass"></i>
+                            <input type="text" placeholder="Buscar aluno ou treino...">
+                        </div>
+
+                        <div class="header-profile">
+                            <div class="profile-info">
+                                <span class="profile-name" id="dash-trainer-name">Treinador</span>
+                                <span class="profile-code" id="dash-trainer-code">TR-00000</span>
+                            </div>
+                            <div class="profile-avatar">
+                                <i class="ph-fill ph-user"></i>
+                            </div>
+                        </div>
+                    </header>
+
+                    <div class="trainer-stats-row">
+                        <div class="t-stat-card">
+                            <div class="stat-header">
+                                <p>Total Alunos</p>
+                                <i class="ph-fill ph-users text-primary"></i>
+                            </div>
+                            <h3 id="stat-total">2</h3>
+                        </div>
+                        <div class="t-stat-card">
+                            <div class="stat-header">
+                                <p>Alunos Ativos</p>
+                                <i class="ph-fill ph-check-circle text-success"></i>
+                            </div>
+                            <h3 id="stat-ativos" class="text-success">2</h3>
+                        </div>
+                        <div class="t-stat-card">
+                            <div class="stat-header">
+                                <p>Alunos Inativos</p>
+                                <i class="ph-fill ph-minus-circle text-muted"></i>
+                            </div>
+                            <h3 id="stat-inativos" class="text-muted">0</h3>
+                        </div>
+                        <div class="t-stat-card">
+                            <div class="stat-header">
+                                <p>Faturamento Mensal</p>
+                                <i class="ph-fill ph-money text-primary"></i>
+                            </div>
+                            <h3 class="text-success">R$ 1.200,00</h3>
+                        </div>
+                    </div>
+
+                    <div class="students-section">
+                        <div class="section-header">
+                            <h2>Meus Alunos</h2>
+                            <div class="section-actions">
+                                <div class="small-search">
+                                    <i class="ph-bold ph-funnel"></i>
+                                    <input type="text" placeholder="Buscar aluno...">
+                                </div>
+                                <button class="btn-primary btn-sm" onclick="alert('Função de convite em breve')">
+                                    <i class="ph-bold ph-plus"></i> Novo Aluno
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="table-header-row">
+                            <span>STATUS</span>
+                            <span>IDENTIFICAÇÃO</span>
+                            <span>OBJETIVO</span>
+                            <span>PESO</span>
+                            <span>CONSUMO DIÁRIO</span>
+                            <span style="text-align: right;">AÇÕES</span>
+                        </div>
+
+                        <div class="student-list-container" id="trainer-student-list">
+                            <!-- Injetado via JS -->
+
+                            <!-- Exemplo mockado baseado na imagem para visualização imediata -->
+                            <div class="student-list-item grid-layout" onclick="openStudentProfile('7712')">
+                                <div class="sli-col"><span class="badge active">
+                                        <div class="dot"></div> Ativo
+                                    </span></div>
+                                <div class="sli-col ident">
+                                    <div class="sli-avatar"><i class="ph-fill ph-user"></i></div>
+                                    <div class="sli-info">
+                                        <h4>Student 7712</h4>
+                                        <span class="sli-sub">Entrou há 2 meses</span>
+                                    </div>
+                                </div>
+                                <div class="sli-col font-bold">Hipertrofia</div>
+                                <div class="sli-col font-medium">78.5 kg</div>
+                                <div class="sli-col text-primary">2.800 kcal/dia</div>
+                                <div class="sli-col actions"><button class="btn-icon-minimal"><i
+                                            class="ph-bold ph-dots-three-vertical"></i></button></div>
+                            </div>
+
+                            <div class="student-list-item grid-layout" onclick="openStudentProfile('7692')">
+                                <div class="sli-col"><span class="badge active">
+                                        <div class="dot"></div> Ativo
+                                    </span></div>
+                                <div class="sli-col ident">
+                                    <div class="sli-avatar"><i class="ph-fill ph-user"></i></div>
+                                    <div class="sli-info">
+                                        <h4>Student 7692</h4>
+                                        <span class="sli-sub">Entrou há 5 dias</span>
+                                    </div>
+                                </div>
+                                <div class="sli-col font-bold">Ganhar Massa</div>
+                                <div class="sli-col font-medium">64.2 kg</div>
+                                <div class="sli-col text-primary">2.450 kcal/dia</div>
+                                <div class="sli-col actions"><button class="btn-icon-minimal"><i
+                                            class="ph-bold ph-dots-three-vertical"></i></button></div>
+                            </div>
+
+                            <!-- <p style="text-align:center; color: var(--text-muted); padding: 3rem 0;">Nenhum aluno cadastrado.</p> -->
+                        </div>
+
+                        <div class="pagination-footer">
+                            <span class="text-muted">Exibindo 2 de 2 alunos</span>
+                            <div class="page-controls">
+                                <button class="btn-page disabled">Anterior</button>
+                                <button class="btn-page disabled">Próximo</button>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+
+        <!-- TELA: PERFIL DO ALUNO (Visão do Treinador) -->
+        <div id="trainer-student-profile-screen" class="screen">
+            <div class="profile-header">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <button class="btn-icon" onclick="closeStudentProfile()">
+                        <i class="ph-bold ph-arrow-left"></i>
+                    </button>
+                    <div>
+                        <h2 style="display: flex; align-items: center; gap: 0.5rem;" id="prof-id-name">
+                            2323
+                            <span class="badge" id="prof-status">Ativo</span>
+                        </h2>
+                        <p class="subtitle" style="display: flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem;"
+                            id="prof-goal">
+                            <i class="ph-fill ph-barbell text-warning"></i> Hipertrofia
+                        </p>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <button class="btn-icon text-muted" title="Bloquear"><i class="ph-bold ph-prohibit"></i></button>
+                    <button class="btn-icon" style="color: #ef4444;" title="Remover"><i
+                            class="ph-bold ph-trash"></i></button>
+                </div>
+            </div>
+
+            <div class="profile-tabs-nav">
+                <button class="p-nav-tab active" onclick="switchProfileTab('perfil')" id="p-nav-perfil">
+                    <i class="ph-bold ph-chart-bar"></i> Perfil
+                </button>
+                <button class="p-nav-tab" onclick="switchProfileTab('anamnese')" id="p-nav-anamnese">
+                    <i class="ph-bold ph-clipboard-text"></i> Anamnese
+                </button>
+                <button class="p-nav-tab" onclick="switchProfileTab('treino')" id="p-nav-treino">
+                    <i class="ph-bold ph-barbell"></i> Treino
+                </button>
+                <button class="p-nav-tab" onclick="switchProfileTab('nutricao')" id="p-nav-nutricao">
+                    <i class="ph-bold ph-fork-knife"></i> Nutrição
+                </button>
+            </div>
+
+            <!-- TAB: PERFIL GERAL -->
+            <div id="p-tab-perfil" class="p-tab-content active">
+                <div class="info-grid">
+                    <div class="info-card ic-horizontal">
+                        <div class="ic-icon"><i class="ph-bold ph-calendar-blank"></i></div>
+                        <div class="ic-content">
+                            <span class="lbl">Idade</span>
+                            <strong id="prof-idade">-- anos</strong>
+                        </div>
+                    </div>
+                    <div class="info-card ic-horizontal">
+                        <div class="ic-icon"><i class="ph-bold ph-scales"></i></div>
+                        <div class="ic-content">
+                            <span class="lbl">Peso</span>
+                            <strong id="prof-peso">-- kg</strong>
+                        </div>
+                    </div>
+                    <div class="info-card ic-horizontal">
+                        <div class="ic-icon"><i class="ph-bold ph-ruler"></i></div>
+                        <div class="ic-content">
+                            <span class="lbl">Altura</span>
+                            <strong id="prof-altura">-- cm</strong>
+                        </div>
+                    </div>
+                    <div class="info-card ic-horizontal">
+                        <div class="ic-icon"><i class="ph-bold ph-gender-intersex"></i></div>
+                        <div class="ic-content">
+                            <span class="lbl">Gênero</span>
+                            <strong id="prof-genero">Não Informado</strong>
+                        </div>
+                    </div>
+                    <div class="info-card ic-horizontal">
+                        <div class="ic-icon text-success"><i class="ph-bold ph-fire"></i></div>
+                        <div class="ic-content">
+                            <span class="lbl">TMB</span>
+                            <strong class="text-success" id="prof-tmb">-- kcal</strong>
+                        </div>
+                    </div>
+                    <div class="info-card ic-horizontal">
+                        <div class="ic-icon text-success"><i class="ph-bold ph-lightning"></i></div>
+                        <div class="ic-content">
+                            <span class="lbl">Gasto Diário</span>
+                            <strong class="text-success" id="prof-gasto">-- kcal</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="info-card ic-horizontal" style="margin-top: 1rem;">
+                    <div class="ic-icon"><i class="ph-bold ph-person-simple-walk"></i></div>
+                    <div class="ic-content">
+                        <span class="lbl">NÍVEL DE ATIVIDADE</span>
+                        <strong id="prof-atividade">--</strong>
+                    </div>
+                </div>
+
+                <div class="info-card ic-horizontal" style="margin-top: 1rem;">
+                    <div class="ic-icon text-success"><i class="ph-bold ph-barbell"></i></div>
+                    <div class="ic-content">
+                        <span class="lbl">TREINOS REGISTRADOS</span>
+                        <strong class="text-success">0</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: ANAMNESE -->
+            <div id="p-tab-anamnese" class="p-tab-content">
+                <!-- Usaremos uma cópia visual simplificada da própria aba do aluno no futuro se necessário -->
+                <div class="empty-state-card active" style="margin-top:0; border:none;">
+                    <i class="ph-fill ph-clipboard-text" style="color: var(--text-muted)"></i>
+                    <div class="empty-info">
+                        <h3>Respostas do Aluno</h3>
+                        <p>Os dados preenchidos no questionário inicial aparecerão aqui.</p>
+                        <button class="btn-primary" style="margin-top:1rem; width:auto;"
+                            onclick="alert('Isso abrirá o resumo da anamnese do aluno no futuro')">Ver
+                            Respostas</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: TREINO -->
+            <div id="p-tab-treino" class="p-tab-content">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <h3 style="font-size: 1.1rem; font-weight: 600;">Treinos</h3>
+                    <button class="btn-primary" style="width: auto; padding: 0.6rem 1rem; font-size: 0.85rem;"
+                        onclick="alert('Criar treino')">
+                        <i class="ph-bold ph-plus"></i> Novo Treino
+                    </button>
+                </div>
+                <div class="info-card" style="text-align: center; color: var(--text-muted); padding: 3rem 0;">
+                    Nenhum treino criado
+                </div>
+            </div>
+
+            <!-- TAB: NUTRIÇÃO -->
+            <div id="p-tab-nutricao" class="p-tab-content">
+                <div class="info-card"
+                    style="display:flex; flex-direction:column; align-items:center; justify-content:center; text-align: center; color: var(--text-muted); padding: 4rem 0; gap: 0.5rem;">
+                    <i class="ph-light ph-fork-knife" style="font-size: 3rem;"></i>
+                    <h3 style="color: var(--text-main); font-weight: 600;">Módulo de nutrição</h3>
+                    <p id="nutri-meta" style="font-size: 0.9rem;">Meta diária: -- kcal</p>
+                    <p style="font-size: 0.75rem; margin-top:0.5rem;">Em desenvolvimento para próxima versão</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    <script src="script.js"></script>
+    <script>
+        // Init trainer dashboard automatically when this page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            initTrainerDashboard();
+        });
+    </script>
+</body>
+
+</html>

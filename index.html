@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplicativo Consultoria</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+
+<body>
+    <div class="bg-glow-1"></div>
+    <div class="bg-glow-2"></div>
+    <div id="app">
+        <!-- Trainer forms removed, now they should be linked or redirected to trainer.html -->
+        <div id="home-screen" class="screen active">
+            <div class="logo-container">
+                <div class="logo-icon glow">
+                    <i class="ph-bold ph-barbell"></i>
+                </div>
+                <h1 class="main-title">Adicionar nome</h1>
+                <p class="subtitle">A plataforma completa para consultoria esportiva e acompanhamento de alunos.</p>
+            </div>
+
+            <div class="role-selection">
+                <p class="section-title">QUEM É VOCÊ?</p>
+
+                <button class="role-card" onclick="window.location.href='trainer.html'">
+                    <div class="card-icon active-icon">
+                        <i class="ph-bold ph-clipboard-text"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>Sou Treinador</h3>
+                        <p>Gerenciar alunos, protocolos e acompanhamentos</p>
+                    </div>
+                    <i class="ph-bold ph-caret-right arrow-icon"></i>
+                </button>
+
+                <button class="role-card" onclick="goToStudentArea()">
+                    <div class="card-icon inactive-icon">
+                        <i class="ph-bold ph-barbell"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>Sou Aluno</h3>
+                        <p>Acessar meus treinos, dieta e evolução</p>
+                    </div>
+                    <i class="ph-bold ph-caret-right arrow-icon"></i>
+                </button>
+            </div>
+        </div>
+
+        <div id="student-screen" class="screen">
+            <button class="btn-back" onclick="goToHome()">
+                <i class="ph-bold ph-arrow-left"></i> Voltar
+            </button>
+
+            <div class="student-login-container">
+                <div class="logo-icon inactive-icon lg">
+                    <i class="ph-bold ph-barbell"></i>
+                </div>
+                <h2>Área do Aluno</h2>
+                <p class="subtitle">Insira o código enviado pelo seu treinador</p>
+
+                <form class="login-form" onsubmit="event.preventDefault(); connectStudent();">
+                    <div class="input-group">
+                        <label for="trainer-code">CÓDIGO DO TREINADOR</label>
+                        <input type="text" id="trainer-code" placeholder="TR-77291" autocomplete="off">
+                    </div>
+                    <button type="submit" class="btn-primary">Conectar</button>
+                </form>
+            </div>
+        </div>
+
+        <div id="student-confirm-screen" class="screen">
+            <div class="student-login-container" style="margin-top: 0; justify-content: center; min-height: 80vh;">
+                <div class="logo-icon inactive-icon"
+                    style="width: 56px; height: 56px; font-size: 28px; border-radius: 12px; margin-bottom: 2rem;">
+                    <i class="ph-bold ph-clipboard-text"></i>
+                </div>
+                <p class="subtitle" style="margin-bottom: 0.5rem; font-size: 0.8rem;">Você está se conectando à
+                    consultoria de</p>
+                <h2 id="confirm-trainer-name" style="margin-bottom: 0.5rem; font-size: 1.5rem; font-weight: 700;">Coach
+                    2323</h2>
+                <p id="confirm-consultoria-name" class="subtitle"
+                    style="margin-bottom: 2rem; color: var(--primary-color); font-weight: 500;">Consultoria de
+                    Treinamento</p>
+
+                <button class="btn-primary" onclick="confirmConnection()" style="margin-bottom: 1.5rem;">Confirmar
+                    ✓</button>
+                <button class="btn-link" onclick="goToStudentArea()">Não é meu treinador</button>
+            </div>
+        </div>
+
+        <div id="student-questionnaire-screen" class="screen">
+            <div class="q-tabs-container">
+                <button class="q-tab active" onclick="switchQTab('saude')" id="btn-tab-saude">
+                    <i class="ph-bold ph-heart"></i>
+                    <span>Saúde</span>
+                </button>
+                <button class="q-tab" onclick="switchQTab('nutricao')" id="btn-tab-nutricao">
+                    <i class="ph-bold ph-apple-logo"></i>
+                    <span>Nutrição</span>
+                </button>
+                <button class="q-tab" onclick="switchQTab('rotina')" id="btn-tab-rotina">
+                    <i class="ph-bold ph-moon"></i>
+                    <span>Rotina</span>
+                </button>
+                <button class="q-tab" onclick="switchQTab('treino')" id="btn-tab-treino">
+                    <i class="ph-bold ph-barbell"></i>
+                    <span>Treino</span>
+                </button>
+                <button class="q-tab" onclick="switchQTab('metas')" id="btn-tab-metas">
+                    <i class="ph-bold ph-target"></i>
+                    <span>Metas</span>
+                </button>
+            </div>
+
+            <div class="q-content-container">
+                <form id="questionnaire-form" onsubmit="event.preventDefault(); submitQuestionnaire();">
+
+                    <!-- TAB: SAÚDE -->
+                    <div id="q-tab-saude" class="q-tab-content active">
+                        <div class="q-header-title">
+                            <i class="ph-fill ph-heartbeat"></i>
+                            <h3>Saúde & Perfil Basal</h3>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
+                            <div class="q-field" style="margin-bottom: 0;">
+                                <label>IDADE</label>
+                                <input type="number" id="q_idade" class="q-input" placeholder="Ex: 25"
+                                    autocomplete="off" required>
+                            </div>
+                            <div class="q-field" style="margin-bottom: 0;">
+                                <label>GÊNERO</label>
+                                <select id="q_genero" class="q-input" required>
+                                    <option value="" disabled selected>Selecione</option>
+                                    <option value="M">Masculino</option>
+                                    <option value="F">Feminino</option>
+                                </select>
+                            </div>
+                            <div class="q-field" style="margin-bottom: 0;">
+                                <label>PESO (KG)</label>
+                                <input type="number" step="0.1" id="q_peso" class="q-input" placeholder="Ex: 70.5"
+                                    autocomplete="off" required>
+                            </div>
+                            <div class="q-field" style="margin-bottom: 0;">
+                                <label>ALTURA (CM)</label>
+                                <input type="number" id="q_altura" class="q-input" placeholder="Ex: 175"
+                                    autocomplete="off" required>
+                            </div>
+                        </div>
+
+                        <div class="q-field">
+                            <label>DOR EM ARTICULAÇÕES AO FAZER ESFORÇO?</label>
+                            <div class="segmented-control">
+                                <label class="segment-opt"><input type="radio" name="q_dor" value="sim"
+                                        onchange="toggleConditional('cond-dor', true)"><span>Sim</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_dor" value="nao" checked
+                                        onchange="toggleConditional('cond-dor', false)"><span>Não</span></label>
+                            </div>
+                            <div class="conditional-input" id="cond-dor">
+                                <input type="text" class="q-input"
+                                    placeholder="Quais articulações? (joelho, ombro, coluna...)" autocomplete="off">
+                            </div>
+                        </div>
+
+                        <div class="q-field">
+                            <label>CONDIÇÕES MÉDICAS</label>
+                            <div class="pill-group">
+                                <label class="pill"><input type="checkbox" name="q_cond"
+                                        value="diabetes"><span>Diabetes</span></label>
+                                <label class="pill"><input type="checkbox" name="q_cond"
+                                        value="hipertensao"><span>Hipertensão</span></label>
+                                <label class="pill"><input type="checkbox" name="q_cond" value="sopro"><span>Sopro
+                                        cardíaco</span></label>
+                                <label class="pill"><input type="checkbox" name="q_cond"
+                                        value="asma"><span>Asma</span></label>
+                                <label class="pill"><input type="checkbox" name="q_cond"
+                                        value="artrite"><span>Artrite</span></label>
+                                <label class="pill"><input type="checkbox" name="q_cond" value="hernia"><span>Hérnia de
+                                        disco</span></label>
+                            </div>
+                        </div>
+
+                        <div class="q-field">
+                            <label>USO DE MEDICAMENTOS CONTÍNUOS?</label>
+                            <div class="segmented-control">
+                                <label class="segment-opt"><input type="radio" name="q_med" value="sim"
+                                        onchange="toggleConditional('cond-med', true)"><span>Sim</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_med" value="nao" checked
+                                        onchange="toggleConditional('cond-med', false)"><span>Não</span></label>
+                            </div>
+                            <div class="conditional-input" id="cond-med">
+                                <input type="text" class="q-input" placeholder="Quais medicamentos?" autocomplete="off">
+                            </div>
+                        </div>
+
+                        <div class="q-field">
+                            <label>JÁ PASSOU POR CIRURGIA?</label>
+                            <div class="segmented-control">
+                                <label class="segment-opt"><input type="radio" name="q_cirurgia" value="sim"
+                                        onchange="toggleConditional('cond-cirurgia', true)"><span>Sim</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_cirurgia" value="nao" checked
+                                        onchange="toggleConditional('cond-cirurgia', false)"><span>Não</span></label>
+                            </div>
+                            <div class="conditional-input" id="cond-cirurgia">
+                                <input type="text" class="q-input" placeholder="Qual cirurgia e há quanto tempo?"
+                                    autocomplete="off">
+                            </div>
+                        </div>
+
+                        <div class="q-actions right">
+                            <button type="button" class="btn-primary q-btn-next"
+                                onclick="switchQTab('nutricao')">Próximo <i class="ph-bold ph-caret-right"></i></button>
+                        </div>
+                    </div>
+
+                    <!-- TAB: NUTRIÇÃO -->
+                    <div id="q-tab-nutricao" class="q-tab-content">
+                        <div class="q-header-title">
+                            <i class="ph-fill ph-apple-logo"></i>
+                            <h3>Nutrição</h3>
+                        </div>
+
+                        <div class="q-field">
+                            <label>RESTRIÇÕES ALIMENTARES</label>
+                            <div class="pill-group">
+                                <label class="pill"><input type="checkbox" name="q_restr"
+                                        value="lactose"><span>Lactose</span></label>
+                                <label class="pill"><input type="checkbox" name="q_restr"
+                                        value="gluten"><span>Glúten</span></label>
+                                <label class="pill"><input type="checkbox" name="q_restr"
+                                        value="amendoim"><span>Amendoim</span></label>
+                                <label class="pill"><input type="checkbox" name="q_restr"
+                                        value="frutos_mar"><span>Frutos do mar</span></label>
+                                <label class="pill"><input type="checkbox" name="q_restr"
+                                        value="ovo"><span>Ovo</span></label>
+                                <label class="pill"><input type="checkbox" name="q_restr"
+                                        value="soja"><span>Soja</span></label>
+                            </div>
+                        </div>
+
+                        <div class="q-field">
+                            <label>ALIMENTOS QUE NÃO COME DE JEITO NENHUM</label>
+                            <input type="text" class="q-input" placeholder="Ex: brócolis, fígado..." autocomplete="off">
+                        </div>
+
+                        <div class="q-field">
+                            <label>INTESTINO FUNCIONA REGULARMENTE?</label>
+                            <div class="segmented-control">
+                                <label class="segment-opt"><input type="radio" name="q_intestino" value="sim"
+                                        checked><span>Sim</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_intestino"
+                                        value="nao"><span>Não</span></label>
+                            </div>
+                        </div>
+
+                        <div class="q-field">
+                            <label>QUANTAS REFEIÇÕES POR DIA (REALISTA)?</label>
+                            <div class="pill-group">
+                                <label class="pill circle"><input type="radio" name="q_refeicoes"
+                                        value="2"><span>2</span></label>
+                                <label class="pill circle"><input type="radio" name="q_refeicoes"
+                                        value="3"><span>3</span></label>
+                                <label class="pill circle"><input type="radio" name="q_refeicoes" value="4"
+                                        checked><span>4</span></label>
+                                <label class="pill circle"><input type="radio" name="q_refeicoes"
+                                        value="5"><span>5</span></label>
+                                <label class="pill circle"><input type="radio" name="q_refeicoes"
+                                        value="6"><span>6</span></label>
+                            </div>
+                        </div>
+
+                        <div class="q-actions between">
+                            <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('saude')"><i
+                                    class="ph-bold ph-caret-left"></i> Anterior</button>
+                            <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('rotina')">Próximo
+                                <i class="ph-bold ph-caret-right"></i></button>
+                        </div>
+                    </div>
+
+                    <!-- TAB: ROTINA -->
+                    <div id="q-tab-rotina" class="q-tab-content">
+                        <div class="q-header-title">
+                            <i class="ph-fill ph-moon"></i>
+                            <h3>Rotina</h3>
+                        </div>
+
+                        <div class="q-field">
+                            <label>HORAS DE SONO POR NOITE</label>
+                            <div class="slider-container">
+                                <input type="range" class="q-slider" min="4" max="12" value="7"
+                                    oninput="document.getElementById('val-sono').innerText = this.value + 'h'">
+                                <span class="slider-val" id="val-sono">7h</span>
+                            </div>
+                        </div>
+
+                        <div class="q-field">
+                            <label>ACORDA DESCANSADO?</label>
+                            <div class="segmented-control">
+                                <label class="segment-opt"><input type="radio" name="q_descansado" value="sim"
+                                        checked><span>Sim</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_descansado"
+                                        value="nao"><span>Não</span></label>
+                            </div>
+                        </div>
+
+                        <div class="q-field">
+                            <label>NÍVEL DE ESTRESSE (1-10)</label>
+                            <div class="slider-container">
+                                <input type="range" class="q-slider" min="1" max="10" value="5"
+                                    oninput="document.getElementById('val-estresse').innerText = this.value">
+                                <span class="slider-val" id="val-estresse">5</span>
+                            </div>
+                        </div>
+
+                        <div class="q-field">
+                            <label>TABAGISMO</label>
+                            <div class="segmented-control">
+                                <label class="segment-opt"><input type="radio" name="q_fumo" value="nao"
+                                        checked><span>Não fuma</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_fumo"
+                                        value="ocasional"><span>Ocasional</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_fumo"
+                                        value="diario"><span>Diário</span></label>
+                            </div>
+                        </div>
+
+                        <div class="q-field">
+                            <label>CONSUMO DE ÁLCOOL</label>
+                            <div class="segmented-control">
+                                <label class="segment-opt"><input type="radio" name="q_alcool" value="nao"
+                                        checked><span>Não bebe</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_alcool" value="fds"><span>Fim de
+                                        semana</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_alcool"
+                                        value="diario"><span>Diário</span></label>
+                            </div>
+                        </div>
+
+                        <div class="q-field">
+                            <label>ESTILO DE TRABALHO</label>
+                            <div class="segmented-control">
+                                <label class="segment-opt"><input type="radio" name="q_trab" value="sentado"
+                                        checked><span>🧍 Sentado</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_trab" value="em_pe"><span>🧍 Em
+                                        pé</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_trab" value="movimento"><span>🚶
+                                        Movimento</span></label>
+                            </div>
+                        </div>
+
+                        <div class="q-actions between">
+                            <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('nutricao')"><i
+                                    class="ph-bold ph-caret-left"></i> Anterior</button>
+                            <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('treino')">Próximo
+                                <i class="ph-bold ph-caret-right"></i></button>
+                        </div>
+                    </div>
+
+                    <!-- TAB: TREINO -->
+                    <div id="q-tab-treino" class="q-tab-content">
+                        <div class="q-header-title">
+                            <i class="ph-fill ph-barbell"></i>
+                            <h3>Treino</h3>
+                        </div>
+
+                        <div class="q-field">
+                            <label>TEMPO DE PRÁTICA DE MUSCULAÇÃO</label>
+                            <input type="text" class="q-input" placeholder="Ex: 2 anos, 6 meses, iniciante..."
+                                autocomplete="off">
+                        </div>
+
+                        <div class="q-field">
+                            <label>EXERCÍCIOS QUE AMA FAZER</label>
+                            <input type="text" class="q-input" placeholder="Ex: Supino, Agachamento..."
+                                autocomplete="off">
+                        </div>
+
+                        <div class="q-field">
+                            <label>EXERCÍCIOS QUE DETESTA</label>
+                            <input type="text" class="q-input" placeholder="Ex: Leg Press, Abdominal..."
+                                autocomplete="off">
+                        </div>
+
+                        <div class="q-field">
+                            <label>DIAS DISPONÍVEIS PARA TREINAR</label>
+                            <div class="pill-group">
+                                <label class="pill"><input type="checkbox" name="q_dias" value="seg"
+                                        checked><span>Segunda</span></label>
+                                <label class="pill"><input type="checkbox" name="q_dias"
+                                        value="ter"><span>Terça</span></label>
+                                <label class="pill"><input type="checkbox" name="q_dias" value="qua"
+                                        checked><span>Quarta</span></label>
+                                <label class="pill"><input type="checkbox" name="q_dias"
+                                        value="qui"><span>Quinta</span></label>
+                                <label class="pill"><input type="checkbox" name="q_dias" value="sex"
+                                        checked><span>Sexta</span></label>
+                                <label class="pill"><input type="checkbox" name="q_dias"
+                                        value="sab"><span>Sábado</span></label>
+                                <label class="pill"><input type="checkbox" name="q_dias"
+                                        value="dom"><span>Domingo</span></label>
+                            </div>
+                        </div>
+
+                        <div class="q-field">
+                            <label>DURAÇÃO DA SESSÃO (MINUTOS)</label>
+                            <div class="segmented-control">
+                                <label class="segment-opt"><input type="radio" name="q_duracao"
+                                        value="30"><span>30'</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_duracao"
+                                        value="45"><span>45'</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_duracao" value="60"
+                                        checked><span>60'</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_duracao"
+                                        value="75"><span>75'</span></label>
+                                <label class="segment-opt"><input type="radio" name="q_duracao"
+                                        value="90"><span>90'</span></label>
+                            </div>
+                        </div>
+
+                        <div class="q-actions between">
+                            <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('rotina')"><i
+                                    class="ph-bold ph-caret-left"></i> Anterior</button>
+                            <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('metas')">Próximo
+                                <i class="ph-bold ph-caret-right"></i></button>
+                        </div>
+                    </div>
+
+                    <!-- TAB: METAS -->
+                    <div id="q-tab-metas" class="q-tab-content">
+                        <div class="q-header-title">
+                            <i class="ph-fill ph-target"></i>
+                            <h3>Metas</h3>
+                        </div>
+
+                        <div class="q-field">
+                            <label>O QUE MAIS TE INCOMODA NO CORPO HOJE?</label>
+                            <textarea class="q-input" rows="2"
+                                placeholder="Ex: barriga, braços finos, postura..."></textarea>
+                        </div>
+
+                        <div class="q-field">
+                            <label>QUAL SEU OBJETIVO EM 3 MESES?</label>
+                            <textarea class="q-input" id="q_objetivo" rows="2"
+                                placeholder="Ex: perder 5kg, ganhar massa, definir..."></textarea>
+                        </div>
+
+                        <div class="q-field">
+                            <label>JÁ FEZ CONSULTORIA ANTES? O QUE GOSTOU/ODIOU?</label>
+                            <textarea class="q-input" rows="2"
+                                placeholder="Ex: Sim, mas o treinador nunca mudava o treino..."></textarea>
+                        </div>
+
+                        <div class="q-actions between">
+                            <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('treino')"><i
+                                    class="ph-bold ph-caret-left"></i> Anterior</button>
+                            <div style="display: flex; gap: 1rem;">
+                                <button type="button" class="btn-secondary"><i class="ph-bold ph-copy"></i>
+                                    Copiar</button>
+                                <button type="submit" class="btn-primary" style="width: auto; padding: 1rem 2rem;"><i
+                                        class="ph-bold ph-floppy-disk"></i> Salvar</button>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Trainer features moved entirely to trainer.html -->
+        <div id="student-dashboard-screen" class="screen">
+            <div class="dashboard-header">
+                <div class="user-info">
+                    <h2 id="dash-student-name">Olá, Aluno</h2>
+                    <p class="subtitle">Treinador: <span id="dash-student-trainer"
+                            class="highlight-code">Carregando...</span></p>
+                </div>
+                <button class="btn-icon" onclick="goToHome()">
+                    <i class="ph-bold ph-sign-out"></i>
+                </button>
+            </div>
+
+            <div class="dashboard-stats">
+                <div class="stat-card">
+                    <div class="stat-icon"><i class="ph-bold ph-barbell"></i></div>
+                    <div class="stat-info">
+                        <h3 id="status-treino" class="text-warning">Pendente</h3>
+                        <p>Treino</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon"><i class="ph-bold ph-apple-logo"></i></div>
+                    <div class="stat-info">
+                        <h3 id="status-dieta" class="text-warning">Pendente</h3>
+                        <p>Dieta</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="student-actions-waiting" class="empty-state-card active">
+                <i class="ph-fill ph-hourglass-high"></i>
+                <div class="empty-info">
+                    <h3>Em análise</h3>
+                    <p>O treinador está montando seu protocolo com base no questionário.</p>
+                </div>
+            </div>
+
+            <div id="student-actions-ready" class="dashboard-actions" style="display: none;">
+                <h3 class="section-title">MEU PROTOCOLO</h3>
+                <button class="action-card">
+                    <i class="ph-bold ph-calendar-check"></i>
+                    <div style="flex:1; text-align: left;">
+                        <span style="display: block; font-weight: 600;">Treino A</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">Peito e Tríceps • 50 min</span>
+                    </div>
+                    <i class="ph-bold ph-caret-right" style="color: var(--text-muted); font-size: 1rem;"></i>
+                </button>
+                <button class="action-card">
+                    <i class="ph-bold ph-book-open-text"></i>
+                    <div style="flex:1; text-align: left;">
+                        <span style="display: block; font-weight: 600;">Plano Alimentar</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">4 Refeições • Foco:
+                            Hipertrofia</span>
+                    </div>
+                    <i class="ph-bold ph-caret-right" style="color: var(--text-muted); font-size: 1rem;"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
