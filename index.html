@@ -22,7 +22,7 @@
                 <div class="logo-icon glow">
                     <i class="ph-bold ph-barbell"></i>
                 </div>
-                <h1 class="main-title">Adicionar nome</h1>
+                <h1 class="main-title">Consultoria Fitness</h1>
                 <p class="subtitle">A plataforma completa para consultoria esportiva e acompanhamento de alunos.</p>
             </div>
 
@@ -50,6 +50,124 @@
                     </div>
                     <i class="ph-bold ph-caret-right arrow-icon"></i>
                 </button>
+
+                <button class="btn-primary" style="margin-top: 1rem;" onclick="goToGlobalLogin()">
+                    <i class="ph-bold ph-sign-in"></i> Entrar na Minha Conta
+                </button>
+            </div>
+        </div>
+
+        <div id="global-login-screen" class="screen">
+            <button class="btn-back" onclick="goToHome()">
+                <i class="ph-bold ph-arrow-left"></i> Voltar
+            </button>
+
+            <div class="student-login-container">
+                <div class="logo-icon glow lg">
+                    <i class="ph-bold ph-user-circle"></i>
+                </div>
+                <h2>Bem-vindo de volta</h2>
+                <p class="subtitle">Escolha como deseja acessar sua conta</p>
+
+                <div class="social-login-group">
+                    <button class="btn-social google" onclick="handleGoogleLogin()">
+                        <i class="ph-bold ph-google-logo"></i> Entrar com Google
+                    </button>
+                    <!-- <button class="btn-social apple">
+                        <i class="ph-bold ph-apple-logo"></i> Entrar com Apple
+                    </button> -->
+                </div>
+
+                <div class="divider"><span>OU USE SEU E-MAIL</span></div>
+
+                <form class="login-form" onsubmit="event.preventDefault(); handleEmailLogin();">
+                    <div class="input-group">
+                        <label for="login-email">E-MAIL</label>
+                        <input type="email" id="login-email" placeholder="exemplo@email.com" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="login-pass">SENHA</label>
+                        <input type="password" id="login-pass" placeholder="••••••••" required>
+                    </div>
+                    <button type="submit" class="btn-primary">Entrar</button>
+                </form>
+
+                <div class="divider"><span>OU SEU CÓDIGO</span></div>
+
+                <form class="login-form" onsubmit="event.preventDefault(); handleUnifiedLogin();"
+                    style="margin-top: 0;">
+                    <button type="button" class="btn-secondary-outline" onclick="toggleElement('unified-code-input')">
+                        <i class="ph-bold ph-hash"></i> Entrar com Código de 5 Dígitos
+                    </button>
+                    <div id="unified-code-input" style="display: none; margin-top: 1rem;">
+                        <input type="tel" id="global-code" placeholder="00000" maxlength="5" autocomplete="off"
+                            inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'').substring(0,5)"
+                            style="letter-spacing:0.4rem; font-size:1.5rem; text-align:center; font-family:monospace; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 12px; padding: 1rem; width: 100%; color: #fff;">
+                        <button type="submit" class="btn-primary" style="margin-top: 0.5rem;">Validar Código</button>
+                    </div>
+                </form>
+
+                <p style="font-size: 0.85rem; color: var(--text-muted); text-align: center; margin-top: 2rem;">
+                    Não tem uma conta? <a href="#" onclick="goToProfileCreate()"
+                        style="color: var(--primary-color); font-weight: 600;">Criar Perfil</a>
+                </p>
+            </div>
+        </div>
+
+        <div id="profile-create-screen" class="screen">
+            <button class="btn-back" onclick="goToGlobalLogin()">
+                <i class="ph-bold ph-arrow-left"></i> Voltar
+            </button>
+
+            <div class="student-login-container">
+                <div class="logo-icon glow lg">
+                    <i class="ph-bold ph-user-plus"></i>
+                </div>
+                <h2>Criar seu Perfil</h2>
+                <p class="subtitle">Faça parte da maior consultoria fitness</p>
+
+                <form class="login-form" onsubmit="event.preventDefault(); handleProfileCreation();">
+                    <div class="input-group">
+                        <label for="reg-name">NOME COMPLETO</label>
+                        <input type="text" id="reg-name" placeholder="Ex: Nicolas Silveira" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-email">E-MAIL</label>
+                        <input type="email" id="reg-email" placeholder="seu@email.com" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="reg-pass">CRIAR SENHA</label>
+                        <input type="password" id="reg-pass" placeholder="Mínimo 6 caracteres" required minlength="6">
+                    </div>
+
+                    <div class="input-group">
+                        <label>VOCÊ É:</label>
+                        <div class="radio-group">
+                            <label class="radio-card">
+                                <input type="radio" name="reg-role" value="student" checked>
+                                <div class="radio-content">
+                                    <i class="ph-bold ph-barbell"></i>
+                                    <span>Aluno</span>
+                                </div>
+                            </label>
+                            <label class="radio-card">
+                                <input type="radio" name="reg-role" value="trainer">
+                                <div class="radio-content">
+                                    <i class="ph-bold ph-clipboard-text"></i>
+                                    <span>Treinador</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-primary" style="margin-top: 1rem;">Criar Conta</button>
+                </form>
+
+                <p
+                    style="font-size: 0.75rem; color: var(--text-muted); text-align: center; margin-top: 1.5rem; line-height: 1.4;">
+                    Ao criar uma conta, você concorda com nossos <br> <a href="#">Termos de Uso</a> e <a
+                        href="#">Privacidade</a>.
+                </p>
             </div>
         </div>
 
@@ -483,61 +601,222 @@
 
         <!-- Trainer features moved entirely to trainer.html -->
         <div id="student-dashboard-screen" class="screen">
-            <div class="dashboard-header">
-                <div class="user-info">
-                    <h2 id="dash-student-name">Olá, Aluno</h2>
-                    <p class="subtitle">Treinador: <span id="dash-student-trainer"
-                            class="highlight-code">Carregando...</span></p>
-                </div>
-                <button class="btn-icon" onclick="logout()">
-                    <i class="ph-bold ph-sign-out"></i>
-                </button>
-            </div>
+            <div class="dashboard-layout">
+                <!-- Sidebar -->
+                <aside class="sidebar student">
+                    <div class="sidebar-logo">
+                        <div class="logo-icon glow"
+                            style="width: 40px; height: 40px; font-size: 20px; color: #121214; border-radius: 10px;">
+                            <i class="ph-bold ph-barbell"></i>
+                        </div>
+                        <div>
+                            <h2 id="side-student-name"
+                                style="font-size: 1.1rem; font-weight: 700; color: var(--text-main);">Aluno</h2>
+                            <p style="font-size: 0.75rem; color: var(--primary-color);">Plano Online</p>
+                        </div>
+                    </div>
 
-            <div class="dashboard-stats">
-                <div class="stat-card">
-                    <div class="stat-icon"><i class="ph-bold ph-barbell"></i></div>
-                    <div class="stat-info">
-                        <h3 id="status-treino" class="text-warning">Pendente</h3>
-                        <p>Treino</p>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon"><i class="ph-bold ph-apple-logo"></i></div>
-                    <div class="stat-info">
-                        <h3 id="status-dieta" class="text-warning">Pendente</h3>
-                        <p>Dieta</p>
-                    </div>
-                </div>
-            </div>
+                    <nav class="sidebar-nav">
+                        <a href="#" class="nav-item active" id="snav-home" onclick="switchStudentView('home')">
+                            <i class="ph-bold ph-squares-four"></i> Dashboard
+                        </a>
+                        <a href="#" class="nav-item" id="snav-treino" onclick="switchStudentView('treino')">
+                            <i class="ph-bold ph-barbell"></i> Meu Treino
+                        </a>
+                        <a href="#" class="nav-item" id="snav-dieta" onclick="switchStudentView('dieta')">
+                            <i class="ph-bold ph-apple-logo"></i> Minha Dieta
+                        </a>
+                        <a href="#" class="nav-item" id="snav-perfil" onclick="switchStudentView('perfil')">
+                            <i class="ph-bold ph-user"></i> Meu Perfil
+                        </a>
+                    </nav>
 
-            <div id="student-actions-waiting" class="empty-state-card active">
-                <i class="ph-fill ph-hourglass-high"></i>
-                <div class="empty-info">
-                    <h3>Em análise</h3>
-                    <p>O treinador está montando seu protocolo com base no questionário.</p>
-                </div>
-            </div>
+                    <div class="sidebar-footer">
+                        <button class="nav-item btn-logout" onclick="logout()">
+                            <i class="ph-bold ph-sign-out"></i> Sair
+                        </button>
+                    </div>
+                </aside>
 
-            <div id="student-actions-ready" class="dashboard-actions" style="display: none;">
-                <h3 class="section-title">MEU PROTOCOLO</h3>
-                <button class="action-card" onclick="openStudentWorkout()">
-                    <i class="ph-bold ph-calendar-check"></i>
-                    <div style="flex:1; text-align: left;">
-                        <span style="display: block; font-weight: 600;">Plano de Treino</span>
-                        <span style="font-size: 0.75rem; color: var(--text-muted);">Visualizar fichas e
-                            exercícios</span>
+                <!-- Main Content -->
+                <main class="main-content">
+                    <div id="view-student-home" class="view-section">
+                        <div class="dashboard-header">
+                            <div class="user-info">
+                                <h2 id="dash-student-name">Olá, Aluno</h2>
+                                <p class="subtitle" style="display: flex; flex-direction: column; gap: 0.2rem;">
+                                    <span>Treinador: <span id="dash-student-trainer"
+                                            class="highlight-code">Carregando...</span></span>
+                                    <span style="display: flex; align-items: center; gap: 0.4rem;">
+                                        Cód:
+                                        <div class="code-copy-wrapper"
+                                            onclick="copyAccessCode('student-code-ref', 'btn-copy-student-code')"
+                                            title="Clique para copiar">
+                                            <span id="student-code-ref" class="highlight-code"
+                                                style="color:var(--primary-color);">....</span>
+                                            <button class="btn-copy-tiny" id="btn-copy-student-code">
+                                                <i class="ph-bold ph-copy"></i>
+                                            </button>
+                                        </div>
+                                    </span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="dashboard-stats">
+                            <div class="stat-card">
+                                <div class="stat-icon"><i class="ph-bold ph-barbell"></i></div>
+                                <div class="stat-info">
+                                    <h3 id="status-treino" class="text-warning">Pendente</h3>
+                                    <p>Treino</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon"><i class="ph-bold ph-apple-logo"></i></div>
+                                <div class="stat-info">
+                                    <h3 id="status-dieta" class="text-warning">Pendente</h3>
+                                    <p>Dieta</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="student-actions-waiting" class="empty-state-card active">
+                            <i class="ph-fill ph-hourglass-high"></i>
+                            <div class="empty-info">
+                                <h3>Em análise</h3>
+                                <p>O treinador está montando seu protocolo com base no questionário.</p>
+                            </div>
+                        </div>
+
+                        <div id="student-actions-ready" class="dashboard-actions" style="display: none;">
+                            <h3 class="section-title">INICIAR TREINO</h3>
+                            <div id="student-workout-start-options"
+                                style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                <!-- Dynamic Workout Start Cards -->
+                            </div>
+
+                            <h3 class="section-title" style="margin-top: 2rem;">MEU PROTOCOLO</h3>
+
+                            <button class="action-card" onclick="switchStudentView('treino')">
+                                <i class="ph-bold ph-calendar-check"></i>
+                                <div style="flex:1; text-align: left;">
+                                    <span style="display: block; font-weight: 600;">Plano de Treino</span>
+                                    <span style="font-size: 0.75rem; color: var(--text-muted);">Visualizar fichas e
+                                        exercícios</span>
+                                </div>
+                                <i class="ph-bold ph-caret-right"
+                                    style="color: var(--text-muted); font-size: 1rem;"></i>
+                            </button>
+                            <button class="action-card" onclick="switchStudentView('dieta')">
+                                <i class="ph-bold ph-book-open-text"></i>
+                                <div style="flex:1; text-align: left;">
+                                    <span style="display: block; font-weight: 600;">Plano Alimentar</span>
+                                    <span style="font-size: 0.75rem; color: var(--text-muted);">Visualizar dieta e
+                                        macros</span>
+                                </div>
+                                <i class="ph-bold ph-caret-right"
+                                    style="color: var(--text-muted); font-size: 1rem;"></i>
+                            </button>
+                        </div>
                     </div>
-                    <i class="ph-bold ph-caret-right" style="color: var(--text-muted); font-size: 1rem;"></i>
-                </button>
-                <button class="action-card" onclick="openStudentDiet()">
-                    <i class="ph-bold ph-book-open-text"></i>
-                    <div style="flex:1; text-align: left;">
-                        <span style="display: block; font-weight: 600;">Plano Alimentar</span>
-                        <span style="font-size: 0.75rem; color: var(--text-muted);">Visualizar dieta e macros</span>
+
+                    <!-- VIEW: TREINO (Full screen inside layout) -->
+                    <div id="view-student-treino" class="view-section" style="display: none;">
+                        <div id="workout-tabs-nav" class="workout-tabs-container">
+                            <!-- Dynamic Tabs (Treino A, B, C...) -->
+                        </div>
+
+                        <div id="student-workout-content-main" class="protocol-content-list" style="margin-top: 1rem;">
+                            <!-- Dynamic Routine Card -->
+                        </div>
                     </div>
-                    <i class="ph-bold ph-caret-right" style="color: var(--text-muted); font-size: 1rem;"></i>
-                </button>
+
+                    <!-- VIEW: DIETA -->
+                    <div id="view-student-dieta" class="view-section" style="display: none;">
+                        <div class="dashboard-header">
+                            <div class="user-info">
+                                <h2>Minha Dieta</h2>
+                                <p class="subtitle">Cada refeição conta</p>
+                            </div>
+                        </div>
+                        <div id="student-diet-content-main" class="protocol-content-list">
+                            <!-- Dynamic Content -->
+                        </div>
+                    </div>
+
+                    <!-- VIEW: LOG WORKOUT (HEVY STYLE) -->
+                    <div id="view-student-log-workout" class="view-section" style="display: none;">
+                        <div class="dashboard-header">
+                            <div class="user-info">
+                                <h2 id="log-workout-title">Treino em Andamento</h2>
+                                <div
+                                    style="display: flex; align-items: center; gap: 0.5rem; color: var(--primary-color); font-weight: 700;">
+                                    <i class="ph-fill ph-timer"></i>
+                                    <span id="log-workout-timer">00:00</span>
+                                </div>
+                            </div>
+                            <button class="btn-primary"
+                                style="width: auto; padding: 0.6rem 1.2rem; background: var(--primary-color); color: #121214;"
+                                onclick="handleFinishWorkout()">
+                                Finalizar
+                            </button>
+                        </div>
+
+                        <div id="log-workout-content" class="log-content-list">
+                            <!-- Dynamic Exercise Cards -->
+                        </div>
+
+                        <!-- Rest Timer Overlay (Floating) -->
+                        <div id="rest-timer-overlay" class="rest-timer-pill" style="display: none;">
+                            <div class="rest-timer-progress">
+                                <div id="rest-progress-fill" class="rest-progress-fill"></div>
+                            </div>
+                            <div class="rest-timer-content">
+                                <div class="rest-info">
+                                    <span class="rest-label">DESCANSO</span>
+                                    <span id="rest-countdown" class="rest-time">01:00</span>
+                                </div>
+                                <div class="rest-actions">
+                                    <button class="btn-rest-skip" onclick="skipRestTimer()">Pular</button>
+                                    <button class="btn-rest-add" onclick="adjustRestTimer(15)">+15s</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Student Workout Summary ── -->
+                    <div id="view-student-workout-summary" class="view-section" style="display: none; padding: 1.5rem;">
+                        <div class="summary-header"
+                            style="text-align: center; margin-bottom: 2rem; animation: slideUp 0.6s ease;">
+                            <div class="summary-icon-celebration" style="font-size: 3rem; margin-bottom: 1rem;">🎉</div>
+                            <h1
+                                style="font-size: 2rem; background: linear-gradient(135deg, #fff 0%, var(--primary-color) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                                Treino Concluído!</h1>
+                            <p style="color: var(--text-muted); margin-top: 0.5rem;">Excelente trabalho hoje.</p>
+                        </div>
+
+                        <div id="summary-stats-grid" class="summary-stats-grid">
+                            <!-- Stats Cards (Duration, Volume, PRs) -->
+                        </div>
+
+                        <div class="summary-divider"
+                            style="margin: 2rem 0; height: 1px; background: rgba(255, 255, 255, 0.05);"></div>
+
+                        <h3
+                            style="margin-bottom: 1rem; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.1rem;">
+                            Resumo dos Exercícios</h3>
+                        <div id="summary-exercise-list" class="summary-exercise-list">
+                            <!-- Exercise Cards -->
+                        </div>
+
+                        <div class="summary-actions" style="margin-top: 3rem; text-align: center;">
+                            <button class="btn-primary" onclick="closeWorkoutSummary()"
+                                style="padding: 1rem 3rem; font-size: 1rem;">
+                                Voltar ao Início
+                            </button>
+                        </div>
+                    </div>
+                </main>
             </div>
         </div>
 
@@ -572,9 +851,8 @@
                 <!-- Dynamic Content -->
             </div>
         </div>
-    </div>
 
-    <script src="script.js"></script>
+        <script src="script.js"></script>
 </body>
 
 </html>

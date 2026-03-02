@@ -32,9 +32,363 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// ─── Real-Time Sync (Cross-Tab) ──────────────────────────────────────────
+window.addEventListener('storage', (e) => {
+    // Sync Trainer Dashboard
+    if (e.key === 'trainerStudents' || e.key === 'trainerNotifications') {
+        // If we are on trainer dashboard (identified by presence of specific elements)
+        if (document.getElementById('dash-stats-grid')) {
+            updateTrainerStats();
+            renderStudents();
+            renderPendingRequests();
+
+            // If a profile is open, refresh its data too
+            if (currentStudentIdx !== null) {
+                const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+                if (students[currentStudentIdx]) {
+                    // Update global cached blocks before re-rendering
+                    workoutBlocks = students[currentStudentIdx].workoutBlocks || [];
+                    mealBlocks = students[currentStudentIdx].mealBlocks || [];
+                    renderWorkouts();
+                    renderMeals();
+                }
+            }
+        }
+    }
+
+    // Sync Student Dashboard
+    if (e.key === 'trainerStudents') {
+        const studentId = localStorage.getItem('currentStudentId');
+        if (studentId && document.getElementById('student-dashboard-screen').classList.contains('active')) {
+            initStudentDashboard();
+
+            // If detail views are open, they will be refreshed next time they open, 
+            // but we can also trigger a refresh if they are currently visible
+            if (document.getElementById('student-workout-screen').classList.contains('active')) openStudentWorkout();
+            if (document.getElementById('student-diet-screen').classList.contains('active')) openStudentDiet();
+        }
+    }
+});
+
+function copyAccessCode(elementId, btnId) {
+    const code = document.getElementById(elementId)?.innerText;
+    if (!code) return;
+
+    navigator.clipboard.writeText(code).then(() => {
+        const btn = document.getElementById(btnId);
+        if (btn) {
+            const originalIcon = btn.innerHTML;
+            btn.innerHTML = '<i class="ph-bold ph-check" style="color:#22c55e"></i>';
+            setTimeout(() => {
+                btn.innerHTML = originalIcon;
+            }, 2000);
+        }
+    });
+}
+
+// Alias for trainer dashboard
+function copyTrainerCode() {
+    copyAccessCode('dash-trainer-code', 'btn-copy-code');
+}
+
 function goToStudentArea() {
     hideAllScreens();
     document.getElementById('student-screen').classList.add('active');
+}
+
+function goToGlobalLogin() {
+    hideAllScreens();
+    document.getElementById('global-login-screen').classList.add('active');
+}
+
+function goToProfileCreate() {
+    hideAllScreens();
+    document.getElementById('profile-create-screen').classList.add('active');
+}
+
+function toggleElement(id) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// ─── Authentication Logic ──────────────────────────────────────────────────
+
+function handleEmailLogin() {
+    const email = document.getElementById('login-email').value;
+    const pass = document.getElementById('login-pass').value;
+
+    const users = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+    const user = users.find(u => u.email === email && u.password === pass);
+
+    if (user) {
+        processLogin(user);
+    } else {
+        alert('E-mail ou senha incorretos.');
+    }
+}
+
+function handleProfileCreation() {
+    const name = document.getElementById('reg-name').value;
+    const email = document.getElementById('reg-email').value;
+    const pass = document.getElementById('reg-pass').value;
+    const role = document.querySelector('input[name="reg-role"]:checked').value;
+
+    if (!name || !email || !pass) return;
+
+    let users = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+    if (users.some(u => u.email === email)) {
+        alert('Este e-mail já está cadastrado.');
+        return;
+    }
+
+    const newUser = { name, email, password: pass, role, joinedAt: new Date().toISOString() };
+    users.push(newUser);
+    localStorage.setItem('registeredUsers', JSON.stringify(users));
+
+    alert('Conta criada com sucesso! Agora você pode entrar.');
+    goToGlobalLogin();
+}
+
+function handleGoogleLogin() {
+    // Simulated Google Login
+    const w = 500, h = 600;
+    const left = (screen.width / 2) - (w / 2);
+    const top = (screen.height / 2) - (h / 2);
+
+    // We can't actually open Google Auth without a client ID, so we simulate the UI
+    const mockWin = window.open('about:blank', 'GoogleAuth', `width=${w},height=${h},top=${top},left=${left}`);
+    mockWin.document.write(`
+        <body style="background:#f8f9fa; font-family: sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; margin:0;">
+            <div style="background:#fff; padding:2rem; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1); text-align:center;">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" width="48" style="margin-bottom:1rem;">
+                <h2 style="margin:0 0 0.5rem 0;">Fazer login com Google</h2>
+                <p style="color:#5f6368; margin-bottom:2rem;">Use sua Conta do Google para continuar</p>
+                <button onclick="window.opener.postMessage('google_success', '*'); window.close();" style="background:#1a73e8; color:white; border:none; padding:10px 24px; border-radius:4px; font-weight:500; cursor:pointer;">Continuar como Usuário</button>
+            </div>
+        </body>
+    `);
+
+    // Listen for the mock success message
+    window.addEventListener('message', (event) => {
+        if (event.data === 'google_success') {
+            const mockGoogleUser = { name: 'Google User', email: 'google@test.com', role: 'student' };
+            processLogin(mockGoogleUser);
+        }
+    }, { once: true });
+}
+
+function processLogin(user) {
+    if (user.role === 'trainer') {
+        // Find or create a trainer code for this user
+        let trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
+        localStorage.setItem('trainerName', user.name.split(' ')[0]);
+        localStorage.setItem('currentTrainerCode', trainerCode);
+        window.location.href = 'trainer.html';
+    } else {
+        localStorage.setItem('studentName', user.name);
+        // Find if this user already has an ID, or generate one
+        let studentId = localStorage.getItem('currentStudentId') || Math.floor(1000 + Math.random() * 9000).toString();
+        localStorage.setItem('currentStudentId', studentId);
+
+        hideAllScreens();
+        document.getElementById('app').classList.add('wide');
+        document.getElementById('student-dashboard-screen').classList.add('active');
+        initStudentDashboard();
+        switchStudentView('home'); // Land on Menu/Dashboard
+    }
+}
+
+let currentWorkoutTab = 0;
+
+function switchStudentView(view) {
+    const views = ['home', 'treino', 'dieta', 'perfil', 'log-workout', 'workout-summary'];
+    views.forEach(v => {
+        const el = document.getElementById(`view-student-${v}`);
+        const nav = document.getElementById(`snav-${v}`);
+        if (el) el.style.display = v === view ? 'block' : 'none';
+        if (nav) nav.classList.toggle('active', v === view);
+    });
+
+    // Specific logic for each view
+    if (view === 'treino') {
+        currentWorkoutTab = 0; // Reset tab when entering the view
+        renderStudentWorkoutMain();
+    }
+    if (view === 'dieta') renderStudentDietMain();
+}
+
+function renderStudentWorkoutMain() {
+    const studentId = localStorage.getItem('currentStudentId');
+    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const student = students.find(s => s.id === studentId);
+
+    const tabsNav = document.getElementById('workout-tabs-nav');
+    const mainContent = document.getElementById('student-workout-content-main');
+    if (!tabsNav || !mainContent) return;
+
+    if (!student || !student.active || !student.workoutBlocks || student.workoutBlocks.length === 0) {
+        tabsNav.innerHTML = '';
+        mainContent.innerHTML = `<div class="empty-state-card" style="margin-top:2rem;">
+            <i class="ph-fill ph-hourglass-high"></i>
+            <div class="empty-info">
+                <h3>Treino em análise</h3>
+                <p>Seu treinador ainda não liberou sua ficha de treinos.</p>
+            </div>
+        </div>`;
+        return;
+    }
+
+    // ── Render Tabs ──
+    tabsNav.innerHTML = student.workoutBlocks.map((block, idx) => `
+        <button class="tab-btn ${idx === currentWorkoutTab ? 'active' : ''}" 
+            onclick="switchWorkoutTab(${idx})">
+            ${block.title.split(' ')[0]} ${block.title.split(' ')[1] || (idx + 1)}
+        </button>
+    `).join('');
+
+    // ── Render Active Routine Card ──
+    const block = student.workoutBlocks[currentWorkoutTab];
+    const muscleGroups = getMuscleGroups(block.exercises);
+
+    mainContent.innerHTML = `
+        <div class="routine-card">
+            <div class="routine-header">
+                <div class="routine-title-box">
+                    <h2>${escHtml(block.title)}</h2>
+                    <div class="routine-meta">
+                        <span><i class="ph-bold ph-barbell"></i> ${block.exercises.length} Exercícios</span>
+                        <span><i class="ph-bold ph-clock"></i> ~60 min</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="muscle-tags">
+                ${muscleGroups.map(m => `<span class="tag-muscle">${m}</span>`).join('')}
+            </div>
+
+            <div class="routine-exercise-list">
+                ${block.exercises.map(ex => `
+                    <div class="routine-ex-item">
+                        <div class="ex-name-box">
+                            <span>${escHtml(ex.nome)}</span>
+                            <div class="ex-sets-mini">${ex.series} séries • ${ex.reps} reps</div>
+                        </div>
+                        <i class="ph-bold ph-caret-right" style="color: rgba(255,255,255,0.1)"></i>
+                    </div>
+                `).join('')}
+            </div>
+
+            <div class="routine-footer">
+                <button class="btn-primary" onclick="startWorkoutSession(${currentWorkoutTab})" 
+                        style="width: 100%; padding: 1.2rem; font-size: 1.1rem; font-weight: 800;">
+                    <i class="ph-fill ph-play"></i> INICIAR TREINO
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function switchWorkoutTab(idx) {
+    currentWorkoutTab = idx;
+    renderStudentWorkoutMain();
+}
+
+function getMuscleGroups(exercises) {
+    const muscles = new Set();
+    const map = {
+        'peito': 'Peito', 'supino': 'Peito', 'crucifixo': 'Peito', 'voador': 'Peito', 'chest': 'Peito',
+        'costas': 'Costas', 'puxada': 'Costas', 'remada': 'Costas', 'back': 'Costas', 'pulldown': 'Costas',
+        'ombro': 'Ombros', 'desenvolvimento': 'Ombros', 'lateral': 'Ombros', 'shoulder': 'Ombros',
+        'triceps': 'Tríceps', 'tríceps': 'Tríceps', 'extension': 'Tríceps',
+        'biceps': 'Bíceps', 'bíceps': 'Bíceps', 'rosca': 'Bíceps', 'curl': 'Bíceps',
+        'perna': 'Pernas', 'agachamento': 'Pernas', 'leg': 'Pernas', 'extensora': 'Pernas', 'flexora': 'Pernas', 'panturrilha': 'Pernas',
+        'abdomen': 'Abdominais', 'abdominal': 'Abdominais', 'crunch': 'Abdominais', 'prancha': 'Abdominais'
+    };
+
+    exercises.forEach(ex => {
+        const name = ex.nome.toLowerCase();
+        for (const [key, val] of Object.entries(map)) {
+            if (name.includes(key)) muscles.add(val);
+        }
+    });
+
+    return muscles.size > 0 ? Array.from(muscles) : ['Geral'];
+}
+
+function renderStudentDietMain() {
+    const studentId = localStorage.getItem('currentStudentId');
+    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const student = students.find(s => s.id === studentId);
+
+    const container = document.getElementById('student-diet-content-main');
+    if (!container) return;
+
+    if (!student || !student.active || !student.mealBlocks) {
+        container.innerHTML = `<div class="empty-state-card" style="margin-top:2rem;">
+            <i class="ph-fill ph-hourglass-high"></i>
+            <div class="empty-info">
+                <h3>Dieta em análise</h3>
+                <p>Seu plano alimentar ainda não foi liberado pelo treinador.</p>
+            </div>
+        </div>`;
+        return;
+    }
+
+    container.innerHTML = student.mealBlocks.map(meal => `
+        <div class="meal-block">
+            <div class="block-header"><h3>${escHtml(meal.name)}</h3></div>
+            <div class="meal-items-list">
+                ${meal.items.map(item => `
+                    <div class="meal-item-row">
+                        <div style="flex:1;"><strong>${escHtml(item.nome)}</strong><span class="text-sub">${escHtml(item.qtd)}</span></div>
+                        <div class="meal-macros-mini">
+                            <span>${item.kcal}kcal</span><span>${item.prot}g P</span><span>${item.carb}g C</span>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `).join('');
+}
+
+function handleUnifiedLogin() {
+    const code = document.getElementById('global-code').value;
+    if (code.length !== 5) {
+        alert('Digite o código de 5 dígitos.');
+        return;
+    }
+
+    // 1. Check Trainer (Admin or allTrainers)
+    const trainers = JSON.parse(localStorage.getItem('allTrainers') || '[]');
+    const isTrainer = trainers.some(t => t.code === code) || code === '00001';
+
+    if (isTrainer) {
+        // Redirect to trainer dashboard
+        // Note: For simplicity, we could store 'trainerSessionCode' to auto-login in trainer.html
+        localStorage.setItem('trainerSessionCode', code);
+        window.location.href = 'trainer.html';
+        return;
+    }
+
+    // 2. Check Student
+    const allStudents = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const student = allStudents.find(s => s.id === code);
+
+    if (student) {
+        localStorage.setItem('currentStudentId', student.id);
+        localStorage.setItem('studentName', student.name);
+        // We might not have the trainer code easily if it's a re-login, 
+        // but we can store it in the student object during registration
+        localStorage.setItem('connectedTrainerCode', student.trainerCode || 'Consultoria');
+
+        hideAllScreens();
+        document.getElementById('app').classList.add('wide');
+        document.getElementById('student-dashboard-screen').classList.add('active');
+        initStudentDashboard();
+        return;
+    }
+
+    alert('Código não encontrado. Se você é novo, use as opções da tela inicial.');
 }
 
 let pendingTrainerCode = '';
@@ -115,7 +469,9 @@ function submitQuestionnaire() {
         goal: goal,
         active: false,
         pending: true,
-        joinedAt: new Date().toISOString()
+        trainerCode: pendingTrainerCode, // Store for re-login
+        joinedAt: new Date().toISOString(),
+        personalRecords: {} // Initialize PRs
     };
 
     let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
@@ -154,6 +510,14 @@ function initStudentDashboard() {
     document.getElementById('dash-student-name').innerText = `Olá, ${studentName.split(' ')[0]}`;
     document.getElementById('dash-student-trainer').innerText = trainerCode || 'Consultoria';
 
+    // Sync sidebar name
+    const sideName = document.getElementById('side-student-name');
+    if (sideName) sideName.innerText = studentName.split(' ')[0];
+
+    // Show student's own access code
+    const scRef = document.getElementById('student-code-ref');
+    if (scRef) scRef.innerText = studentId;
+
     if (!studentId) {
         setProtocolStatus(false);
         return;
@@ -164,10 +528,30 @@ function initStudentDashboard() {
 
     if (student && student.active) {
         setProtocolStatus(true);
-        // We'll use these below to render details
+        renderWorkoutStartOptions(student);
     } else {
         setProtocolStatus(false);
     }
+
+    // Attempt to restore active workout session
+    restoreWorkoutBackup();
+}
+
+function renderWorkoutStartOptions(student) {
+    const container = document.getElementById('student-workout-start-options');
+    if (!container || !student.workoutBlocks) return;
+
+    container.innerHTML = student.workoutBlocks.map((block, idx) => `
+        <button class="action-card highlight" onclick="startWorkoutSession(${idx})"
+            style="background: rgba(163, 230, 53, 0.1); border-color: rgba(163, 230, 53, 0.3); padding: 1rem;">
+            <i class="ph-fill ph-play-circle" style="color: var(--primary-color); font-size: 1.5rem;"></i>
+            <div style="flex:1; text-align: left;">
+                <span style="display: block; font-weight: 700; color: var(--text-main);">${escHtml(block.title)}</span>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">${block.exercises.length} exercícios • Registrar cargas</span>
+            </div>
+            <i class="ph-bold ph-caret-right" style="color: var(--primary-color); font-size: 1rem;"></i>
+        </button>
+    `).join('');
 }
 
 function setProtocolStatus(isReady) {
@@ -366,6 +750,23 @@ function createConsultoria() {
 
 // TRAINER DASHBOARD LOGIC (Runs on trainer.html)
 function initTrainerDashboard() {
+    // If we have a trainerSessionCode from index.html unified login
+    const sessionCode = localStorage.getItem('trainerSessionCode');
+    if (sessionCode) {
+        if (sessionCode === '00001') {
+            localStorage.setItem('trainerName', 'Admin');
+            localStorage.setItem('currentTrainerCode', '00001');
+        } else {
+            const trainers = JSON.parse(localStorage.getItem('allTrainers') || '[]');
+            const t = trainers.find(x => x.code === sessionCode);
+            if (t) {
+                localStorage.setItem('trainerName', t.name.split(' ')[0]);
+                localStorage.setItem('currentTrainerCode', t.code);
+            }
+        }
+        localStorage.removeItem('trainerSessionCode'); // Consume it
+    }
+
     const trainerName = localStorage.getItem('trainerName') || 'Treinador';
     const trainerCode = localStorage.getItem('currentTrainerCode') || '00000';
 
@@ -376,23 +777,6 @@ function initTrainerDashboard() {
     if (elDashCode) elDashCode.innerText = trainerCode;
 
     updateTrainerStats();
-}
-
-function copyTrainerCode() {
-    const code = document.getElementById('dash-trainer-code').innerText;
-    navigator.clipboard.writeText(code).then(() => {
-        const btn = document.getElementById('btn-copy-code');
-        const icon = btn.querySelector('i');
-
-        // Visual feedback
-        icon.className = 'ph-bold ph-check text-success';
-        btn.classList.add('copied');
-
-        setTimeout(() => {
-            icon.className = 'ph-bold ph-copy';
-            btn.classList.remove('copied');
-        }, 2000);
-    });
 }
 
 // ── View switching (Dashboard / Alunos) ──────────────────────────────────────
@@ -1109,9 +1493,534 @@ function confirmRemoveStudent() {
     updateTrainerStats();
 }
 
-// ─── Utility ──────────────────────────────────────────────────────────────────
+// ─── UTILITY ──────────────────────────────────────────────────────────────────
 function escHtml(str) {
     return String(str || '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ─── HEVY STYLE WORKOUT LOG LOGIC ───────────────────────────────────────
+let workoutState = null;
+let workoutTimerInterval = null;
+let restTimerInterval = null;
+let restTimeLeft = 0;
+let totalRestTime = 0;
+
+function saveWorkoutBackup() {
+    if (workoutState) {
+        localStorage.setItem('active_workout_backup', JSON.stringify(workoutState));
+    }
+}
+
+function clearWorkoutBackup() {
+    localStorage.removeItem('active_workout_backup');
+}
+
+function restoreWorkoutBackup() {
+    const backup = localStorage.getItem('active_workout_backup');
+    if (backup) {
+        try {
+            workoutState = JSON.parse(backup);
+            // Resume view
+            switchStudentView('log-workout');
+            // Resume Timer
+            if (workoutTimerInterval) clearInterval(workoutTimerInterval);
+            workoutTimerInterval = setInterval(updateWorkoutTimer, 1000);
+            renderWorkoutLog();
+            return true;
+        } catch (e) {
+            console.error('Falha ao restaurar backup de treino', e);
+            clearWorkoutBackup();
+        }
+    }
+    return false;
+}
+
+function getPreviousSessionData(studentId, exerciseName) {
+    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+    // Filter history for THIS student and find the latest session containing THIS exercise
+    const lastSession = [...history].reverse().find(h =>
+        h.ID_Usuario === studentId && (h.Exercicios || h.exercises).some(ex => ex.nome === exerciseName)
+    );
+
+    if (lastSession) {
+        const exs = lastSession.Exercicios || lastSession.exercises;
+        const ex = exs.find(e => e.nome === exerciseName);
+        if (ex && ex.sets && ex.sets.length > 0) {
+            // Pick the best set from that session for display
+            const bestSet = ex.sets.reduce((prev, curr) => {
+                const prevVol = (parseFloat(prev.peso || prev.weight) || 0) * (parseInt(prev.reps) || 0);
+                const currVol = (parseFloat(curr.peso || curr.weight) || 0) * (parseInt(curr.reps) || 0);
+                return currVol > prevVol ? curr : prev;
+            });
+            return `${bestSet.peso || bestSet.weight}kg x ${bestSet.reps}`;
+        }
+    }
+    return '-';
+}
+
+function startWorkoutSession(blockIdx = 0) {
+    const studentId = localStorage.getItem('currentStudentId');
+    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const student = students.find(s => s.id === studentId);
+
+    if (!student || !student.workoutBlocks || !student.workoutBlocks[blockIdx]) {
+        alert('Plano de treino não encontrado.');
+        return;
+    }
+
+    const block = student.workoutBlocks[blockIdx];
+    const personalRecords = student.personalRecords || {};
+
+    workoutState = {
+        startTime: Date.now(),
+        title: block.title || 'Meu Treino',
+        exercises: block.exercises.map((ex, idx) => ({
+            id: `ex-${idx}`,
+            nome: ex.nome,
+            notes: '',
+            best: personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxReps: 0 },
+            sets: Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => ({
+                id: `set-${idx}-${sIdx}`,
+                weight: ex.carga || '',
+                reps: ex.reps || '',
+                completed: false,
+                brokenPRs: { weight: false, volume: false, reps: false },
+                prev: getPreviousSessionData(studentId, ex.nome)
+            }))
+        }))
+    };
+
+    saveWorkoutBackup();
+    switchStudentView('log-workout');
+
+    if (workoutTimerInterval) clearInterval(workoutTimerInterval);
+    workoutTimerInterval = setInterval(updateWorkoutTimer, 1000);
+
+    renderWorkoutLog();
+}
+
+function updateWorkoutTimer() {
+    if (!workoutState) return;
+    const elapsed = Math.floor((Date.now() - workoutState.startTime) / 1000);
+    const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+    const secs = (elapsed % 60).toString().padStart(2, '0');
+    const timerEl = document.getElementById('log-workout-timer');
+    if (timerEl) timerEl.innerText = `${mins}:${secs}`;
+}
+
+function renderWorkoutLog() {
+    const container = document.getElementById('log-workout-content');
+    if (!container || !workoutState) return;
+
+    // Update Title
+    const titleEl = document.getElementById('log-workout-title');
+    if (titleEl) titleEl.innerText = workoutState.title;
+
+    container.innerHTML = workoutState.exercises.map((ex, exIdx) => `
+        <div class="log-exercise-card">
+            <div class="log-ex-header" style="justify-content: space-between; align-items: flex-start; gap: 1rem;">
+                <div style="flex: 1;">
+                    <h3 style="margin-bottom: 4px;">${escHtml(ex.nome)}</h3>
+                    <input type="text" class="exercise-notes-input" 
+                        placeholder="Adicionar nota..." 
+                        value="${escHtml(ex.notes || '')}"
+                        oninput="updateExerciseNotes(${exIdx}, this.value)"
+                        style="width: 100%; max-width: 400px; font-size: 0.8rem; color: var(--text-muted); background: transparent; border: none; padding: 0; outline: none;">
+                </div>
+                <button class="btn-icon-tiny" onclick="removeExerciseFromLog(${exIdx})"><i class="ph-bold ph-trash"></i></button>
+            </div>
+            
+            <div class="log-set-table">
+                <div class="log-set-header">
+                    <span>Set</span>
+                    <span class="col-prev">Anterior</span>
+                    <span>Peso</span>
+                    <span>Reps</span>
+                    <span><i class="ph-bold ph-check"></i></span>
+                </div>
+                ${ex.sets.map((set, setIdx) => `
+                    <div class="log-set-row ${set.completed ? 'completed' : ''}" id="row-${exIdx}-${setIdx}">
+                        <div class="set-number">${setIdx + 1}</div>
+                        <div class="set-prev col-prev">${escHtml(set.prev)}</div>
+                        <div style="position: relative; display: flex; align-items: center;">
+                            <input type="number" class="set-input log-input-tactile" value="${set.weight}" 
+                                placeholder="--" oninput="updateSetData(${exIdx}, ${setIdx}, 'weight', this.value)"
+                                ${set.completed ? 'disabled' : ''}>
+                        </div>
+                        <div style="position: relative; display: flex; align-items: center;">
+                            <input type="number" class="set-input log-input-tactile" value="${set.reps}" 
+                                placeholder="--" oninput="updateSetData(${exIdx}, ${setIdx}, 'reps', this.value)"
+                                ${set.completed ? 'disabled' : ''}>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <button class="btn-check-set ${set.completed ? 'active' : ''}" 
+                                onclick="toggleSetCompletion(${exIdx}, ${setIdx})">
+                                <i class="ph-bold ${set.completed ? 'ph-check' : 'ph-circle'}"></i>
+                            </button>
+                            ${renderPRTrophy(set)}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+            
+            <div class="log-ex-footer">
+                <button class="btn-add-set" onclick="addSetToExercise(${exIdx})">
+                    <i class="ph-bold ph-plus"></i> Adicionar Série
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function updateExerciseNotes(exIdx, notes) {
+    if (!workoutState || !workoutState.exercises[exIdx]) return;
+    workoutState.exercises[exIdx].notes = notes;
+    saveWorkoutBackup();
+}
+
+function renderPRTrophy(set) {
+    if (!set.brokenPRs || !set.completed) return '';
+    const isBroken = set.brokenPRs.weight || set.brokenPRs.volume;
+    if (!isBroken) return '';
+
+    let tooltip = 'Recorde Batido: ';
+    const types = [];
+    if (set.brokenPRs.weight) types.push('Peso');
+    if (set.brokenPRs.volume) types.push('Volume');
+    tooltip += types.join(', ') + '!';
+
+    return `
+        <div class="pr-trophy-container">
+            <i class="ph-fill ph-trophy pr-trophy" title="${tooltip}"></i>
+        </div>
+    `;
+}
+
+function updateSetData(exIdx, setIdx, field, value) {
+    if (workoutState && workoutState.exercises[exIdx] && workoutState.exercises[exIdx].sets[setIdx]) {
+        workoutState.exercises[exIdx].sets[setIdx][field] = value;
+        updateExercisePRs(exIdx);
+        saveWorkoutBackup();
+    }
+}
+
+function updateExercisePRs(exIdx) {
+    const ex = workoutState.exercises[exIdx];
+    const best = ex.best;
+
+    // Reset all brokenPRs in this exercise
+    ex.sets.forEach(set => {
+        set.brokenPRs = { weight: false, reps: false, volume: false };
+    });
+
+    // We only care about COMPLETED sets for the trophy (as per previous requirement)
+    // but the user wants to see it based on the values. 
+    // Actually, "renderPRTrophy" already checks for !set.completed.
+    // So we calculate PR status for all sets, and the UI handles the visibility.
+
+    let maxWeightIdx = -1;
+    let maxVolumeIdx = -1;
+
+    let sessionMaxWeight = best.maxWeight;
+    let sessionMaxVolume = best.maxVolume;
+
+    ex.sets.forEach((set, idx) => {
+        const w = parseFloat(set.weight) || 0;
+        const r = parseInt(set.reps) || 0;
+        const v = w * r;
+
+        if (w > sessionMaxWeight) {
+            sessionMaxWeight = w;
+            maxWeightIdx = idx;
+        }
+        if (v > sessionMaxVolume) {
+            sessionMaxVolume = v;
+            maxVolumeIdx = idx;
+        }
+    });
+
+    // Assign trophies only to the session champions
+    if (maxWeightIdx !== -1) ex.sets[maxWeightIdx].brokenPRs.weight = true;
+    if (maxVolumeIdx !== -1) ex.sets[maxVolumeIdx].brokenPRs.volume = true;
+}
+
+function checkPRs(exIdx, setIdx) {
+    // Deprecated for updateExercisePRs
+    updateExercisePRs(exIdx);
+}
+
+function toggleSetCompletion(exIdx, setIdx) {
+    if (!workoutState) return;
+    const set = workoutState.exercises[exIdx].sets[setIdx];
+    set.completed = !set.completed;
+
+    if (set.completed) {
+        startRestTimer(60); // Default 60s
+    } else {
+        hideRestTimer();
+    }
+
+    saveWorkoutBackup();
+    renderWorkoutLog();
+}
+// ─── REST TIMER LOGIC ──────────────────────────────────────────────────
+function startRestTimer(seconds) {
+    restTimeLeft = seconds;
+    totalRestTime = seconds;
+
+    const overlay = document.getElementById('rest-timer-overlay');
+    if (overlay) {
+        overlay.style.display = 'block';
+        overlay.classList.remove('timer-ended');
+    }
+
+    updateRestTimerUI();
+
+    if (restTimerInterval) clearInterval(restTimerInterval);
+    restTimerInterval = setInterval(() => {
+        restTimeLeft--;
+        if (restTimeLeft <= 0) {
+            restTimeLeft = 0;
+            updateRestTimerUI();
+            clearInterval(restTimerInterval);
+            onRestTimerEnd();
+        } else {
+            updateRestTimerUI();
+        }
+    }, 1000);
+}
+
+function updateRestTimerUI() {
+    const mins = Math.floor(restTimeLeft / 60).toString().padStart(2, '0');
+    const secs = (restTimeLeft % 60).toString().padStart(2, '0');
+    const countdownEl = document.getElementById('rest-countdown');
+    if (countdownEl) countdownEl.innerText = `${mins}:${secs}`;
+
+    const progressFill = document.getElementById('rest-progress-fill');
+    if (progressFill && totalRestTime > 0) {
+        const percentage = (restTimeLeft / totalRestTime) * 100;
+        progressFill.style.width = `${percentage}%`;
+    }
+}
+
+function onRestTimerEnd() {
+    const overlay = document.getElementById('rest-timer-overlay');
+    if (overlay) {
+        overlay.classList.add('timer-ended');
+    }
+}
+
+function skipRestTimer() {
+    clearInterval(restTimerInterval);
+    hideRestTimer();
+}
+
+function adjustRestTimer(seconds) {
+    restTimeLeft += seconds;
+    totalRestTime += seconds;
+    updateRestTimerUI();
+
+    const overlay = document.getElementById('rest-timer-overlay');
+    if (overlay && overlay.classList.contains('timer-ended') && restTimeLeft > 0) {
+        overlay.classList.remove('timer-ended');
+        startRestTimer(restTimeLeft);
+    }
+}
+
+function hideRestTimer() {
+    const overlay = document.getElementById('rest-timer-overlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+        overlay.classList.remove('timer-ended');
+    }
+    if (restTimerInterval) clearInterval(restTimerInterval);
+}
+
+function addSetToExercise(exIdx) {
+    if (!workoutState) return;
+    const ex = workoutState.exercises[exIdx];
+    const lastSet = ex.sets[ex.sets.length - 1];
+    ex.sets.push({
+        id: `set-${exIdx}-${ex.sets.length}`,
+        weight: lastSet ? lastSet.weight : '',
+        reps: lastSet ? lastSet.reps : '',
+        completed: false,
+        brokenPRs: { weight: false, volume: false, reps: false },
+        prev: '-'
+    });
+    saveWorkoutBackup();
+    renderWorkoutLog();
+}
+
+function removeExerciseFromLog(exIdx) {
+    if (!workoutState || !confirm('Remover exercício do log?')) return;
+    workoutState.exercises.splice(exIdx, 1);
+    saveWorkoutBackup();
+    renderWorkoutLog();
+}
+
+function handleFinishWorkout() {
+    if (!workoutState) return;
+
+    const completedSets = workoutState.exercises.reduce((acc, ex) => acc + ex.sets.filter(s => s.completed).length, 0);
+
+    if (completedSets === 0) {
+        if (!confirm('Nenhuma série foi marcada como concluída. Deseja realmente finalizar?')) return;
+    }
+
+    const elapsed = Math.floor((Date.now() - workoutState.startTime) / 1000);
+
+    // Build the requested JSON structure
+    const studentId = localStorage.getItem('currentStudentId');
+
+    // Calculate volume only for completed sets
+    const totalVolume = workoutState.exercises.reduce((v, ex) =>
+        v + ex.sets.reduce((sv, s) => sv + (s.completed ? (parseFloat(s.weight) || 0) * (parseInt(s.reps) || 0) : 0), 0), 0
+    );
+
+    const workoutArchive = {
+        ID_Usuario: studentId,
+        Data_Treino: new Date().toISOString(),
+        Duracao: elapsed,
+        Volume_Total: totalVolume,
+        Exercicios: workoutState.exercises.map(ex => ({
+            nome: ex.nome,
+            sets: ex.sets
+                .filter(s => s.completed)
+                .map(s => ({
+                    peso: parseFloat(s.weight) || 0,
+                    reps: parseInt(s.reps) || 0,
+                    brokenPRs: s.brokenPRs // Keep this for summary visualization
+                }))
+        })).filter(ex => ex.sets.length > 0)
+    };
+
+    // SAVE TO HISTORY
+    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+    history.push(workoutArchive);
+    localStorage.setItem('workoutHistory', JSON.stringify(history));
+
+    // UPDATE PERSONAL RECORDS PERMANENTLY
+    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const sIdx = students.findIndex(s => s.id === studentId);
+
+    if (sIdx !== -1) {
+        if (!students[sIdx].personalRecords) students[sIdx].personalRecords = {};
+
+        workoutState.exercises.forEach(ex => {
+            const currentMelhores = students[sIdx].personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxReps: 0 };
+
+            ex.sets.forEach(set => {
+                if (!set.completed) return;
+                const w = parseFloat(set.weight) || 0;
+                const r = parseInt(set.reps) || 0;
+                const v = w * r;
+
+                if (w > currentMelhores.maxWeight) currentMelhores.maxWeight = w;
+                if (r > currentMelhores.maxReps) currentMelhores.maxReps = r;
+                if (v > currentMelhores.maxVolume) currentMelhores.maxVolume = v;
+            });
+
+            students[sIdx].personalRecords[ex.nome] = currentMelhores;
+        });
+
+        localStorage.setItem('trainerStudents', JSON.stringify(students));
+    }
+
+    if (workoutTimerInterval) clearInterval(workoutTimerInterval);
+    hideRestTimer();
+
+    // Trigger Summary instead of direct exit
+    showWorkoutSummary(workoutArchive);
+}
+
+function showWorkoutSummary(archive) {
+    const screen = document.getElementById('view-student-workout-summary');
+    const statsGrid = document.getElementById('summary-stats-grid');
+    const exerciseList = document.getElementById('summary-exercise-list');
+
+    if (!screen || !statsGrid || !exerciseList) return;
+
+    // Calculate PR Count
+    let prCount = 0;
+    archive.Exercicios.forEach(ex => {
+        ex.sets.forEach(s => {
+            if (s.brokenPRs && (s.brokenPRs.weight || s.brokenPRs.volume)) prCount++;
+        });
+    });
+
+    // Format Duration
+    const hrs = Math.floor(archive.Duracao / 3600);
+    const mins = Math.floor((archive.Duracao % 3600) / 60);
+    const secs = archive.Duracao % 60;
+    const durStr = hrs > 0 ?
+        `${hrs}h ${mins}m` :
+        `${mins}m ${secs}s`;
+
+    // Render Stats
+    statsGrid.innerHTML = `
+        <div class="summary-stat-card">
+            <i class="ph-bold ph-timer"></i>
+            <span class="summary-stat-value">${durStr}</span>
+            <span class="summary-stat-label">Duração</span>
+        </div>
+        <div class="summary-stat-card">
+            <i class="ph-bold ph-lightning"></i>
+            <span class="summary-stat-value">${archive.Volume_Total} kg</span>
+            <span class="summary-stat-label">Volume Total</span>
+        </div>
+        <div class="summary-stat-card">
+            <i class="ph-bold ph-trophy"></i>
+            <span class="summary-stat-value">${prCount}</span>
+            <span class="summary-stat-label">Novos PRs</span>
+        </div>
+    `;
+
+    // Render Exercises
+    exerciseList.innerHTML = archive.Exercicios.map(ex => `
+        <div class="summary-exercise-card">
+            <div class="summary-ex-title">
+                <span>${escHtml(ex.nome)}</span>
+            </div>
+            <div class="summary-set-list">
+                ${ex.sets.map((s, idx) => {
+        const hasPR = s.brokenPRs && (s.brokenPRs.weight || s.brokenPRs.volume);
+        return `
+                        <div class="summary-set-pill ${hasPR ? 'has-pr' : ''}">
+                            <span>${idx + 1}ª: <strong>${s.peso}kg</strong> x ${s.reps}</span>
+                            ${hasPR ? '<i class="ph-fill ph-trophy" style="font-size: 0.8rem;"></i>' : ''}
+                        </div>
+                    `;
+    }).join('')}
+            </div>
+        </div>
+    `).join('');
+
+    // Switch View
+    switchStudentView('workout-summary');
+    window.scrollTo(0, 0);
+}
+
+function closeWorkoutSummary() {
+    // Final clear of state and return home
+    workoutState = null;
+    clearWorkoutBackup();
+    switchStudentView('home');
+}
+
+function finishWorkout() {
+    handleFinishWorkout();
+}
+
+// Utility: Escape HTML to avoid XSS and breaking template literals
+function escHtml(str) {
+    if (!str) return "";
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
