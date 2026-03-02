@@ -68,7 +68,9 @@
                 <form class="login-form" onsubmit="event.preventDefault(); connectStudent();">
                     <div class="input-group">
                         <label for="trainer-code">CÓDIGO DO TREINADOR</label>
-                        <input type="text" id="trainer-code" placeholder="TR-77291" autocomplete="off">
+                        <input type="tel" id="trainer-code" placeholder="00000" maxlength="5" autocomplete="off"
+                            inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'').substring(0,5)"
+                            style="letter-spacing:0.4rem; font-size:1.5rem; text-align:center; font-family:monospace;">
                     </div>
                     <button type="submit" class="btn-primary">Conectar</button>
                 </form>
@@ -129,6 +131,12 @@
                             <h3>Saúde & Perfil Basal</h3>
                         </div>
 
+                        <div class="q-field">
+                            <label>NOME COMPLETO</label>
+                            <input type="text" id="q_nome" class="q-input" placeholder="Ex: João Silva"
+                                autocomplete="off" required style="text-transform: capitalize;">
+                        </div>
+
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
                             <div class="q-field" style="margin-bottom: 0;">
                                 <label>IDADE</label>
@@ -154,6 +162,7 @@
                                     autocomplete="off" required>
                             </div>
                         </div>
+
 
                         <div class="q-field">
                             <label>DOR EM ARTICULAÇÕES AO FAZER ESFORÇO?</label>
@@ -480,7 +489,7 @@
                     <p class="subtitle">Treinador: <span id="dash-student-trainer"
                             class="highlight-code">Carregando...</span></p>
                 </div>
-                <button class="btn-icon" onclick="goToHome()">
+                <button class="btn-icon" onclick="logout()">
                     <i class="ph-bold ph-sign-out"></i>
                 </button>
             </div>
@@ -512,23 +521,55 @@
 
             <div id="student-actions-ready" class="dashboard-actions" style="display: none;">
                 <h3 class="section-title">MEU PROTOCOLO</h3>
-                <button class="action-card">
+                <button class="action-card" onclick="openStudentWorkout()">
                     <i class="ph-bold ph-calendar-check"></i>
                     <div style="flex:1; text-align: left;">
-                        <span style="display: block; font-weight: 600;">Treino A</span>
-                        <span style="font-size: 0.75rem; color: var(--text-muted);">Peito e Tríceps • 50 min</span>
+                        <span style="display: block; font-weight: 600;">Plano de Treino</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">Visualizar fichas e
+                            exercícios</span>
                     </div>
                     <i class="ph-bold ph-caret-right" style="color: var(--text-muted); font-size: 1rem;"></i>
                 </button>
-                <button class="action-card">
+                <button class="action-card" onclick="openStudentDiet()">
                     <i class="ph-bold ph-book-open-text"></i>
                     <div style="flex:1; text-align: left;">
                         <span style="display: block; font-weight: 600;">Plano Alimentar</span>
-                        <span style="font-size: 0.75rem; color: var(--text-muted);">4 Refeições • Foco:
-                            Hipertrofia</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">Visualizar dieta e macros</span>
                     </div>
                     <i class="ph-bold ph-caret-right" style="color: var(--text-muted); font-size: 1rem;"></i>
                 </button>
+            </div>
+        </div>
+
+        <!-- ── Student Workout Detail ── -->
+        <div id="student-workout-screen" class="screen">
+            <div class="dashboard-header">
+                <div class="user-info">
+                    <h2>Meu Treino</h2>
+                    <p class="subtitle">Siga as orientações do seu treinador</p>
+                </div>
+                <button class="btn-icon" onclick="closeStudentWorkout()">
+                    <i class="ph-bold ph-x"></i>
+                </button>
+            </div>
+            <div id="student-workout-content" class="protocol-content-list">
+                <!-- Dynamic Content -->
+            </div>
+        </div>
+
+        <!-- ── Student Diet Detail ── -->
+        <div id="student-diet-screen" class="screen">
+            <div class="dashboard-header">
+                <div class="user-info">
+                    <h2>Minha Dieta</h2>
+                    <p class="subtitle">Consistência é a chave</p>
+                </div>
+                <button class="btn-icon" onclick="closeStudentDiet()">
+                    <i class="ph-bold ph-x"></i>
+                </button>
+            </div>
+            <div id="student-diet-content" class="protocol-content-list">
+                <!-- Dynamic Content -->
             </div>
         </div>
     </div>
