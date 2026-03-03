@@ -10,6 +10,147 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        /* Improved Delete Button for History Items */
+        .btn-delete-history {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-muted);
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            flex-shrink: 0;
+            backdrop-filter: blur(4px);
+        }
+
+        .btn-delete-history:hover {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.4);
+            color: #ff4d4d;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.2);
+        }
+
+        .btn-delete-history i {
+            font-size: 1.2rem;
+        }
+
+        .history-workout-right {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0.8rem;
+        }
+
+        /* Confirmation Modal Input Improvements */
+        #confirmation-input {
+            text-transform: lowercase;
+            text-align: center;
+            font-weight: 700;
+            font-size: 1.1rem;
+            letter-spacing: 0.2em;
+            border: 2px solid var(--border-color);
+            transition: all 0.3s ease;
+            margin-top: 0.5rem;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        #confirmation-input:focus {
+            border-color: #ef4444;
+            background: rgba(239, 68, 68, 0.05);
+            box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.1);
+            outline: none;
+        }
+
+        #confirmation-modal-confirm-btn {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            border: none;
+            font-weight: 700;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        #confirmation-modal-confirm-btn:hover {
+            transform: scale(1.02);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+            filter: brightness(1.1);
+        }
+
+        /* Fix for background-clip */
+        .summary-header h1 {
+            background-clip: text;
+            -webkit-background-clip: text;
+        }
+
+        /* Modal Base & Transitions */
+        .perfil-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            z-index: 9999;
+            display: none;
+            /* Controlado por JS display: flex */
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            padding: 1rem;
+        }
+
+        .perfil-modal-overlay.active {
+            opacity: 1;
+        }
+
+        .perfil-modal {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            width: 100%;
+            transform: scale(0.9);
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        .perfil-modal-overlay.active .perfil-modal {
+            transform: scale(1);
+        }
+
+        /* Shake Animation for wrong input */
+        @keyframes shake {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            25% {
+                transform: translateX(-8px);
+            }
+
+            50% {
+                transform: translateX(8px);
+            }
+
+            75% {
+                transform: translateX(-8px);
+            }
+        }
+
+        .shake-error {
+            animation: shake 0.3s ease-in-out;
+            border-color: #ef4444 !important;
+        }
+    </style>
 </head>
 
 <body>
@@ -722,12 +863,185 @@
 
                     <!-- VIEW: TREINO (Full screen inside layout) -->
                     <div id="view-student-treino" class="view-section" style="display: none;">
-                        <div id="workout-tabs-nav" class="workout-tabs-container">
-                            <!-- Dynamic Tabs (Treino A, B, C...) -->
+
+                        <!-- Landing: Two Options -->
+                        <div id="treino-landing" class="treino-landing">
+                            <div class="dashboard-header">
+                                <div class="user-info">
+                                    <h2>Meu Treino</h2>
+                                    <p class="subtitle">Escolha o que deseja fazer</p>
+                                </div>
+                            </div>
+
+                            <div class="treino-options-grid">
+                                <button class="treino-option-card" onclick="switchTreinoSubview('analise')">
+                                    <div class="treino-option-icon active-icon">
+                                        <i class="ph-bold ph-list-magnifying-glass"></i>
+                                    </div>
+                                    <div class="treino-option-info">
+                                        <h3>Analisar Meu Treino</h3>
+                                        <p>Veja os exercícios e detalhes do treino montado pelo seu treinador. Tire
+                                            dúvidas diretamente.</p>
+                                    </div>
+                                    <i class="ph-bold ph-caret-right treino-option-arrow"></i>
+                                </button>
+
+                                <button class="treino-option-card" onclick="switchTreinoSubview('historico')">
+                                    <div class="treino-option-icon history-icon">
+                                        <i class="ph-bold ph-clock-counter-clockwise"></i>
+                                    </div>
+                                    <div class="treino-option-info">
+                                        <h3>Histórico de Treinos</h3>
+                                        <p>Acompanhe seus treinos anteriores, veja a evolução de cargas e volume ao
+                                            longo do tempo.</p>
+                                    </div>
+                                    <i class="ph-bold ph-caret-right treino-option-arrow"></i>
+                                </button>
+                            </div>
+
+                            <!-- New: Mentoria / Dúvidas Section -->
+                            <div class="student-duvidas-section" style="margin-top: 2rem;">
+                                <h3 class="section-title" style="margin-bottom: 1rem; color: var(--text-main);">Minhas
+                                    Dúvidas</h3>
+                                <div id="student-duvidas-list" class="student-duvidas-list">
+                                    <!-- Injetado via JS -->
+                                </div>
+                            </div>
                         </div>
 
-                        <div id="student-workout-content-main" class="protocol-content-list" style="margin-top: 1rem;">
-                            <!-- Dynamic Routine Card -->
+                        <!-- Sub-view: Analisar Treino -->
+                        <div id="treino-analise" style="display:none;">
+                            <button class="btn-treino-back" onclick="switchTreinoSubview('landing')">
+                                <i class="ph-bold ph-arrow-left"></i> Voltar
+                            </button>
+
+                            <div class="dashboard-header" style="margin-top:0.5rem;">
+                                <div class="user-info">
+                                    <h2><i class="ph-bold ph-list-magnifying-glass"
+                                            style="color:var(--primary-color);"></i> Analisar Meu Treino</h2>
+                                    <p class="subtitle">Treino montado pelo seu treinador</p>
+                                </div>
+                                <button class="btn-duvida-treino" onclick="openDuvidaModal()">
+                                    <i class="ph-bold ph-question"></i> Dúvidas
+                                </button>
+                            </div>
+
+                            <div id="workout-tabs-nav" class="workout-tabs-nav">
+                                <!-- Dynamic Tabs (A, B, C...) -->
+                            </div>
+
+                            <div id="student-workout-content-main" class="routine-content-area">
+                                <!-- Dynamic Routine Card populated by JS -->
+                            </div>
+                        </div>
+
+                        <!-- Sub-view: Histórico -->
+                        <div id="treino-historico" style="display:none;">
+                            <button class="btn-treino-back" onclick="switchTreinoSubview('landing')">
+                                <i class="ph-bold ph-arrow-left"></i> Voltar
+                            </button>
+
+                            <div class="dashboard-header" style="margin-top:0.5rem;">
+                                <div class="user-info">
+                                    <h2><i class="ph-bold ph-clock-counter-clockwise"
+                                            style="color:var(--primary-color);"></i> Histórico de Treinos</h2>
+                                    <p class="subtitle">Acompanhe sua evolução</p>
+                                </div>
+                            </div>
+
+                            <!-- Evolution Summary -->
+                            <div id="history-evolution-cards" class="history-evolution-grid">
+                                <!-- Dynamic: total sessions, volume, PRs -->
+                            </div>
+
+                            <!-- Workout History List -->
+                            <div id="history-workout-list" class="history-workout-list">
+                                <!-- Dynamic cards -->
+                            </div>
+                        </div>
+
+                        <!-- Modal: Dúvida -->
+                        <div id="duvida-modal-overlay" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal">
+                                <div class="perfil-modal-header">
+                                    <h3><i class="ph-bold ph-question" style="color:var(--primary-color);"></i> Enviar
+                                        Dúvida ao Treinador</h3>
+                                    <button class="btn-icon" onclick="closeDuvidaModal()">
+                                        <i class="ph-bold ph-x"></i>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body">
+                                    <div class="perfil-modal-field">
+                                        <label>ASSUNTO</label>
+                                        <select id="duvida-assunto" class="q-input">
+                                            <option value="exercicio">Dúvida sobre exercício</option>
+                                            <option value="execucao">Dúvida sobre execução</option>
+                                            <option value="substituicao">Substituição de exercício</option>
+                                            <option value="carga">Dúvida sobre carga</option>
+                                            <option value="outro">Outro</option>
+                                        </select>
+                                    </div>
+                                    <div class="perfil-modal-field">
+                                        <label>SUA DÚVIDA</label>
+                                        <textarea id="duvida-texto" class="q-input" rows="4"
+                                            placeholder="Descreva sua dúvida com detalhes..."></textarea>
+                                    </div>
+                                </div>
+                                <div class="perfil-modal-footer">
+                                    <button class="btn-secondary" onclick="closeDuvidaModal()"
+                                        style="width:auto; padding: 0.75rem 1.5rem;">Cancelar</button>
+                                    <button class="btn-primary" onclick="enviarDuvida()"
+                                        style="width:auto; padding: 0.75rem 1.5rem;">
+                                        <i class="ph-bold ph-paper-plane-tilt"></i> Enviar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Modal: Workout Detail -->
+                        <div id="history-detail-modal" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal" style="max-width:520px;">
+                                <div class="perfil-modal-header">
+                                    <h3 id="history-detail-title">Detalhes do Treino</h3>
+                                    <button class="btn-icon" onclick="closeHistoryDetailModal()">
+                                        <i class="ph-bold ph-x"></i>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body" id="history-detail-body"
+                                    style="max-height:60vh;overflow-y:auto;">
+                                    <!-- Dynamic -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Modal: Confirmação Universal -->
+                        <div id="confirmation-modal-overlay" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal" style="max-width:400px;">
+                                <div class="perfil-modal-header">
+                                    <h3 id="confirmation-modal-title">Confirmar Ação</h3>
+                                    <button class="btn-icon" onclick="closeConfirmationModal()">
+                                        <i class="ph-bold ph-x"></i>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body">
+                                    <p id="confirmation-modal-message"
+                                        style="margin-bottom: 1.5rem; font-size: 0.9rem; line-height: 1.5; color: var(--text-muted);">
+                                    </p>
+                                    <div class="perfil-modal-field">
+                                        <label id="confirmation-input-label">Digite "remover" para confirmar</label>
+                                        <input type="text" id="confirmation-input" class="q-input" autocomplete="off"
+                                            placeholder="remover">
+                                    </div>
+                                </div>
+                                <div class="perfil-modal-footer">
+                                    <button class="btn-secondary" onclick="closeConfirmationModal()"
+                                        style="width:auto; padding: 0.75rem 1.5rem;">Cancelar</button>
+                                    <button id="confirmation-modal-confirm-btn" class="btn-primary"
+                                        style="width:auto; padding: 0.75rem 1.5rem; background: #ef4444; color: white;">
+                                        Excluir
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -741,6 +1055,96 @@
                         </div>
                         <div id="student-diet-content-main" class="protocol-content-list">
                             <!-- Dynamic Content -->
+                        </div>
+                    </div>
+
+                    <!-- VIEW: MEU PERFIL -->
+                    <div id="view-student-perfil" class="view-section" style="display: none;">
+                        <!-- Profile Header Card -->
+                        <div class="perfil-header-card">
+                            <div class="perfil-avatar" id="perfil-avatar">
+                                <i class="ph-bold ph-user"></i>
+                            </div>
+                            <div class="perfil-header-info">
+                                <h2 id="perfil-nome">Aluno</h2>
+                                <div class="perfil-badges">
+                                    <span class="perfil-badge active"><i class="ph-bold ph-lightning"></i> PLANO
+                                        ATIVO</span>
+                                    <span class="perfil-badge muted"><i class="ph-bold ph-calendar-blank"></i> <span
+                                            id="perfil-membro-desde">Membro desde Mar 2026</span></span>
+                                </div>
+                            </div>
+                            <button class="btn-perfil-edit" onclick="openPerfilUpdateModal('geral')">
+                                <i class="ph-bold ph-pencil-simple"></i> Editar Perfil
+                            </button>
+                        </div>
+
+                        <!-- Physical Metrics Section -->
+                        <div class="perfil-section-title">
+                            <i class="ph-fill ph-chart-line-up"></i>
+                            <h3>Métricas Físicas</h3>
+                        </div>
+                        <div class="perfil-metrics-grid" id="perfil-metrics-grid">
+                            <!-- Generated by JS -->
+                        </div>
+
+                        <!-- Weight Progress Chart -->
+                        <div class="perfil-section-title" style="margin-top: 2rem;">
+                            <i class="ph-fill ph-chart-line"></i>
+                            <h3>Progresso de Peso</h3>
+                            <select id="perfil-chart-range" class="perfil-range-select" onchange="renderPerfilChart()">
+                                <option value="6">Últimos 6 registros</option>
+                                <option value="12">Últimos 12 registros</option>
+                                <option value="all">Todos</option>
+                            </select>
+                        </div>
+                        <div class="perfil-chart-card">
+                            <canvas id="perfil-weight-chart" width="600" height="220"></canvas>
+                            <div id="perfil-chart-empty" class="perfil-chart-empty" style="display:none;">
+                                <i class="ph-bold ph-chart-line-up"></i>
+                                <p>Atualize seu peso para ver o gráfico de progresso</p>
+                            </div>
+                        </div>
+
+                        <!-- Informações Pessoais -->
+                        <div class="perfil-section-title" style="margin-top: 2rem;">
+                            <i class="ph-fill ph-identification-card"></i>
+                            <h3>Informações Pessoais</h3>
+                        </div>
+                        <div class="perfil-info-grid" id="perfil-info-grid">
+                            <!-- Generated by JS -->
+                        </div>
+
+                        <!-- Recent Update History -->
+                        <div class="perfil-section-title" style="margin-top: 2rem;">
+                            <i class="ph-fill ph-clock-counter-clockwise"></i>
+                            <h3>Histórico de Alterações</h3>
+                        </div>
+                        <div class="perfil-history-list" id="perfil-history-list">
+                            <!-- Generated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Modal de Atualização -->
+                    <div id="perfil-update-modal" class="perfil-modal-overlay" style="display:none;">
+                        <div class="perfil-modal">
+                            <div class="perfil-modal-header">
+                                <h3 id="perfil-modal-title">Atualizar Métrica</h3>
+                                <button class="btn-icon" onclick="closePerfilUpdateModal()">
+                                    <i class="ph-bold ph-x"></i>
+                                </button>
+                            </div>
+                            <div class="perfil-modal-body" id="perfil-modal-body">
+                                <!-- Dynamic fields -->
+                            </div>
+                            <div class="perfil-modal-footer">
+                                <button class="btn-secondary" onclick="closePerfilUpdateModal()"
+                                    style="width:auto; padding: 0.75rem 1.5rem;">Cancelar</button>
+                                <button class="btn-primary" onclick="savePerfilUpdate()"
+                                    style="width:auto; padding: 0.75rem 1.5rem;">
+                                    <i class="ph-bold ph-floppy-disk"></i> Salvar
+                                </button>
+                            </div>
                         </div>
                     </div>
 

@@ -21,6 +21,49 @@ function logout() {
     }
 }
 
+// ─── Real-Time Sync (Cross-Tab) ──────────────────────────────────────────
+const syncChannel = new BroadcastChannel('consultoria_sync');
+
+syncChannel.onmessage = (event) => {
+    const { type, payload } = event.data;
+
+    // Refresh UI based on message type
+    if (type === 'NEW_DOUBT') {
+        if (typeof updateTrainerStats === 'function') updateTrainerStats();
+        if (typeof renderDuvidas === 'function') renderDuvidas();
+    }
+    if (type === 'DOUBT_RESOLVED') {
+        if (typeof updateTrainerStats === 'function') updateTrainerStats();
+        if (typeof renderDuvidas === 'function') renderDuvidas();
+    }
+    if (type === 'DOUBT_REPLY') {
+        if (typeof updateTrainerStats === 'function') updateTrainerStats();
+        if (typeof renderDuvidas === 'function') renderDuvidas();
+
+        // If student matches, refresh their view
+        const currentStudentId = localStorage.getItem('currentStudentId');
+        if (currentStudentId) {
+            // Re-render workout landing to show replies
+            if (typeof renderStudentWorkoutMain === 'function') {
+                renderStudentWorkoutMain();
+                // If on landing, refresh it
+                const landing = document.getElementById('treino-landing');
+                if (landing && landing.style.display !== 'none') {
+                    switchTreinoSubview('landing');
+                }
+            }
+        }
+    }
+    if (type === 'STUDENT_ACCEPTED' || type === 'STUDENT_REJECTED') {
+        if (typeof updateTrainerStats === 'function') updateTrainerStats();
+        // If student is logged in, they might need to see the "Ready" status
+        const studentId = localStorage.getItem('currentStudentId');
+        if (studentId) {
+            initStudentDashboard();
+        }
+    }
+};
+
 document.addEventListener('DOMContentLoaded', () => {
     // Check if student is already "logged in"
     const studentId = localStorage.getItem('currentStudentId');
@@ -187,7 +230,7 @@ function processLogin(user) {
     } else {
         localStorage.setItem('studentName', user.name);
         // Find if this user already has an ID, or generate one
-        let studentId = localStorage.getItem('currentStudentId') || Math.floor(1000 + Math.random() * 9000).toString();
+        let studentId = localStorage.getItem('currentStudentId') || Math.floor(10000 + Math.random() * 90000).toString();
         localStorage.setItem('currentStudentId', studentId);
 
         hideAllScreens();
@@ -199,6 +242,7 @@ function processLogin(user) {
 }
 
 let currentWorkoutTab = 0;
+let activeChatStudentId = null; // Track WhatsApp-style active chat
 
 function switchStudentView(view) {
     const views = ['home', 'treino', 'dieta', 'perfil', 'log-workout', 'workout-summary'];
@@ -211,10 +255,11 @@ function switchStudentView(view) {
 
     // Specific logic for each view
     if (view === 'treino') {
-        currentWorkoutTab = 0; // Reset tab when entering the view
-        renderStudentWorkoutMain();
+        currentWorkoutTab = 0;
+        switchTreinoSubview('landing');
     }
     if (view === 'dieta') renderStudentDietMain();
+    if (view === 'perfil') renderStudentPerfil();
 }
 
 function renderStudentWorkoutMain() {
@@ -291,6 +336,375 @@ function renderStudentWorkoutMain() {
 function switchWorkoutTab(idx) {
     currentWorkoutTab = idx;
     renderStudentWorkoutMain();
+}
+
+// ─── Treino Subview System ──────────────────────────────────────────────────
+
+function switchTreinoSubview(view) {
+    const landing = document.getElementById('treino-landing');
+    const analise = document.getElementById('treino-analise');
+    const historico = document.getElementById('treino-historico');
+
+    if (landing) landing.style.display = view === 'landing' ? 'block' : 'none';
+    if (analise) analise.style.display = view === 'analise' ? 'block' : 'none';
+    if (historico) historico.style.display = view === 'historico' ? 'block' : 'none';
+
+    if (view === 'landing') {
+        renderStudentDuvidas();
+    }
+    if (view === 'analise') {
+        currentWorkoutTab = 0;
+        renderStudentWorkoutMain();
+    }
+    if (view === 'historico') {
+        renderWorkoutHistory();
+    }
+}
+
+function renderStudentDuvidas() {
+    const listEl = document.getElementById('student-duvidas-list');
+    if (!listEl) return;
+
+    const studentName = localStorage.getItem('studentName') || 'Aluno';
+    const notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+
+    // Filter doubts belonging to this student (title starts with doubt and student name)
+    const myDuvidas = notifications.filter(n => n.type === 'duvida' && n.title.includes(studentName));
+
+    if (myDuvidas.length === 0) {
+        listEl.innerHTML = `
+            <div class="empty-state-card" style="margin-top:0; border-color: rgba(255,255,255,0.03);">
+                <i class="ph-bold ph-chat-circle-dots" style="font-size: 1.5rem; opacity: 0.5;"></i>
+                <p style="font-size: 0.8rem; color: var(--text-muted);">Você ainda não enviou dúvidas.</p>
+            </div>
+        `;
+        return;
+    }
+
+    listEl.innerHTML = myDuvidas.map(d => `
+        <div class="student-duvida-card">
+            <div class="sdc-header">
+                <span class="sdc-time">${d.time}</span>
+                ${d.reply ? '<span class="sdc-status-replied"><i class="ph-fill ph-check-circle"></i> Respondido</span>' : '<span class="sdc-status-pending"><i class="ph-bold ph-clock"></i> Pendente</span>'}
+            </div>
+            <div class="sdc-body">
+                <p class="sdc-text">
+                    <i class="ph-bold ph-question"></i> ${escHtml(d.desc)}
+                </p>
+                ${d.reply ? `
+                    <div class="sdc-reply">
+                        <div class="sdc-reply-header">
+                            <i class="ph-fill ph-user-circle"></i>
+                            <strong>Resposta do Treinador:</strong>
+                        </div>
+                        <p>${escHtml(d.reply)}</p>
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderWorkoutHistory() {
+    const studentId = localStorage.getItem('currentStudentId');
+    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]')
+        .filter(w => w.ID_Usuario === studentId)
+        .reverse();
+
+    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const student = students.find(s => s.id === studentId);
+    const prs = student?.personalRecords || {};
+    const totalPRs = Object.values(prs).reduce((sum, pr) => {
+        return sum + (pr.maxWeight > 0 ? 1 : 0);
+    }, 0);
+
+    // Evolution cards
+    const evoGrid = document.getElementById('history-evolution-cards');
+    if (evoGrid) {
+        const totalSessions = history.length;
+        const totalVolume = history.reduce((sum, w) => sum + (w.Volume_Total || 0), 0);
+        const totalDuration = history.reduce((sum, w) => sum + (w.Duracao || 0), 0);
+
+        evoGrid.innerHTML = `
+            <div class="evo-card">
+                <div class="evo-icon"><i class="ph-bold ph-calendar-check"></i></div>
+                <div class="evo-value">${totalSessions}</div>
+                <div class="evo-label">Treinos</div>
+            </div>
+            <div class="evo-card">
+                <div class="evo-icon"><i class="ph-bold ph-barbell"></i></div>
+                <div class="evo-value">${totalVolume >= 1000 ? (totalVolume / 1000).toFixed(1) + 'k' : totalVolume}</div>
+                <div class="evo-label">Volume Total (kg)</div>
+            </div>
+            <div class="evo-card">
+                <div class="evo-icon"><i class="ph-bold ph-timer"></i></div>
+                <div class="evo-value">${Math.round(totalDuration / 60)}</div>
+                <div class="evo-label">Minutos</div>
+            </div>
+            <div class="evo-card">
+                <div class="evo-icon"><i class="ph-bold ph-trophy"></i></div>
+                <div class="evo-value">${totalPRs}</div>
+                <div class="evo-label">Recordes</div>
+            </div>
+        `;
+    }
+
+    // Workout list
+    const listEl = document.getElementById('history-workout-list');
+    if (!listEl) return;
+
+    if (history.length === 0) {
+        listEl.innerHTML = `
+            <div class="perfil-history-empty">
+                <i class="ph-bold ph-barbell"></i>
+                <p>Você ainda não completou nenhum treino. Inicie um treino pelo Dashboard para começar a acompanhar sua evolução!</p>
+            </div>
+        `;
+        return;
+    }
+
+    listEl.innerHTML = history.map((w, idx) => {
+        const date = formatDate(w.Data_Treino);
+        const durationMin = Math.floor((w.Duracao || 0) / 60);
+        const exerciseCount = (w.Exercicios || []).length;
+        const totalSets = (w.Exercicios || []).reduce((s, ex) => s + ex.sets.length, 0);
+        const hasPRs = (w.Exercicios || []).some(ex => ex.sets.some(s => s.brokenPRs && s.brokenPRs.length > 0));
+        const originalIdx = history.length - 1 - idx;
+
+        return `
+            <div class="history-workout-card" onclick="openHistoryDetail(${originalIdx})">
+                <div class="history-workout-left">
+                    <div class="history-workout-date">${date}</div>
+                    <div class="history-workout-meta">
+                        <span><i class="ph-bold ph-barbell"></i> ${exerciseCount} exercícios</span>
+                        <span><i class="ph-bold ph-stack"></i> ${totalSets} séries</span>
+                        <span><i class="ph-bold ph-timer"></i> ${durationMin} min</span>
+                    </div>
+                    <div class="history-workout-exercises">
+                        ${(w.Exercicios || []).slice(0, 3).map(ex => `<span class="tag-muscle">${escHtml(ex.nome)}</span>`).join('')}
+                        ${exerciseCount > 3 ? `<span class="tag-muscle muted">+${exerciseCount - 3}</span>` : ''}
+                    </div>
+                </div>
+                <div class="history-workout-right">
+                    <button class="btn-delete-history" onclick="event.stopPropagation(); confirmDeleteWorkout(${originalIdx})">
+                        <i class="ph-bold ph-trash"></i>
+                    </button>
+                    ${hasPRs ? '<span class="history-pr-badge"><i class="ph-fill ph-trophy"></i> PR</span>' : ''}
+                    <span class="history-volume">${w.Volume_Total >= 1000 ? (w.Volume_Total / 1000).toFixed(1) + 'k' : w.Volume_Total} kg</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function openHistoryDetail(originalIdx) {
+    const studentId = localStorage.getItem('currentStudentId');
+    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]')
+        .filter(w => w.ID_Usuario === studentId);
+
+    const workout = history[originalIdx];
+    if (!workout) return;
+
+    const modal = document.getElementById('history-detail-modal');
+    const title = document.getElementById('history-detail-title');
+    const body = document.getElementById('history-detail-body');
+    if (!modal || !body) return;
+
+    const durationMin = Math.floor((workout.Duracao || 0) / 60);
+    const durationSec = (workout.Duracao || 0) % 60;
+
+    title.textContent = `Treino — ${formatDate(workout.Data_Treino)}`;
+
+    body.innerHTML = `
+        <div class="history-detail-stats">
+            <div class="hd-stat">
+                <i class="ph-bold ph-timer"></i>
+                <span>${durationMin}:${durationSec.toString().padStart(2, '0')}</span>
+                <small>Duração</small>
+            </div>
+            <div class="hd-stat">
+                <i class="ph-bold ph-barbell"></i>
+                <span>${workout.Volume_Total} kg</span>
+                <small>Volume</small>
+            </div>
+            <div class="hd-stat">
+                <i class="ph-bold ph-stack"></i>
+                <span>${(workout.Exercicios || []).reduce((s, ex) => s + ex.sets.length, 0)}</span>
+                <small>Séries</small>
+            </div>
+        </div>
+
+        <div class="history-detail-exercises">
+            ${(workout.Exercicios || []).map(ex => `
+                <div class="hd-exercise">
+                    <h4>${escHtml(ex.nome)}</h4>
+                    <div class="hd-sets">
+                        ${ex.sets.map((s, si) => `
+                            <div class="hd-set-row ${s.brokenPRs && s.brokenPRs.length > 0 ? 'has-pr' : ''}">
+                                <span class="hd-set-num">${si + 1}</span>
+                                <span>${s.peso || 0} kg</span>
+                                <span>×</span>
+                                <span>${s.reps || 0} reps</span>
+                                ${s.brokenPRs && s.brokenPRs.length > 0 ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+}
+
+function closeHistoryDetailModal() {
+    document.getElementById('history-detail-modal').style.display = 'none';
+}
+
+// ─── Confirmation Modal Logic ──────────────────────────────────────────────
+let confirmationCallback = null;
+
+function openConfirmationModal(title, message, callback) {
+    const modal = document.getElementById('confirmation-modal-overlay');
+    if (!modal) return;
+
+    document.getElementById('confirmation-modal-title').innerText = title;
+    document.getElementById('confirmation-modal-message').innerText = message;
+    document.getElementById('confirmation-input').value = '';
+
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+
+    confirmationCallback = callback;
+
+    const confirmBtn = document.getElementById('confirmation-modal-confirm-btn');
+    confirmBtn.onclick = () => {
+        const inputField = document.getElementById('confirmation-input');
+        const input = inputField.value.trim().toLowerCase();
+        if (input === 'remover') {
+            if (confirmationCallback) confirmationCallback();
+            closeConfirmationModal();
+        } else {
+            inputField.classList.remove('shake-error');
+            void inputField.offsetWidth; // Trigger reflow
+            inputField.classList.add('shake-error');
+            setTimeout(() => inputField.classList.remove('shake-error'), 500);
+        }
+    };
+}
+
+function closeConfirmationModal() {
+    const modal = document.getElementById('confirmation-modal-overlay');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => { modal.style.display = 'none'; }, 300);
+    confirmationCallback = null;
+}
+
+function confirmDeleteWorkout(idx) {
+    openConfirmationModal(
+        'Excluir Treino',
+        'Tem certeza que deseja excluir este registro de treino? Esta ação não pode ser desfeita.',
+        () => deleteWorkoutEntry(idx)
+    );
+}
+
+function deleteWorkoutEntry(idx) {
+    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+    history.splice(idx, 1);
+    localStorage.setItem('workoutHistory', JSON.stringify(history));
+    renderWorkoutHistory();
+    syncChannel.postMessage({ type: 'workout_history_updated' });
+}
+
+function confirmDeleteMetric(idxInHistory) {
+    openConfirmationModal(
+        'Excluir Medição',
+        'Tem certeza que deseja excluir este registro de medidas? Isso afetará os gráficos e médias globais.',
+        () => deleteMetricEntry(idxInHistory)
+    );
+}
+
+function deleteMetricEntry(idx) {
+    const studentId = localStorage.getItem('currentStudentId');
+    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const sIdx = students.findIndex(s => s.id === studentId);
+
+    if (sIdx !== -1) {
+        students[sIdx].metricHistory.splice(idx, 1);
+
+        // Update current values from lateast if needed
+        const history = students[sIdx].metricHistory;
+        if (history.length > 0) {
+            const latest = history[history.length - 1];
+            students[sIdx].currentWeight = latest.weight || students[sIdx].currentWeight;
+            students[sIdx].currentBF = latest.bodyFat || students[sIdx].currentBF;
+        }
+
+        localStorage.setItem('trainerStudents', JSON.stringify(students));
+        renderStudentPerfil();
+        syncChannel.postMessage({ type: 'student_data_updated' });
+    }
+}
+
+// ─── Q&A / Dúvidas ──────────────────────────────────────────────────────────
+
+function openDuvidaModal() {
+    const modal = document.getElementById('duvida-modal-overlay');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+}
+
+function closeDuvidaModal() {
+    const modal = document.getElementById('duvida-modal-overlay');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => { modal.style.display = 'none'; }, 300);
+}
+
+function enviarDuvida() {
+    const assunto = document.getElementById('duvida-assunto')?.value || 'outro';
+    const texto = document.getElementById('duvida-texto')?.value.trim();
+
+    if (!texto) {
+        alert('Por favor, descreva sua dúvida.');
+        return;
+    }
+
+    const studentName = localStorage.getItem('studentName') || 'Aluno';
+    const assuntoLabels = {
+        'exercicio': 'Dúvida sobre exercício',
+        'execucao': 'Dúvida sobre execução',
+        'substituicao': 'Substituição de exercício',
+        'carga': 'Dúvida sobre carga',
+        'outro': 'Outro'
+    };
+
+    const studentId = localStorage.getItem('currentStudentId');
+
+    // Send as notification to trainer
+    let notifs = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    notifs.unshift({
+        type: 'duvida',
+        studentId: studentId,
+        title: `💬 Dúvida de ${studentName}`,
+        desc: `[${assuntoLabels[assunto]}] ${texto}`,
+        time: new Date().toISOString(),
+        unread: true
+    });
+    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+
+    // Broadcast change
+    syncChannel.postMessage({ type: 'NEW_DOUBT' });
+
+    // Clear and close
+    document.getElementById('duvida-texto').value = '';
+    closeDuvidaModal();
+
+    // Feedback
+    alert('✅ Dúvida enviada com sucesso! Seu treinador receberá a mensagem.');
 }
 
 function getMuscleGroups(exercises) {
@@ -458,7 +872,7 @@ function submitQuestionnaire() {
     const height = document.getElementById('q_altura')?.value || '175';
     const goal = document.getElementById('q_objetivo')?.value || 'Hipertrofia';
 
-    const id = Math.floor(1000 + Math.random() * 9000).toString();
+    const id = Math.floor(10000 + Math.random() * 90000).toString();
     const newStudent = {
         id: id,
         name: nome,
@@ -541,17 +955,21 @@ function renderWorkoutStartOptions(student) {
     const container = document.getElementById('student-workout-start-options');
     if (!container || !student.workoutBlocks) return;
 
-    container.innerHTML = student.workoutBlocks.map((block, idx) => `
+    container.innerHTML = student.workoutBlocks.map((block, idx) => {
+        const muscles = getMuscleGroups(block.exercises);
+        const title = block.title || `Treino ${String.fromCharCode(65 + idx)}`;
+        return `
         <button class="action-card highlight" onclick="startWorkoutSession(${idx})"
             style="background: rgba(163, 230, 53, 0.1); border-color: rgba(163, 230, 53, 0.3); padding: 1rem;">
             <i class="ph-fill ph-play-circle" style="color: var(--primary-color); font-size: 1.5rem;"></i>
             <div style="flex:1; text-align: left;">
-                <span style="display: block; font-weight: 700; color: var(--text-main);">${escHtml(block.title)}</span>
-                <span style="font-size: 0.75rem; color: var(--text-muted);">${block.exercises.length} exercícios • Registrar cargas</span>
+                <span style="display: block; font-weight: 700; color: var(--text-main); font-size: 1rem;">${escHtml(title)}</span>
+                <span style="font-size: 0.75rem; color: var(--primary-color); font-weight: 500;">${muscles.join(' • ')}</span>
+                <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${block.exercises.length} exercícios • Registrar cargas</span>
             </div>
             <i class="ph-bold ph-caret-right" style="color: var(--primary-color); font-size: 1rem;"></i>
-        </button>
-    `).join('');
+        </button>`;
+    }).join('');
 }
 
 function setProtocolStatus(isReady) {
@@ -660,6 +1078,521 @@ function openStudentDiet() {
 
 function closeStudentDiet() {
     document.getElementById('student-diet-screen').classList.remove('active');
+}
+
+// ─── Meu Perfil (Student Profile) ──────────────────────────────────────────
+let _perfilModalField = '';
+
+function getStudentData() {
+    const studentId = localStorage.getItem('currentStudentId');
+    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    return { studentId, students, student: students.find(s => s.id === studentId) };
+}
+
+function saveStudentData(students) {
+    localStorage.setItem('trainerStudents', JSON.stringify(students));
+}
+
+function calcIMC(weight, height) {
+    if (!weight || !height) return 0;
+    const h = parseFloat(height) / 100;
+    return (parseFloat(weight) / (h * h)).toFixed(1);
+}
+
+function getIMCLabel(imc) {
+    if (imc < 18.5) return 'Abaixo do peso';
+    if (imc < 25) return 'Peso saudável';
+    if (imc < 30) return 'Sobrepeso';
+    return 'Obesidade';
+}
+
+function getPercentDelta(current, previous) {
+    if (!previous || previous == 0) return null;
+    return (((current - previous) / previous) * 100).toFixed(1);
+}
+
+function formatDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function formatDateShort(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    return `${d.getDate()} ${months[d.getMonth()]}`;
+}
+
+function renderStudentPerfil() {
+    const { student } = getStudentData();
+    if (!student) return;
+
+    const history = student.metricHistory || [];
+    const lastEntry = history.length > 0 ? history[history.length - 1] : null;
+    const prevEntry = history.length > 1 ? history[history.length - 2] : null;
+
+    const weight = parseFloat(student.weight) || 0;
+    const height = parseFloat(student.height) || 0;
+    const imc = calcIMC(weight, height);
+    const bodyFat = parseFloat(student.bodyFat) || 0;
+
+    const prevWeight = prevEntry ? parseFloat(prevEntry.weight) : null;
+    const prevBodyFat = prevEntry ? parseFloat(prevEntry.bodyFat || 0) : null;
+
+    // Profile header
+    const nameEl = document.getElementById('perfil-nome');
+    if (nameEl) nameEl.textContent = student.name || 'Aluno';
+
+    const avatarEl = document.getElementById('perfil-avatar');
+    if (avatarEl) {
+        const initials = (student.name || 'A').split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+        avatarEl.innerHTML = `<span>${initials}</span>`;
+    }
+
+    const membroEl = document.getElementById('perfil-membro-desde');
+    if (membroEl) membroEl.textContent = `Membro desde ${formatDate(student.joinedAt)}`;
+
+    // Metrics grid
+    const metricsGrid = document.getElementById('perfil-metrics-grid');
+    if (metricsGrid) {
+        const weightDelta = getPercentDelta(weight, prevWeight);
+        const imcVal = parseFloat(imc);
+        const bfDelta = getPercentDelta(bodyFat, prevBodyFat);
+
+        metricsGrid.innerHTML = `
+            <div class="perfil-metric-card" onclick="openPerfilUpdateModal('peso')">
+                <div class="metric-card-top">
+                    <span class="metric-label">Peso</span>
+                    <button class="metric-edit-btn"><i class="ph-bold ph-pencil-simple"></i></button>
+                </div>
+                <div class="metric-value">${weight}<span class="metric-unit">kg</span></div>
+                ${weightDelta !== null ? `
+                    <div class="metric-delta ${parseFloat(weightDelta) > 0 ? 'up' : parseFloat(weightDelta) < 0 ? 'down' : ''}">
+                        <i class="ph-bold ${parseFloat(weightDelta) > 0 ? 'ph-trend-up' : parseFloat(weightDelta) < 0 ? 'ph-trend-down' : 'ph-minus'}"></i>
+                        ${Math.abs(weightDelta)}% desde última atualização
+                    </div>
+                ` : '<div class="metric-delta neutral">Primeiro registro</div>'}
+            </div>
+
+            <div class="perfil-metric-card">
+                <div class="metric-card-top">
+                    <span class="metric-label">IMC</span>
+                </div>
+                <div class="metric-value">${imc}<span class="metric-unit">kg/m²</span></div>
+                <div class="metric-delta ${imcVal < 25 && imcVal >= 18.5 ? 'healthy' : 'warn'}">
+                    <i class="ph-bold ${imcVal < 25 && imcVal >= 18.5 ? 'ph-check-circle' : 'ph-warning'}"></i>
+                    ${getIMCLabel(imcVal)}
+                </div>
+            </div>
+
+            <div class="perfil-metric-card" onclick="openPerfilUpdateModal('gordura')">
+                <div class="metric-card-top">
+                    <span class="metric-label">% Gordura</span>
+                    <button class="metric-edit-btn"><i class="ph-bold ph-pencil-simple"></i></button>
+                </div>
+                <div class="metric-value">${bodyFat || '—'}<span class="metric-unit">%</span></div>
+                ${bodyFat > 0 && bfDelta !== null ? `
+                    <div class="metric-delta ${parseFloat(bfDelta) < 0 ? 'down' : parseFloat(bfDelta) > 0 ? 'up' : ''}">
+                        <i class="ph-bold ${parseFloat(bfDelta) < 0 ? 'ph-trend-down' : parseFloat(bfDelta) > 0 ? 'ph-trend-up' : 'ph-minus'}"></i>
+                        ${Math.abs(bfDelta)}% desde última atualização
+                    </div>
+                ` : '<div class="metric-delta neutral">Sem dados anteriores</div>'}
+            </div>
+
+            <div class="perfil-metric-card" onclick="openPerfilUpdateModal('altura')">
+                <div class="metric-card-top">
+                    <span class="metric-label">Altura</span>
+                    <button class="metric-edit-btn"><i class="ph-bold ph-pencil-simple"></i></button>
+                </div>
+                <div class="metric-value">${height}<span class="metric-unit">cm</span></div>
+                <div class="metric-delta neutral">
+                    <i class="ph-bold ph-ruler"></i>
+                    ${(height / 100).toFixed(2)}m
+                </div>
+            </div>
+        `;
+    }
+
+    // Personal Info grid
+    const infoGrid = document.getElementById('perfil-info-grid');
+    if (infoGrid) {
+        infoGrid.innerHTML = `
+            <div class="perfil-info-item">
+                <i class="ph-bold ph-user"></i>
+                <div>
+                    <span class="info-label">Nome</span>
+                    <span class="info-value">${student.name || '—'}</span>
+                </div>
+            </div>
+            <div class="perfil-info-item">
+                <i class="ph-bold ph-calendar-blank"></i>
+                <div>
+                    <span class="info-label">Idade</span>
+                    <span class="info-value">${student.age || '—'} anos</span>
+                </div>
+            </div>
+            <div class="perfil-info-item">
+                <i class="ph-bold ph-gender-intersex"></i>
+                <div>
+                    <span class="info-label">Gênero</span>
+                    <span class="info-value">${student.gender === 'M' ? 'Masculino' : student.gender === 'F' ? 'Feminino' : '—'}</span>
+                </div>
+            </div>
+            <div class="perfil-info-item">
+                <i class="ph-bold ph-target"></i>
+                <div>
+                    <span class="info-label">Objetivo</span>
+                    <span class="info-value">${student.goal || '—'}</span>
+                </div>
+            </div>
+        `;
+    }
+
+    // History list
+    renderPerfilHistory(student);
+
+    // Chart
+    renderPerfilChart();
+}
+
+function renderPerfilHistory(student) {
+    const list = document.getElementById('perfil-history-list');
+    if (!list) return;
+
+    const history = student.metricHistory || [];
+
+    if (history.length === 0) {
+        list.innerHTML = `
+            <div class="perfil-history-empty">
+                <i class="ph-bold ph-note-blank"></i>
+                <p>Nenhuma alteração registrada ainda. Atualize suas métricas para começar a acompanhar sua evolução.</p>
+            </div>
+        `;
+        return;
+    }
+
+    const items = history.slice().reverse().slice(0, 10);
+    list.innerHTML = items.map((entry, idx) => {
+        const changes = [];
+        const prevIdx = history.length - 1 - idx - 1;
+        const prev = prevIdx >= 0 ? history[prevIdx] : null;
+
+        if (entry.weight) {
+            const delta = prev && prev.weight ? getPercentDelta(entry.weight, prev.weight) : null;
+            changes.push({
+                label: 'Peso',
+                value: `${entry.weight} kg`,
+                delta: delta,
+                icon: 'ph-barbell'
+            });
+        }
+        if (entry.bodyFat) {
+            const delta = prev && prev.bodyFat ? getPercentDelta(entry.bodyFat, prev.bodyFat) : null;
+            changes.push({
+                label: 'Gordura',
+                value: `${entry.bodyFat}%`,
+                delta: delta,
+                icon: 'ph-fire'
+            });
+        }
+        if (entry.height) {
+            changes.push({
+                label: 'Altura',
+                value: `${entry.height} cm`,
+                delta: null,
+                icon: 'ph-ruler'
+            });
+        }
+
+        return `
+            <div class="perfil-history-item" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+                <div style="flex: 1;">
+                    <div class="history-date">
+                        <i class="ph-bold ph-calendar-check"></i>
+                        ${formatDate(entry.date)}
+                    </div>
+                    <div class="history-changes">
+                        ${changes.map(c => `
+                            <div class="history-change-chip">
+                                <i class="ph-bold ${c.icon}"></i>
+                                <span>${c.label}: <strong>${c.value}</strong></span>
+                                ${c.delta !== null ? `
+                                    <span class="history-delta ${parseFloat(c.delta) > 0 ? 'up' : parseFloat(c.delta) < 0 ? 'down' : ''}">
+                                        ${parseFloat(c.delta) > 0 ? '+' : ''}${c.delta}%
+                                    </span>
+                                ` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                <button class="btn-delete-history" onclick="confirmDeleteMetric(${history.length - 1 - idx})">
+                    <i class="ph-bold ph-trash"></i>
+                </button>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderPerfilChart() {
+    const { student } = getStudentData();
+    if (!student) return;
+
+    const history = student.metricHistory || [];
+    const canvas = document.getElementById('perfil-weight-chart');
+    const emptyEl = document.getElementById('perfil-chart-empty');
+    if (!canvas) return;
+
+    const weightData = history.filter(h => h.weight).map(h => ({
+        date: formatDateShort(h.date),
+        value: parseFloat(h.weight)
+    }));
+
+    // Add initial weight if no history
+    if (weightData.length === 0 && student.weight) {
+        weightData.push({ date: formatDateShort(student.joinedAt), value: parseFloat(student.weight) });
+    }
+
+    if (weightData.length < 2) {
+        canvas.style.display = 'none';
+        if (emptyEl) emptyEl.style.display = 'flex';
+        return;
+    }
+
+    canvas.style.display = 'block';
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    const rangeVal = document.getElementById('perfil-chart-range')?.value || '6';
+    const data = rangeVal === 'all' ? weightData : weightData.slice(-parseInt(rangeVal));
+
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = canvas.offsetWidth * dpr;
+    canvas.height = 220 * dpr;
+    ctx.scale(dpr, dpr);
+    const W = canvas.offsetWidth;
+    const H = 220;
+
+    ctx.clearRect(0, 0, W, H);
+
+    const values = data.map(d => d.value);
+    const minV = Math.min(...values) - 2;
+    const maxV = Math.max(...values) + 2;
+    const rangeV = maxV - minV || 1;
+
+    const padL = 50, padR = 20, padT = 20, padB = 40;
+    const chartW = W - padL - padR;
+    const chartH = H - padT - padB;
+
+    const points = data.map((d, i) => ({
+        x: padL + (i / (data.length - 1)) * chartW,
+        y: padT + chartH - ((d.value - minV) / rangeV) * chartH
+    }));
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+        const y = padT + (i / 4) * chartH;
+        ctx.beginPath();
+        ctx.moveTo(padL, y);
+        ctx.lineTo(W - padR, y);
+        ctx.stroke();
+
+        const val = (maxV - (i / 4) * rangeV).toFixed(1);
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.font = '11px Inter, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(val, padL - 8, y + 4);
+    }
+
+    // Gradient fill
+    const grad = ctx.createLinearGradient(0, padT, 0, H);
+    grad.addColorStop(0, 'rgba(163, 230, 53, 0.25)');
+    grad.addColorStop(1, 'rgba(163, 230, 53, 0.01)');
+
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, H - padB);
+    points.forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.lineTo(points[points.length - 1].x, H - padB);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    ctx.strokeStyle = '#A3E635';
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+
+    // Dots and labels
+    points.forEach((p, i) => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#A3E635';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+        ctx.fillStyle = '#121214';
+        ctx.fill();
+
+        // Date labels
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.font = '10px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(data[i].date, p.x, H - padB + 16);
+    });
+}
+
+function openPerfilUpdateModal(field) {
+    _perfilModalField = field;
+    const modal = document.getElementById('perfil-update-modal');
+    const title = document.getElementById('perfil-modal-title');
+    const body = document.getElementById('perfil-modal-body');
+    if (!modal || !body) return;
+
+    const { student } = getStudentData();
+    if (!student) return;
+
+    let html = '';
+
+    if (field === 'peso') {
+        title.textContent = 'Atualizar Peso';
+        html = `
+            <div class="perfil-modal-field">
+                <label>PESO ATUAL (KG)</label>
+                <input type="number" step="0.1" id="modal-peso" class="q-input" value="${student.weight || ''}" placeholder="Ex: 78.5">
+            </div>
+            <div class="perfil-modal-current">
+                <span>Valor anterior:</span>
+                <strong>${student.weight || '—'} kg</strong>
+            </div>
+        `;
+    } else if (field === 'altura') {
+        title.textContent = 'Atualizar Altura';
+        html = `
+            <div class="perfil-modal-field">
+                <label>ALTURA (CM)</label>
+                <input type="number" id="modal-altura" class="q-input" value="${student.height || ''}" placeholder="Ex: 175">
+            </div>
+        `;
+    } else if (field === 'gordura') {
+        title.textContent = 'Atualizar % Gordura Corporal';
+        html = `
+            <div class="perfil-modal-field">
+                <label>PERCENTUAL DE GORDURA (%)</label>
+                <input type="number" step="0.1" id="modal-gordura" class="q-input" value="${student.bodyFat || ''}" placeholder="Ex: 14.2">
+            </div>
+            <div class="perfil-modal-current">
+                <span>Valor anterior:</span>
+                <strong>${student.bodyFat || '—'}%</strong>
+            </div>
+        `;
+    } else if (field === 'geral') {
+        title.textContent = 'Editar Perfil';
+        html = `
+            <div class="perfil-modal-field">
+                <label>NOME</label>
+                <input type="text" id="modal-nome" class="q-input" value="${student.name || ''}" placeholder="Seu nome">
+            </div>
+            <div class="perfil-modal-field">
+                <label>IDADE</label>
+                <input type="number" id="modal-idade" class="q-input" value="${student.age || ''}" placeholder="25">
+            </div>
+            <div class="perfil-modal-field">
+                <label>OBJETIVO</label>
+                <input type="text" id="modal-objetivo" class="q-input" value="${student.goal || ''}" placeholder="Ex: Hipertrofia">
+            </div>
+        `;
+    }
+
+    body.innerHTML = html;
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+}
+
+function closePerfilUpdateModal() {
+    const modal = document.getElementById('perfil-update-modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => { modal.style.display = 'none'; }, 300);
+}
+
+function savePerfilUpdate() {
+    const { studentId, students, student } = getStudentData();
+    if (!student) return;
+
+    if (!student.metricHistory) student.metricHistory = [];
+
+    const now = new Date().toISOString();
+    let changed = false;
+
+    if (_perfilModalField === 'peso') {
+        const val = parseFloat(document.getElementById('modal-peso')?.value);
+        if (!isNaN(val) && val > 0) {
+            student.weight = val.toString();
+            student.metricHistory.push({
+                date: now,
+                weight: val,
+                bodyFat: parseFloat(student.bodyFat) || null,
+                height: parseFloat(student.height) || null
+            });
+            changed = true;
+        }
+    } else if (_perfilModalField === 'altura') {
+        const val = parseFloat(document.getElementById('modal-altura')?.value);
+        if (!isNaN(val) && val > 0) {
+            student.height = val.toString();
+            student.metricHistory.push({
+                date: now,
+                weight: parseFloat(student.weight) || null,
+                bodyFat: parseFloat(student.bodyFat) || null,
+                height: val
+            });
+            changed = true;
+        }
+    } else if (_perfilModalField === 'gordura') {
+        const val = parseFloat(document.getElementById('modal-gordura')?.value);
+        if (!isNaN(val) && val >= 0) {
+            student.bodyFat = val.toString();
+            student.metricHistory.push({
+                date: now,
+                weight: parseFloat(student.weight) || null,
+                bodyFat: val,
+                height: parseFloat(student.height) || null
+            });
+            changed = true;
+        }
+    } else if (_perfilModalField === 'geral') {
+        const nome = document.getElementById('modal-nome')?.value.trim();
+        const idade = document.getElementById('modal-idade')?.value;
+        const objetivo = document.getElementById('modal-objetivo')?.value.trim();
+        if (nome) student.name = nome;
+        if (idade) student.age = idade;
+        if (objetivo) student.goal = objetivo;
+        if (nome) localStorage.setItem('studentName', nome);
+        changed = true;
+    }
+
+    if (changed) {
+        // Update the students array
+        const idx = students.findIndex(s => s.id === studentId);
+        if (idx !== -1) students[idx] = student;
+        saveStudentData(students);
+
+        closePerfilUpdateModal();
+        renderStudentPerfil();
+
+        // Also update dashboard name if changed
+        const nameEl = document.getElementById('dash-student-name');
+        if (nameEl) nameEl.innerText = `Olá, ${(student.name || 'Aluno').split(' ')[0]}`;
+        const sideEl = document.getElementById('side-student-name');
+        if (sideEl) sideEl.innerText = (student.name || 'Aluno').split(' ')[0];
+    }
 }
 
 function toggleConditional(id, show) {
@@ -783,22 +1716,51 @@ function initTrainerDashboard() {
 function switchDashView(view) {
     const viewDash = document.getElementById('view-dashboard');
     const viewAlunos = document.getElementById('view-alunos');
+    const viewDuvidas = document.getElementById('view-duvidas');
     const navDash = document.getElementById('nav-dashboard');
     const navAlunos = document.getElementById('nav-alunos');
+    const navDuvidas = document.getElementById('nav-duvidas');
     const pageTitle = document.getElementById('main-page-title');
 
+    // Reset visibility
+    if (viewDash) viewDash.style.display = 'none';
+    if (viewAlunos) viewAlunos.style.display = 'none';
+    if (viewDuvidas) viewDuvidas.style.display = 'none';
+
+    // Reset active states
+    if (navDash) navDash.classList.remove('active');
+    if (navAlunos) navAlunos.classList.remove('active');
+    if (navDuvidas) navDuvidas.classList.remove('active');
+
     if (view === 'alunos') {
-        viewDash.style.display = 'none';
-        viewAlunos.style.display = '';
-        navDash.classList.remove('active');
-        navAlunos.classList.add('active');
+        if (viewAlunos) viewAlunos.style.display = '';
+        if (navAlunos) navAlunos.classList.add('active');
         if (pageTitle) pageTitle.textContent = 'Gerenciar Alunos';
+    } else if (view === 'duvidas') {
+        if (viewDuvidas) viewDuvidas.style.display = '';
+        if (navDuvidas) navDuvidas.classList.add('active');
+        if (pageTitle) pageTitle.textContent = 'Dúvidas dos Alunos';
+
+        // Contextual search
+        const globalSearch = document.getElementById('global-search');
+        if (globalSearch) {
+            globalSearch.oninput = (e) => filterChats(e.target.value);
+            globalSearch.placeholder = "Buscar conversas...";
+            globalSearch.value = "";
+        }
+        renderDuvidas();
     } else {
-        viewDash.style.display = '';
-        viewAlunos.style.display = 'none';
-        navDash.classList.add('active');
-        navAlunos.classList.remove('active');
+        if (viewDash) viewDash.style.display = '';
+        if (navDash) navDash.classList.add('active');
         if (pageTitle) pageTitle.textContent = 'Painel de Controle';
+
+        // Reset search to student filtering
+        const globalSearch = document.getElementById('global-search');
+        if (globalSearch) {
+            globalSearch.oninput = (e) => filterStudents(e.target.value);
+            globalSearch.placeholder = "Buscar aluno ou treino...";
+            globalSearch.value = "";
+        }
     }
 }
 
@@ -926,6 +1888,447 @@ function updateTrainerStats(filterText) {
         if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${activeStudents.length} alunos`;
     }
 
+    // ── Duvidas nav badge ──
+    const notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    const unreadDuvidas = notifications.filter(n => n.type === 'duvida' && n.unread).length;
+    const duvidasBadge = document.getElementById('duvidas-nav-badge');
+    if (duvidasBadge) {
+        duvidasBadge.style.display = unreadDuvidas > 0 ? 'inline-flex' : 'none';
+        duvidasBadge.textContent = unreadDuvidas;
+    }
+
+    // ── Chat sidebar total unread ──
+    const chatTotalBadge = document.getElementById('chat-total-unread');
+    if (chatTotalBadge) {
+        chatTotalBadge.style.display = unreadDuvidas > 0 ? 'flex' : 'none';
+        chatTotalBadge.textContent = unreadDuvidas;
+    }
+}
+
+function backToChatList() {
+    const container = document.querySelector('.chat-container');
+    if (container) container.classList.remove('active-chat');
+    activeChatStudentId = null;
+    renderDuvidas();
+}
+
+function renderDuvidas(filterText) {
+    const notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const duvidas = notifications.filter(n => n.type === 'duvida');
+
+    // ── 1. Group by Student ──
+    const chatsMap = {};
+    duvidas.forEach(d => {
+        const sId = d.studentId || 'unknown';
+        if (!chatsMap[sId]) {
+            // Find student name from students list or title
+            let sName = 'Aluno Desconhecido';
+            if (sId !== 'unknown') {
+                const s = students.find(x => x.id === sId);
+                if (s) sName = s.name;
+            } else {
+                sName = d.title.replace('💬 Dúvida de ', '');
+            }
+
+            chatsMap[sId] = {
+                id: sId,
+                name: sName,
+                messages: [],
+                lastTime: d.time,
+                unreadCount: 0
+            };
+        }
+        chatsMap[sId].messages.push(d);
+        if (d.unread) chatsMap[sId].unreadCount++;
+        // Keep the latest time
+        if (new Date(d.time) > new Date(chatsMap[sId].lastTime)) {
+            chatsMap[sId].lastTime = d.time;
+        }
+    });
+
+    // Convert to array and sort by last message time
+    const chatList = Object.values(chatsMap).sort((a, b) => new Date(b.lastTime) - new Date(a.lastTime));
+
+    // ── 2. Render Sidebar ──
+    const listContainer = document.getElementById('chat-list');
+    if (listContainer) {
+        const query = (filterText || '').toLowerCase();
+        const filtered = chatList.filter(c => c.name.toLowerCase().includes(query));
+
+        if (filtered.length === 0) {
+            listContainer.innerHTML = `<p class="empty-chat-msg">Nenhuma conversa encontrada</p>`;
+        } else {
+            listContainer.innerHTML = filtered.map(c => {
+                const activeClass = activeChatStudentId === c.id ? 'active' : '';
+                const timeStr = formatChatTime(c.lastTime);
+                const lastMsg = c.messages[0].desc.substring(0, 35) + (c.messages[0].desc.length > 35 ? '...' : '');
+
+                return `
+                    <div class="chat-item ${activeClass}" onclick="selectChat('${c.id}')">
+                        <div class="chat-avatar"><i class="ph-fill ph-user"></i></div>
+                        <div class="chat-item-info">
+                            <div class="chat-item-top">
+                                <strong>${escHtml(c.name)}</strong>
+                                <span class="chat-time">${timeStr}</span>
+                            </div>
+                            <div class="chat-item-bottom">
+                                <p>${escHtml(lastMsg)}</p>
+                                ${c.unreadCount > 0 ? `<span class="chat-unread-badge">${c.unreadCount}</span>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    // ── 3. Render Active Window ──
+    const welcomeView = document.getElementById('chat-welcome');
+    const activeView = document.getElementById('chat-active-view');
+
+    if (!activeChatStudentId) {
+        if (welcomeView) welcomeView.style.display = 'flex';
+        if (activeView) activeView.style.display = 'none';
+        return;
+    }
+
+    if (welcomeView) welcomeView.style.display = 'none';
+    if (activeView) activeView.style.display = 'flex';
+
+    const activeChat = chatsMap[activeChatStudentId];
+    if (!activeChat) {
+        activeChatStudentId = null;
+        renderDuvidas();
+        return;
+    }
+
+    // Header info
+    const elName = document.getElementById('chat-active-name');
+    if (elName) elName.textContent = activeChat.name;
+
+    // Messages (Bubbles)
+    const msgContainer = document.getElementById('chat-messages');
+    if (msgContainer) {
+        // Sort chronologically for bubbles
+        const sortedMsgs = [...activeChat.messages].sort((a, b) => new Date(a.time) - new Date(b.time));
+
+        msgContainer.innerHTML = sortedMsgs.map(m => {
+            const timeStr = formatChatTime(m.time);
+            let html = `
+                <div class="msg-bubble student">
+                    <div class="msg-content">
+                        ${escHtml(m.desc)}
+                        <span class="msg-time">${timeStr}</span>
+                    </div>
+                </div>
+            `;
+            if (m.reply) {
+                html += `
+                    <div class="msg-bubble trainer">
+                        <div class="msg-content">
+                            ${escHtml(m.reply)}
+                            <span class="msg-time">${timeStr} <i class="ph-bold ph-checks" style="color:#34b7f1"></i></span>
+                        </div>
+                    </div>
+                `;
+            }
+            return html;
+        }).join('');
+
+        // Scroll to bottom
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+    }
+}
+
+function selectChat(studentId) {
+    activeChatStudentId = studentId;
+
+    // Mark as read when opening
+    let notifs = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    let changed = false;
+    notifs.forEach(n => {
+        if (n.type === 'duvida' && (n.studentId === studentId || (!n.studentId && studentId === 'unknown')) && n.unread) {
+            n.unread = false;
+            changed = true;
+        }
+    });
+
+    if (changed) {
+        localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+        updateTrainerStats();
+        syncChannel.postMessage({ type: 'DOUBT_RESOLVED' });
+    }
+
+    // Mobile responsiveness: Show chat window on select
+    const container = document.querySelector('.chat-container');
+    if (container) container.classList.add('active-chat');
+
+    renderDuvidas();
+}
+
+function filterChats(query) {
+    renderDuvidas(query);
+}
+
+function responderChat() {
+    const input = document.getElementById('chat-reply-input');
+    const reply = input?.value.trim();
+    if (!reply || !activeChatStudentId) return;
+
+    let notifs = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+
+    // Find first unreplied doubt for this student
+    const doubt = notifs.find(n => n.type === 'duvida' && (n.studentId === activeChatStudentId || (!n.studentId && activeChatStudentId === 'unknown')) && !n.reply);
+
+    if (doubt) {
+        doubt.reply = reply;
+        doubt.unread = false; // Just in case
+    } else {
+        // If all are replied, we could add a "pure reply" message, 
+        // but for now let's just update the last one or show an alert
+        const lastDoubt = notifs.find(n => n.type === 'duvida' && (n.studentId === activeChatStudentId || (!n.studentId && activeChatStudentId === 'unknown')));
+        if (lastDoubt) lastDoubt.reply = (lastDoubt.reply ? lastDoubt.reply + '\n' : '') + reply;
+    }
+
+    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+    input.value = '';
+    renderDuvidas();
+    updateTrainerStats();
+
+    // Broadcats reply
+    syncChannel.postMessage({ type: 'DOUBT_REPLY', payload: { studentId: activeChatStudentId } });
+}
+
+let activeRoutineIdx = 0;
+
+function switchTreinoSubview(subview) {
+    const views = ['landing', 'analise', 'historico'];
+    views.forEach(v => {
+        const el = document.getElementById(`treino-${v}`);
+        if (el) el.style.display = (v === subview) ? 'block' : 'none';
+    });
+
+    if (subview === 'analise') {
+        activeRoutineIdx = 0;
+        renderStudentWorkoutContentMain();
+    } else if (subview === 'historico') {
+        renderWorkoutHistoryTable();
+    }
+}
+
+function renderStudentWorkoutContentMain() {
+    const studentId = localStorage.getItem('currentStudentId');
+    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const student = students.find(s => s.id === studentId);
+    if (!student || !student.workoutBlocks) return;
+
+    const tabsNav = document.getElementById('workout-tabs-nav');
+    const contentArea = document.getElementById('student-workout-content-main');
+    if (!tabsNav || !contentArea) return;
+
+    // 1. Render Tabs
+    tabsNav.innerHTML = student.workoutBlocks.map((block, idx) => {
+        const title = block.title || `Treino ${String.fromCharCode(65 + idx)}`;
+        const isActive = idx === activeRoutineIdx;
+        return `
+            <button class="workout-tab ${isActive ? 'active' : ''}" onclick="selectRoutineTab(${idx})">
+                <i class="ph-bold ph-barbell"></i>
+                <span>${escHtml(title)}</span>
+            </button>
+        `;
+    }).join('');
+
+    // 2. Render Active Routine Card
+    const block = student.workoutBlocks[activeRoutineIdx];
+    if (!block) return;
+
+    const muscles = getMuscleGroups(block.exercises);
+    const lastPerformed = getLatestPerformanceDate(student.id, block.title);
+
+    // Estimate time (simple: 8 min per exercise average)
+    const estTime = block.exercises.length * 8;
+
+    contentArea.innerHTML = `
+        <div class="routine-card">
+            <div class="routine-header">
+                <div class="routine-title-row">
+                    <h3>${escHtml(block.title || `Treino ${String.fromCharCode(65 + activeRoutineIdx)}`)}</h3>
+                    ${lastPerformed ? `<span class="routine-last-performed">Última vez: ${lastPerformed}</span>` : ''}
+                </div>
+                <div class="routine-summary">
+                    <span><i class="ph-bold ph-lightning"></i> ${escHtml(muscles.join(' • '))}</span>
+                    <span><i class="ph-bold ph-list-numbers"></i> ${block.exercises.length} exercícios</span>
+                    <span><i class="ph-bold ph-clock"></i> ~${estTime} min</span>
+                </div>
+            </div>
+
+            <div class="routine-ex-list">
+                ${block.exercises.map((ex, exIdx) => renderRoutineExItem(ex, exIdx)).join('')}
+            </div>
+
+            <button class="btn-start-routine" onclick="startWorkoutSession(${activeRoutineIdx})">
+                <i class="ph-fill ph-play"></i> INICIAR ESTE TREINO
+            </button>
+        </div>
+    `;
+}
+
+function selectRoutineTab(idx) {
+    activeRoutineIdx = idx;
+    renderStudentWorkoutContentMain();
+}
+
+function renderRoutineExItem(ex, idx) {
+    return `
+        <div class="routine-ex-item" id="routine-ex-${idx}">
+            <button class="ex-top-trigger" onclick="toggleExDetails(${idx})">
+                <div class="ex-name-box">
+                    <strong>${escHtml(ex.nome)}</strong>
+                    <span>${ex.series} séries · ${ex.descanso} descanso</span>
+                </div>
+                <i class="ph-bold ph-caret-down ex-chevron"></i>
+            </button>
+            <div class="ex-details-collapsible" id="ex-details-${idx}">
+                <div class="ex-details-inner">
+                    <div class="ex-detail-point">
+                        <label>Séries</label>
+                        <strong>${ex.series}</strong>
+                    </div>
+                    <div class="ex-detail-point">
+                        <label>Repetições</label>
+                        <strong>${ex.reps}</strong>
+                    </div>
+                    <div class="ex-detail-point">
+                        <label>Carga</label>
+                        <strong>${ex.carga}</strong>
+                    </div>
+                    <div class="ex-detail-point">
+                        <label>Descanso</label>
+                        <strong>${ex.descanso}</strong>
+                    </div>
+                    ${ex.obs ? `
+                    <div class="ex-detail-point" style="grid-column: span 4; margin-top: 0.5rem;">
+                        <label>Observações</label>
+                        <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">${escHtml(ex.obs)}</p>
+                    </div>` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function toggleExDetails(idx) {
+    const item = document.getElementById(`routine-ex-${idx}`);
+    const details = document.getElementById(`ex-details-${idx}`);
+    if (!item || !details) return;
+
+    const isExpanded = item.classList.contains('expanded');
+
+    // Close others
+    document.querySelectorAll('.routine-ex-item.expanded').forEach(el => {
+        if (el !== item) {
+            el.classList.remove('expanded');
+            el.querySelector('.ex-details-collapsible').style.maxHeight = '0px';
+        }
+    });
+
+    if (isExpanded) {
+        item.classList.remove('expanded');
+        details.style.maxHeight = '0px';
+    } else {
+        item.classList.add('expanded');
+        details.style.maxHeight = details.scrollHeight + 'px';
+    }
+}
+
+function getLatestPerformanceDate(studentId, routineTitle) {
+    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+    const lastSession = [...history].reverse().find(h =>
+        h.ID_Usuario === studentId && (h.Nome_Treino === routineTitle || h.title === routineTitle)
+    );
+
+    if (lastSession) {
+        const d = new Date(lastSession.Data || lastSession.date);
+        return d.toLocaleDateString('pt-BR');
+    }
+    return null;
+}
+
+function getMuscleGroups(exercises) {
+    // This is a simplified version. In a real app, this would be in the exercise database.
+    const map = {
+        'peito': ['supino', 'peitoral', 'chest'],
+        'costas': ['puxada', 'remada', 'costas', 'back'],
+        'pernas': ['agachamento', 'legpress', 'extensora', 'flexora', 'afundo', 'perna', 'legs'],
+        'braços': ['bíceps', 'tríceps', 'rosca', 'pulley'],
+        'ombros': ['desenvolvimento', 'lateral', 'frontal', 'ombro', 'shoulder']
+    };
+
+    const detected = new Set();
+    exercises.forEach(ex => {
+        const name = ex.nome.toLowerCase();
+        for (const [group, keywords] of Object.entries(map)) {
+            if (keywords.some(k => name.includes(k))) detected.add(group);
+        }
+    });
+
+    return detected.size > 0 ? Array.from(detected) : ['Geral'];
+}
+
+function formatChatTime(dateIso) {
+    try {
+        const d = new Date(dateIso);
+        const now = new Date();
+        const diff = now - d;
+        const oneDay = 24 * 60 * 60 * 1000;
+
+        if (diff < oneDay && d.getDate() === now.getDate()) {
+            return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        } else if (diff < 2 * oneDay) {
+            return 'Ontem';
+        } else {
+            return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+        }
+    } catch (e) {
+        return dateIso;
+    }
+}
+
+function markDuvidaAsRead(idx) {
+    let notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    if (notifications[idx]) {
+        notifications[idx].unread = false;
+        localStorage.setItem('trainerNotifications', JSON.stringify(notifications));
+
+        // Broadcast change
+        syncChannel.postMessage({ type: 'DOUBT_RESOLVED' });
+        updateTrainerStats();
+        renderDuvidas();
+    }
+}
+
+function responderDuvida(idx) {
+    const replyText = document.getElementById(`reply-text-${idx}`)?.value.trim();
+    if (!replyText) {
+        alert('Por favor, escreva uma resposta.');
+        return;
+    }
+
+    let notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    if (notifications[idx]) {
+        notifications[idx].unread = false;
+        notifications[idx].reply = replyText;
+        notifications[idx].repliedAt = new Date().toISOString();
+        localStorage.setItem('trainerNotifications', JSON.stringify(notifications));
+
+        // Broadcast change
+        syncChannel.postMessage({ type: 'DOUBT_REPLY', payload: { studentId: notifications[idx].studentId } });
+
+        updateTrainerStats();
+        renderDuvidas();
+        alert('✅ Resposta enviada ao aluno!');
+    }
 }
 
 // ── Accept a pending student ─────────────────────────────────────────────────
@@ -936,6 +2339,9 @@ function acceptStudent(idx) {
     students[idx].active = true;
     students[idx].acceptedAt = new Date().toISOString();
     localStorage.setItem('trainerStudents', JSON.stringify(students));
+
+    // Broadcast change
+    syncChannel.postMessage({ type: 'STUDENT_ACCEPTED', payload: { studentId: students[idx].id } });
 
     // Animate out
     const card = document.getElementById(`pending-card-${idx}`);
@@ -953,6 +2359,9 @@ function rejectStudent(idx) {
     let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
     students.splice(idx, 1);
     localStorage.setItem('trainerStudents', JSON.stringify(students));
+
+    // Broadcast change
+    syncChannel.postMessage({ type: 'STUDENT_REJECTED' });
     updateTrainerStats();
 }
 
