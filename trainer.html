@@ -123,8 +123,8 @@
                             <i class="ph-bold ph-chat-circle-dots"></i> Dúvidas
                             <span class="nav-badge" id="duvidas-nav-badge" style="display:none">0</span>
                         </a>
-                        <a href="#" class="nav-item">
-                            <i class="ph-bold ph-barbell"></i> Treinos
+                        <a href="#" class="nav-item" id="nav-exercicios" onclick="switchDashView('exercicios')">
+                            <i class="ph-bold ph-barbell"></i> Exercícios
                         </a>
                         <a href="#" class="nav-item">
                             <i class="ph-bold ph-file-text"></i> Avaliações
@@ -356,6 +356,39 @@
                                 </div>
                             </div>
                         </main>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: EXERCÍCIOS (Catálogo de Exercícios) -->
+            <div id="view-exercicios" style="display:none">
+                <div class="ex-catalog">
+                    <!-- Search -->
+                    <div class="ex-catalog-search">
+                        <i class="ph-bold ph-magnifying-glass"></i>
+                        <input type="text" id="ex-catalog-search-input" placeholder="Pesquisar exercício..."
+                            oninput="searchExercises(this.value)" autocomplete="off">
+                    </div>
+
+                    <!-- Filter Chips -->
+                    <div class="ex-chips-row">
+                        <button class="ex-chip active" data-group="todos"
+                            onclick="filterExercisesByGroup('todos')">Todos</button>
+                        <button class="ex-chip" data-group="Peito"
+                            onclick="filterExercisesByGroup('Peito')">Peito</button>
+                        <button class="ex-chip" data-group="Costas"
+                            onclick="filterExercisesByGroup('Costas')">Costas</button>
+                        <button class="ex-chip" data-group="Pernas"
+                            onclick="filterExercisesByGroup('Pernas')">Pernas</button>
+                        <button class="ex-chip" data-group="Ombros"
+                            onclick="filterExercisesByGroup('Ombros')">Ombros</button>
+                        <button class="ex-chip" data-group="Bracos"
+                            onclick="filterExercisesByGroup('Bracos')">Braços</button>
+                    </div>
+
+                    <!-- Exercise List -->
+                    <div class="ex-catalog-list" id="ex-catalog-list">
+                        <!-- Injetado via JS -->
                     </div>
                 </div>
             </div>

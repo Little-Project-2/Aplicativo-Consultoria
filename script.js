@@ -1712,25 +1712,29 @@ function initTrainerDashboard() {
     updateTrainerStats();
 }
 
-// ── View switching (Dashboard / Alunos) ──────────────────────────────────────
+// ── View switching (Dashboard / Alunos / Duvidas / Exercicios) ───────────────
 function switchDashView(view) {
     const viewDash = document.getElementById('view-dashboard');
     const viewAlunos = document.getElementById('view-alunos');
     const viewDuvidas = document.getElementById('view-duvidas');
+    const viewExercicios = document.getElementById('view-exercicios');
     const navDash = document.getElementById('nav-dashboard');
     const navAlunos = document.getElementById('nav-alunos');
     const navDuvidas = document.getElementById('nav-duvidas');
+    const navExercicios = document.getElementById('nav-exercicios');
     const pageTitle = document.getElementById('main-page-title');
 
     // Reset visibility
     if (viewDash) viewDash.style.display = 'none';
     if (viewAlunos) viewAlunos.style.display = 'none';
     if (viewDuvidas) viewDuvidas.style.display = 'none';
+    if (viewExercicios) viewExercicios.style.display = 'none';
 
     // Reset active states
     if (navDash) navDash.classList.remove('active');
     if (navAlunos) navAlunos.classList.remove('active');
     if (navDuvidas) navDuvidas.classList.remove('active');
+    if (navExercicios) navExercicios.classList.remove('active');
 
     if (view === 'alunos') {
         if (viewAlunos) viewAlunos.style.display = '';
@@ -1749,6 +1753,19 @@ function switchDashView(view) {
             globalSearch.value = "";
         }
         renderDuvidas();
+    } else if (view === 'exercicios') {
+        if (viewExercicios) viewExercicios.style.display = '';
+        if (navExercicios) navExercicios.classList.add('active');
+        if (pageTitle) pageTitle.textContent = 'Catálogo de Exercícios';
+
+        // Contextual search
+        const globalSearch = document.getElementById('global-search');
+        if (globalSearch) {
+            globalSearch.oninput = (e) => searchExercises(e.target.value);
+            globalSearch.placeholder = "Pesquisar exercício...";
+            globalSearch.value = "";
+        }
+        renderExerciseCatalog();
     } else {
         if (viewDash) viewDash.style.display = '';
         if (navDash) navDash.classList.add('active');
@@ -1763,6 +1780,7 @@ function switchDashView(view) {
         }
     }
 }
+
 
 // ── Helper: build a student row HTML ────────────────────────────────────────
 function buildStudentRow(s, idx) {
@@ -3432,4 +3450,106 @@ function escHtml(str) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EXERCISE CATALOG (Trainer > Exercicios view)
+// ═══════════════════════════════════════════════════════════════════
+
+const EXERCISE_CATALOG_DATA = [
+    { name: "Supino Reto (Barra)", group: "Peito", icon: "ph-barbell", hasHistory: true },
+    { name: "Agachamento Livre", group: "Pernas", icon: "ph-person-simple-walk", hasHistory: true },
+    { name: "Puxada Alta (Polia)", group: "Costas", icon: "ph-arrows-in-line-vertical", hasHistory: true },
+    { name: "Desenvolvimento (Halteres)", group: "Ombros", icon: "ph-barbell", hasHistory: false },
+    { name: "Rosca Direta (Barra W)", group: "Bracos", icon: "ph-barbell", hasHistory: true },
+    { name: "Triceps Corda (Polia)", group: "Bracos", icon: "ph-barbell", hasHistory: false },
+    { name: "Leg Press 45 graus", group: "Pernas", icon: "ph-person-simple-walk", hasHistory: true },
+    { name: "Remada Curvada (Barra)", group: "Costas", icon: "ph-arrows-in-line-vertical", hasHistory: false },
+    { name: "Crucifixo Inclinado (Halteres)", group: "Peito", icon: "ph-barbell", hasHistory: true },
+    { name: "Elevacao Lateral", group: "Ombros", icon: "ph-barbell", hasHistory: false }
+];
+
+// Display-friendly group labels (accented)
+const GROUP_DISPLAY = {
+    "Peito": "Peito",
+    "Pernas": "Pernas (Quadriceps)",
+    "Costas": "Costas (Dorsais)",
+    "Ombros": "Ombros",
+    "Bracos": "Biceps / Triceps"
+};
+
+// Map chip labels to internal group keys
+const GROUP_MAP = {
+    "todos": null,
+    "Peito": "Peito",
+    "Costas": "Costas",
+    "Pernas": "Pernas",
+    "Ombros": "Ombros",
+    "Bracos": "Bracos"
+};
+
+let _exCatalogActiveGroup = "todos";
+let _exCatalogSearchQuery = "";
+
+function renderExerciseCatalog() {
+    const container = document.getElementById("ex-catalog-list");
+    if (!container) return;
+
+    let filtered = EXERCISE_CATALOG_DATA;
+
+    // Filter by group
+    if (_exCatalogActiveGroup !== "todos") {
+        const groupKey = GROUP_MAP[_exCatalogActiveGroup] || _exCatalogActiveGroup;
+        filtered = filtered.filter(e => e.group === groupKey);
+    }
+
+    // Filter by search
+    if (_exCatalogSearchQuery) {
+        const q = _exCatalogSearchQuery.toLowerCase();
+        filtered = filtered.filter(e =>
+            e.name.toLowerCase().includes(q) ||
+            (GROUP_DISPLAY[e.group] || e.group).toLowerCase().includes(q)
+        );
+    }
+
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="ex-catalog-empty">
+                <i class="ph-bold ph-magnifying-glass"></i>
+                <p>Nenhum exercicio encontrado.</p>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = filtered.map(ex => `
+        <div class="ex-catalog-item" onclick="void(0)">
+            <div class="ex-catalog-thumb">
+                <i class="ph-bold ${ex.icon}"></i>
+            </div>
+            <div class="ex-catalog-info">
+                <div class="ex-catalog-name">${escapeHTML(ex.name)}</div>
+                <div class="ex-catalog-group">${escapeHTML(GROUP_DISPLAY[ex.group] || ex.group)}</div>
+            </div>
+            ${ex.hasHistory
+            ? '<div class="ex-catalog-history" title="Historico de evolucao"><i class="ph-bold ph-chart-line-up"></i></div>'
+            : '<div class="ex-catalog-history" title="Sem historico"><i class="ph-bold ph-lightning"></i></div>'
+        }
+        </div>
+    `).join("");
+}
+
+function filterExercisesByGroup(group) {
+    _exCatalogActiveGroup = group;
+
+    // Update chip active states
+    document.querySelectorAll(".ex-chip").forEach(chip => {
+        chip.classList.toggle("active", chip.dataset.group === group);
+    });
+
+    renderExerciseCatalog();
+}
+
+function searchExercises(query) {
+    _exCatalogSearchQuery = query.trim();
+    renderExerciseCatalog();
 }
