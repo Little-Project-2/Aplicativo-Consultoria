@@ -4296,6 +4296,35 @@ body {
     color: var(--primary-color);
 }
 
+.perfil-quick-actions {
+    margin-top: 0.75rem;
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.perfil-quick-actions .btn-secondary {
+    width: auto;
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.65rem 0.95rem;
+    border-radius: 10px;
+}
+
+.perfil-quick-actions .btn-perfil-logout {
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.35);
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.perfil-quick-actions .btn-perfil-logout:hover {
+    background: rgba(239, 68, 68, 0.14);
+    border-color: rgba(239, 68, 68, 0.45);
+}
+
 /* Section Titles */
 .perfil-section-title {
     display: flex;
@@ -4738,6 +4767,11 @@ body {
     }
 
     .btn-perfil-edit {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .perfil-quick-actions .btn-secondary {
         width: 100%;
         justify-content: center;
     }
@@ -8385,5 +8419,232 @@ body {
 
     .set-prev {
         font-size: 0.63rem;
+    }
+}
+
+/* =============================
+   RECENTES + STATUS BAR (MOBILE FIRST)
+   ============================= */
+.trainer-stats-row.status-bar {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
+    margin-bottom: 0.85rem !important;
+    overflow: hidden !important;
+}
+
+.trainer-stats-row.status-bar > .t-stat-card {
+    min-width: 0 !important;
+    padding: 0.55rem 0.3rem 0.5rem !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: rgba(18, 18, 18, 0.84) !important;
+    text-align: center !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+.trainer-stats-row.status-bar > .t-stat-card::before,
+.trainer-stats-row.status-bar > .t-stat-card::after {
+    display: none !important;
+}
+
+.trainer-stats-row.status-bar .stat-header {
+    display: none !important;
+}
+
+.trainer-stats-row.status-bar .t-stat-card h3 {
+    margin: 0 0 0.1rem !important;
+    font-size: 1.35rem !important;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    background: none !important;
+    -webkit-text-fill-color: currentColor !important;
+    color: var(--text-main) !important;
+    text-shadow: none !important;
+}
+
+.trainer-stats-row.status-bar .status-active h3 {
+    color: var(--primary-color) !important;
+}
+
+.trainer-stats-row.status-bar .status-pending h3 {
+    color: #f59e0b !important;
+}
+
+.trainer-stats-row.status-bar .t-stat-card p {
+    margin: 0;
+    font-size: 0.66rem !important;
+    color: var(--text-muted) !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    font-weight: 600;
+}
+
+#trainer-student-list .recent-student-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 0.78rem 0.82rem;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(18, 18, 18, 0.78);
+    box-shadow: none;
+    animation: none;
+}
+
+#trainer-student-list .recent-student-card:hover {
+    transform: none;
+    border-color: rgba(163, 230, 53, 0.24);
+    background: rgba(20, 20, 20, 0.88);
+    box-shadow: none;
+}
+
+#trainer-student-list .recent-student-card::after {
+    display: none;
+}
+
+#view-dashboard .table-header-row {
+    display: none;
+}
+
+.recent-student-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.recent-student-ident {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex: 1;
+}
+
+.recent-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.recent-active-dot {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #22c55e;
+    border: 2px solid #121214;
+    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.15);
+}
+
+#trainer-student-list .recent-student-card .sli-info h4 {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#trainer-student-list .recent-student-card .sli-sub {
+    margin-top: 0.1rem;
+    display: block;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.recent-more-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    flex-shrink: 0;
+    justify-content: center;
+}
+
+.recent-meta-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.36rem;
+}
+
+.recent-meta-item {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.28rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.28rem 0.34rem;
+}
+
+.recent-meta-item i {
+    font-size: 0.82rem;
+    color: var(--primary-color);
+    flex-shrink: 0;
+}
+
+.recent-meta-value {
+    min-width: 0;
+    font-size: 0.66rem;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@media (max-width: 768px) {
+    .trainer-stats-row.status-bar > * {
+        min-width: 0 !important;
+    }
+
+    .trainer-stats-row.status-bar .t-stat-card h3 {
+        font-size: 1.25rem !important;
+    }
+
+    .trainer-stats-row.status-bar .t-stat-card p {
+        font-size: 0.62rem !important;
+    }
+}
+
+@media (max-width: 560px) {
+    .trainer-stats-row.status-bar {
+        gap: 0.34rem !important;
+    }
+
+    .trainer-stats-row.status-bar > .t-stat-card {
+        padding: 0.5rem 0.2rem 0.44rem !important;
+        border-radius: 9px !important;
+    }
+
+    .trainer-stats-row.status-bar .t-stat-card h3 {
+        font-size: 1.14rem !important;
+    }
+
+    .trainer-stats-row.status-bar .t-stat-card p {
+        font-size: 0.58rem !important;
+    }
+
+    .recent-meta-strip {
+        gap: 0.3rem;
+    }
+
+    .recent-meta-item {
+        padding: 0.25rem 0.3rem;
     }
 }
