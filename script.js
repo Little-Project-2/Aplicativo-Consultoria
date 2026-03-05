@@ -130,8 +130,29 @@ function copyAccessCode(elementId, btnId) {
 }
 
 // Alias for trainer dashboard
-function copyTrainerCode() {
-    copyAccessCode('dash-trainer-code', 'btn-copy-code');
+function copyTrainerCode(event) {
+    if (event) event.stopPropagation();
+    copyAccessCode('dash-trainer-code', 'btn-copy-code-menu');
+}
+
+function toggleTrainerProfileMenu(event) {
+    if (event) event.stopPropagation();
+    const menu = document.getElementById('trainer-profile-menu');
+    if (!menu) return;
+    menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+}
+
+function closeTrainerProfileMenu() {
+    const menu = document.getElementById('trainer-profile-menu');
+    if (!menu) return;
+    menu.style.display = 'none';
+}
+
+function logoutTrainerFromMenu() {
+    localStorage.removeItem('trainerSessionCode');
+    localStorage.removeItem('trainerName');
+    localStorage.removeItem('currentTrainerCode');
+    window.location.href = 'index.html';
 }
 
 function goToStudentArea() {
@@ -1900,6 +1921,19 @@ function initTrainerDashboard() {
     const elDashCode = document.getElementById('dash-trainer-code');
     if (elDashCode) elDashCode.innerText = trainerCode;
 
+    const root = document.getElementById('trainer-dashboard-screen');
+    if (root && !root.dataset.menuInit) {
+        root.addEventListener('click', (evt) => {
+            const menu = document.getElementById('trainer-profile-menu');
+            const trigger = document.querySelector('.profile-menu-trigger');
+            if (!menu || !trigger) return;
+            const clickedInsideMenu = menu.contains(evt.target);
+            const clickedTrigger = trigger.contains(evt.target);
+            if (!clickedInsideMenu && !clickedTrigger) closeTrainerProfileMenu();
+        });
+        root.dataset.menuInit = '1';
+    }
+
     updateTrainerStats();
 }
 
@@ -1992,31 +2026,13 @@ function buildStudentRow(s, idx, options = {}) {
         return `
         <div class="student-list-item recent-student-card" onclick="openStudentProfile(${idx})">
             <div class="recent-student-top">
-                <div class="recent-student-ident">
-                    <div class="sli-avatar recent-avatar">
-                        <i class="ph-fill ph-user"></i>
-                        <span class="recent-active-dot" aria-label="Aluno ativo"></span>
-                    </div>
-                    <div class="sli-info">
-                        <h4>${s.name || 'Aluno ' + s.id}</h4>
-                        <span class="sli-sub">${timeDesc}</span>
-                    </div>
-                </div>
-                <button class="btn-icon-minimal recent-more-btn" onclick="event.stopPropagation()"><i class="ph-bold ph-dots-three-vertical"></i></button>
+                <h4>${s.name || 'Aluno ' + s.id}</h4>
+                <span class="recent-status active">Ativo</span>
             </div>
-            <div class="recent-meta-strip">
-                <div class="recent-meta-item" title="Objetivo">
-                    <i class="ph-bold ph-target"></i>
-                    <span class="recent-meta-value">${escHtml(s.goal || '--')}</span>
-                </div>
-                <div class="recent-meta-item" title="Peso">
-                    <i class="ph-bold ph-scales"></i>
-                    <span class="recent-meta-value">${escHtml(s.weight || '--')} kg</span>
-                </div>
-                <div class="recent-meta-item" title="Consumo">
-                    <i class="ph-bold ph-lightning"></i>
-                    <span class="recent-meta-value">${kcal} kcal</span>
-                </div>
+            <div class="recent-meta-lines">
+                <p><strong>Objetivo:</strong> ${escHtml(s.goal || '--')}</p>
+                <p><strong>Peso:</strong> ${escHtml(s.weight || '--')} kg</p>
+                <p><strong>Consumo:</strong> ${kcal} kcal/dia</p>
             </div>
         </div>`;
     }

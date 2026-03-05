@@ -1766,6 +1766,7 @@ body {
     display: flex;
     align-items: center;
     gap: 1rem;
+    position: relative;
 }
 
 .profile-info {
@@ -1797,6 +1798,64 @@ body {
     justify-content: center;
     color: var(--text-muted);
     font-size: 1.25rem;
+}
+
+.profile-menu-trigger {
+    cursor: pointer;
+}
+
+.trainer-profile-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    width: 220px;
+    background: #121212;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 0.75rem;
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
+    z-index: 1200;
+}
+
+.trainer-profile-menu-head {
+    margin-bottom: 0.5rem;
+}
+
+.trainer-profile-menu-head .profile-name {
+    display: block;
+    font-size: 0.9rem;
+}
+
+.trainer-profile-menu-code {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.6rem;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 0.6rem;
+}
+
+.btn-profile-logout {
+    width: 100%;
+    min-height: 40px;
+    border-radius: 10px;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.08);
+    font-size: 0.8rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    cursor: pointer;
+}
+
+.btn-profile-logout:hover {
+    background: rgba(239, 68, 68, 0.14);
 }
 
 /* Stats Row Adjustment for 4 items */
@@ -8486,13 +8545,14 @@ body {
 #trainer-student-list .recent-student-card {
     display: flex;
     flex-direction: column;
-    gap: 0.55rem;
+    gap: 0.5rem;
     padding: 0.78rem 0.82rem;
     border-radius: 14px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(18, 18, 18, 0.78);
     box-shadow: none;
     animation: none;
+    opacity: 1;
 }
 
 #trainer-student-list .recent-student-card:hover {
@@ -8517,95 +8577,38 @@ body {
     gap: 0.5rem;
 }
 
-.recent-student-ident {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    flex: 1;
-}
-
-.recent-avatar {
-    width: 38px;
-    height: 38px;
-    border-radius: 12px;
-    position: relative;
-    flex-shrink: 0;
-}
-
-.recent-active-dot {
-    position: absolute;
-    right: -1px;
-    bottom: -1px;
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: #22c55e;
-    border: 2px solid #121214;
-    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.15);
-}
-
-#trainer-student-list .recent-student-card .sli-info h4 {
+#trainer-student-list .recent-student-card h4 {
     margin: 0;
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     font-weight: 700;
     color: var(--text-main);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
-#trainer-student-list .recent-student-card .sli-sub {
-    margin-top: 0.1rem;
-    display: block;
-    font-size: 0.65rem;
-    color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.recent-more-btn {
-    width: 30px;
-    height: 30px;
-    border-radius: 9px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.03);
-    flex-shrink: 0;
-    justify-content: center;
-}
-
-.recent-meta-strip {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.36rem;
-}
-
-.recent-meta-item {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 0.28rem;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.03);
-    padding: 0.28rem 0.34rem;
-}
-
-.recent-meta-item i {
-    font-size: 0.82rem;
-    color: var(--primary-color);
-    flex-shrink: 0;
-}
-
-.recent-meta-value {
-    min-width: 0;
+.recent-status {
     font-size: 0.66rem;
-    font-weight: 600;
-    color: var(--text-main);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-weight: 700;
+    padding: 0.22rem 0.52rem;
+    border-radius: 999px;
+    border: 1px solid rgba(163, 230, 53, 0.3);
+    background: rgba(163, 230, 53, 0.12);
+    color: var(--primary-color);
+}
+
+.recent-meta-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 0.24rem;
+    font-size: 0.78rem;
+}
+
+.recent-meta-lines p {
+    margin: 0;
+    color: #d4d4d8;
+}
+
+.recent-meta-lines strong {
+    color: var(--text-muted);
+    font-weight: 700;
 }
 
 @media (max-width: 768px) {
@@ -8640,11 +8643,7 @@ body {
         font-size: 0.58rem !important;
     }
 
-    .recent-meta-strip {
-        gap: 0.3rem;
-    }
-
-    .recent-meta-item {
-        padding: 0.25rem 0.3rem;
+    .recent-meta-lines {
+        font-size: 0.74rem;
     }
 }

@@ -154,24 +154,23 @@
                     <header class="top-header">
                         <h1 class="page-title" id="main-page-title">Painel de Controle</h1>
 
-                        <div class="header-search">
-                            <i class="ph-bold ph-magnifying-glass"></i>
-                            <input type="text" id="global-search" placeholder="Buscar aluno ou treino..."
-                                oninput="filterStudents(this.value)">
-                        </div>
-
                         <div class="header-profile">
-                            <div class="profile-info">
-                                <span class="profile-name" id="dash-trainer-name">Treinador</span>
-                                <div class="code-copy-wrapper" onclick="copyTrainerCode()" title="Clique para copiar">
+                            <button class="profile-avatar profile-menu-trigger" onclick="toggleTrainerProfileMenu(event)" title="Abrir perfil">
+                                <i class="ph-fill ph-user"></i>
+                            </button>
+                            <div id="trainer-profile-menu" class="trainer-profile-menu" style="display:none;">
+                                <div class="trainer-profile-menu-head">
+                                    <span class="profile-name" id="dash-trainer-name">Treinador</span>
+                                </div>
+                                <div class="trainer-profile-menu-code">
                                     <span class="profile-code" id="dash-trainer-code">00000</span>
-                                    <button class="btn-copy-tiny" id="btn-copy-code">
+                                    <button class="btn-copy-tiny" id="btn-copy-code-menu" onclick="copyTrainerCode(event)">
                                         <i class="ph-bold ph-copy"></i>
                                     </button>
                                 </div>
-                            </div>
-                            <div class="profile-avatar">
-                                <i class="ph-fill ph-user"></i>
+                                <button class="btn-profile-logout" onclick="logoutTrainerFromMenu()">
+                                    <i class="ph-bold ph-sign-out"></i> Sair
+                                </button>
                             </div>
                         </div>
                     </header>
