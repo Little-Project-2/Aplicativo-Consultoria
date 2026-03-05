@@ -21,7 +21,7 @@ function logout() {
     }
 }
 
-// ─── Real-Time Sync (Cross-Tab) ──────────────────────────────────────────
+// â”€â”€â”€ Real-Time Sync (Cross-Tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const syncChannel = new BroadcastChannel('consultoria_sync');
 
 syncChannel.onmessage = (event) => {
@@ -75,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// ─── Real-Time Sync (Cross-Tab) ──────────────────────────────────────────
+// â”€â”€â”€ Real-Time Sync (Cross-Tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 window.addEventListener('storage', (e) => {
     // Sync Trainer Dashboard
     if (e.key === 'trainerStudents' || e.key === 'trainerNotifications') {
@@ -154,7 +154,7 @@ function toggleElement(id) {
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
-// ─── Authentication Logic ──────────────────────────────────────────────────
+// â”€â”€â”€ Authentication Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function handleEmailLogin() {
     const email = document.getElementById('login-email').value;
@@ -243,6 +243,10 @@ function processLogin(user) {
 
 let currentWorkoutTab = 0;
 let activeChatStudentId = null; // Track WhatsApp-style active chat
+let trainerPendingAttachment = null;
+let trainerAudioRecorder = null;
+let trainerAudioChunks = [];
+let trainerRecordingActive = false;
 
 function switchStudentView(view) {
     const views = ['home', 'treino', 'dieta', 'perfil', 'log-workout', 'workout-summary'];
@@ -276,61 +280,116 @@ function renderStudentWorkoutMain() {
         mainContent.innerHTML = `<div class="empty-state-card" style="margin-top:2rem;">
             <i class="ph-fill ph-hourglass-high"></i>
             <div class="empty-info">
-                <h3>Treino em análise</h3>
-                <p>Seu treinador ainda não liberou sua ficha de treinos.</p>
+                <h3>Treino em analise</h3>
+                <p>Seu treinador ainda nao liberou sua ficha de treinos.</p>
             </div>
         </div>`;
         return;
     }
 
-    // ── Render Tabs ──
+    if (currentWorkoutTab >= student.workoutBlocks.length) {
+        currentWorkoutTab = 0;
+    }
+
     tabsNav.innerHTML = student.workoutBlocks.map((block, idx) => `
-        <button class="tab-btn ${idx === currentWorkoutTab ? 'active' : ''}" 
-            onclick="switchWorkoutTab(${idx})">
-            ${block.title.split(' ')[0]} ${block.title.split(' ')[1] || (idx + 1)}
+        <button class="tab-btn ${idx === currentWorkoutTab ? 'active' : ''}" onclick="switchWorkoutTab(${idx})">
+            ${escHtml((block.title || `Treino ${idx + 1}`).split(' ').slice(0, 2).join(' '))}
         </button>
     `).join('');
 
-    // ── Render Active Routine Card ──
     const block = student.workoutBlocks[currentWorkoutTab];
-    const muscleGroups = getMuscleGroups(block.exercises);
+    const exercises = Array.isArray(block.exercises) ? block.exercises : [];
+    const muscleGroups = getMuscleGroups(exercises);
+    const totalSets = exercises.reduce((acc, ex) => acc + Number(ex.series || 0), 0);
+    const estDuration = Math.max(25, Math.round(totalSets * 2.2));
+    const lastPerformed = getLatestPerformanceDate(student.id, block.title);
+    const exercisesWithObs = exercises.filter(ex => ex.observacao && ex.observacao.trim().length > 0).length;
+    const totalSupersets = exercises.filter(ex => ex.supersetWithNext).length;
+    const totalWithSubs = exercises.filter(ex => Array.isArray(ex.substitutes) && ex.substitutes.filter(Boolean).length > 0).length;
 
     mainContent.innerHTML = `
-        <div class="routine-card">
-            <div class="routine-header">
-                <div class="routine-title-box">
-                    <h2>${escHtml(block.title)}</h2>
-                    <div class="routine-meta">
-                        <span><i class="ph-bold ph-barbell"></i> ${block.exercises.length} Exercícios</span>
-                        <span><i class="ph-bold ph-clock"></i> ~60 min</span>
-                    </div>
+        <div class="routine-card workout-analysis-layout clean-analysis">
+            <div class="analysis-overview-grid">
+                <div class="analysis-stat-card">
+                    <span class="analysis-stat-label"><i class="ph-bold ph-list-numbers"></i> Exercicios</span>
+                    <strong>${exercises.length}</strong>
+                </div>
+                <div class="analysis-stat-card">
+                    <span class="analysis-stat-label"><i class="ph-bold ph-stack"></i> Series</span>
+                    <strong>${totalSets}</strong>
+                </div>
+                <div class="analysis-stat-card">
+                    <span class="analysis-stat-label"><i class="ph-bold ph-clock"></i> Tempo</span>
+                    <strong>~${estDuration} min</strong>
+                </div>
+                <div class="analysis-stat-card">
+                    <span class="analysis-stat-label"><i class="ph-bold ph-lightning"></i> Bi-sets</span>
+                    <strong>${totalSupersets}</strong>
                 </div>
             </div>
 
-            <div class="muscle-tags">
-                ${muscleGroups.map(m => `<span class="tag-muscle">${m}</span>`).join('')}
-            </div>
-
-            <div class="routine-exercise-list">
-                ${block.exercises.map(ex => `
-                    <div class="routine-ex-item">
-                        <div class="ex-name-box">
-                            <span>${escHtml(ex.nome)}</span>
-                            <div class="ex-sets-mini">${ex.series} séries • ${ex.reps} reps</div>
+            <div class="analysis-shell">
+                <div class="analysis-main">
+                    <div class="routine-header">
+                        <div class="routine-title-box">
+                            <h2>${escHtml(block.title || `Treino ${currentWorkoutTab + 1}`)}</h2>
+                            <div class="routine-meta">
+                                <span><i class="ph-bold ph-barbell"></i> ${exercises.length} exercicios</span>
+                                <span><i class="ph-bold ph-arrows-clockwise"></i> ${totalWithSubs} com substituicao</span>
+                                ${lastPerformed ? `<span><i class="ph-bold ph-calendar-check"></i> Ultimo: ${escHtml(lastPerformed)}</span>` : ''}
+                            </div>
                         </div>
-                        <i class="ph-bold ph-caret-right" style="color: rgba(255,255,255,0.1)"></i>
                     </div>
-                `).join('')}
-            </div>
 
-            <div class="routine-footer">
-                <button class="btn-primary" onclick="startWorkoutSession(${currentWorkoutTab})" 
-                        style="width: 100%; padding: 1.2rem; font-size: 1.1rem; font-weight: 800;">
-                    <i class="ph-fill ph-play"></i> INICIAR TREINO
-                </button>
+                    <div class="muscle-tags">
+                        ${muscleGroups.map(m => `<span class="tag-muscle">${m}</span>`).join('')}
+                    </div>
+
+                    <div class="analysis-legend">
+                        <span><i class="ph-bold ph-chart-line-up"></i> Clique no icone para ver grafico de carga</span>
+                        <span><i class="ph-bold ph-arrows-clockwise"></i> Troca aprovada pelo coach</span>
+                        <span><i class="ph-bold ph-lightning"></i> Fazer em super serie</span>
+                    </div>
+
+                    <div class="routine-exercise-list">
+                        ${exercises.map((ex, idx) => {
+                            const substitutes = Array.isArray(ex.substitutes) ? ex.substitutes.filter(Boolean) : [];
+                            return `
+                            <div class="routine-ex-item exercise-clarity-card ${ex.supersetWithNext ? 'has-superset' : ''}">
+                                <div class="exercise-order-badge">${idx + 1}</div>
+                                <div class="ex-name-box">
+                                    <span>${escHtml(ex.nome)}</span>
+                                    <div class="ex-sets-mini">${ex.series} series • ${ex.reps} reps ${ex.descanso ? `• ${escHtml(ex.descanso)} descanso` : ''}</div>
+                                    ${ex.observacao ? `<p class="exercise-note"><i class="ph-bold ph-info"></i> ${escHtml(ex.observacao)}</p>` : ''}
+                                    ${substitutes.length ? `<div class="analysis-substitute-chips">${substitutes.map(s => `<span>${escHtml(s)}</span>`).join('')}</div>` : ''}
+                                    ${ex.supersetWithNext ? `<p class="exercise-note"><i class="ph-bold ph-lightning"></i> Super serie com o proximo exercicio</p>` : ''}
+                                </div>
+                                <button class="btn-icon-tiny analysis-chart-btn" onclick="openExerciseProgressModalEncoded('${encodeURIComponent(ex.nome)}')" title="Ver historico de carga">
+                                    <i class="ph-bold ph-chart-line-up"></i>
+                                </button>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>
+
+                <aside class="analysis-side">
+                    <div class="coach-help-card">
+                        <div class="coach-help-text">
+                            <strong>Dicas para executar melhor</strong>
+                            <p>Use a coluna de historico de carga para manter progressao. Se precisar, use os substitutos aprovados.</p>
+                        </div>
+                        <button class="btn-duvida-secondary" onclick="openDuvidaModal()">
+                            <i class="ph-bold ph-question"></i> Enviar duvida
+                        </button>
+                    </div>
+
+                    <button class="btn-primary" onclick="startWorkoutSession(${currentWorkoutTab})"
+                        style="width:100%; padding:1rem; font-size:1rem; font-weight:800;">
+                        <i class="ph-fill ph-play"></i> Iniciar este treino
+                    </button>
+                </aside>
             </div>
-        </div>
-    `;
+        </div>`;
 }
 
 function switchWorkoutTab(idx) {
@@ -338,7 +397,7 @@ function switchWorkoutTab(idx) {
     renderStudentWorkoutMain();
 }
 
-// ─── Treino Subview System ──────────────────────────────────────────────────
+// â”€â”€â”€ Treino Subview System â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function switchTreinoSubview(view) {
     const landing = document.getElementById('treino-landing');
@@ -365,17 +424,20 @@ function renderStudentDuvidas() {
     const listEl = document.getElementById('student-duvidas-list');
     if (!listEl) return;
 
+    const studentId = localStorage.getItem('currentStudentId');
     const studentName = localStorage.getItem('studentName') || 'Aluno';
     const notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
 
-    // Filter doubts belonging to this student (title starts with doubt and student name)
-    const myDuvidas = notifications.filter(n => n.type === 'duvida' && n.title.includes(studentName));
+    // Prefer studentId for precision. Keep name fallback for older messages.
+    const myDuvidas = notifications
+        .filter(n => n.type === 'duvida' && ((studentId && n.studentId === studentId) || n.title.includes(studentName)))
+        .sort((a, b) => new Date(b.time) - new Date(a.time));
 
     if (myDuvidas.length === 0) {
         listEl.innerHTML = `
             <div class="empty-state-card" style="margin-top:0; border-color: rgba(255,255,255,0.03);">
                 <i class="ph-bold ph-chat-circle-dots" style="font-size: 1.5rem; opacity: 0.5;"></i>
-                <p style="font-size: 0.8rem; color: var(--text-muted);">Você ainda não enviou dúvidas.</p>
+                <p style="font-size: 0.8rem; color: var(--text-muted);">Voce ainda nao enviou duvidas.</p>
             </div>
         `;
         return;
@@ -384,20 +446,22 @@ function renderStudentDuvidas() {
     listEl.innerHTML = myDuvidas.map(d => `
         <div class="student-duvida-card">
             <div class="sdc-header">
-                <span class="sdc-time">${d.time}</span>
+                <span class="sdc-time">${formatChatTime(d.time)}</span>
                 ${d.reply ? '<span class="sdc-status-replied"><i class="ph-fill ph-check-circle"></i> Respondido</span>' : '<span class="sdc-status-pending"><i class="ph-bold ph-clock"></i> Pendente</span>'}
             </div>
             <div class="sdc-body">
-                <p class="sdc-text">
-                    <i class="ph-bold ph-question"></i> ${escHtml(d.desc)}
-                </p>
+                ${!d.fromTrainerOnly ? `
+                    <p class="sdc-text">
+                        <i class="ph-bold ph-question"></i> ${formatChatMessageText(d.desc)}
+                    </p>
+                ` : ''}
                 ${d.reply ? `
                     <div class="sdc-reply">
                         <div class="sdc-reply-header">
                             <i class="ph-fill ph-user-circle"></i>
                             <strong>Resposta do Treinador:</strong>
                         </div>
-                        <p>${escHtml(d.reply)}</p>
+                        <p>${formatChatMessageText(d.reply)}</p>
                     </div>
                 ` : ''}
             </div>
@@ -543,7 +607,7 @@ function openHistoryDetail(originalIdx) {
                             <div class="hd-set-row ${s.brokenPRs && s.brokenPRs.length > 0 ? 'has-pr' : ''}">
                                 <span class="hd-set-num">${si + 1}</span>
                                 <span>${s.peso || 0} kg</span>
-                                <span>×</span>
+                                <span>Ã—</span>
                                 <span>${s.reps || 0} reps</span>
                                 ${s.brokenPRs && s.brokenPRs.length > 0 ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
                             </div>
@@ -562,7 +626,100 @@ function closeHistoryDetailModal() {
     document.getElementById('history-detail-modal').style.display = 'none';
 }
 
-// ─── Confirmation Modal Logic ──────────────────────────────────────────────
+function openExerciseProgressModal(exerciseName) {
+    const overlay = document.getElementById('exercise-progress-modal-overlay');
+    const title = document.getElementById('exercise-progress-title');
+    const body = document.getElementById('exercise-progress-body');
+    if (!overlay || !title || !body) return;
+
+    const studentId = localStorage.getItem('currentStudentId');
+    const points = getExerciseProgressSeries(studentId, exerciseName);
+
+    title.textContent = `Historico de Carga - ${exerciseName}`;
+    if (points.length === 0) {
+        body.innerHTML = `
+            <div class="empty-state-card" style="margin-top:0;">
+                <i class="ph-bold ph-chart-line-up"></i>
+                <p>Nenhum registro de carga para este exercicio ainda.</p>
+            </div>
+        `;
+    } else {
+        const maxY = Math.max(...points.map(p => p.kg), 1);
+        const minY = Math.min(...points.map(p => p.kg), 0);
+        const pad = (maxY - minY) * 0.1 || 2;
+        const yMax = maxY + pad;
+        const yMin = Math.max(0, minY - pad);
+        const width = 560;
+        const height = 220;
+        const step = points.length > 1 ? (width - 40) / (points.length - 1) : 0;
+        const yScale = (v) => 20 + (height - 40) * (1 - ((v - yMin) / (yMax - yMin || 1)));
+        const plot = points.map((p, i) => `${20 + i * step},${yScale(p.kg)}`).join(' ');
+        const latest = points[points.length - 1];
+        const best = points.reduce((acc, p) => p.kg > acc.kg ? p : acc, points[0]);
+
+        body.innerHTML = `
+            <div class="exercise-progress-head">
+                <div class="eph-card">
+                    <span>Ultima carga</span>
+                    <strong>${latest.kg} kg</strong>
+                </div>
+                <div class="eph-card">
+                    <span>PR</span>
+                    <strong>${best.kg} kg</strong>
+                </div>
+                <div class="eph-card">
+                    <span>Registros</span>
+                    <strong>${points.length}</strong>
+                </div>
+            </div>
+            <svg viewBox="0 0 ${width} ${height}" class="exercise-progress-svg" aria-label="grafico de carga">
+                <polyline class="ep-line" points="${plot}" />
+                ${points.map((p, i) => `<circle class="ep-dot" cx="${20 + i * step}" cy="${yScale(p.kg)}" r="3.5"><title>${p.date}: ${p.kg} kg</title></circle>`).join('')}
+            </svg>
+            <div class="exercise-progress-xlabels">
+                ${points.map(p => `<span>${p.shortDate}</span>`).join('')}
+            </div>
+        `;
+    }
+
+    overlay.style.display = 'flex';
+    setTimeout(() => overlay.classList.add('active'), 10);
+}
+
+function closeExerciseProgressModal() {
+    const overlay = document.getElementById('exercise-progress-modal-overlay');
+    if (!overlay) return;
+    overlay.classList.remove('active');
+    setTimeout(() => { overlay.style.display = 'none'; }, 180);
+}
+
+function openExerciseProgressModalEncoded(encodedName) {
+    openExerciseProgressModal(decodeURIComponent(encodedName || ''));
+}
+
+function getExerciseProgressSeries(studentId, exerciseName) {
+    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]')
+        .filter(h => h.ID_Usuario === studentId)
+        .sort((a, b) => new Date(a.Data_Treino) - new Date(b.Data_Treino));
+
+    const series = [];
+    history.forEach(w => {
+        const ex = (w.Exercicios || []).find(e => e.nome === exerciseName);
+        if (!ex || !Array.isArray(ex.sets) || ex.sets.length === 0) return;
+        const maxKg = ex.sets.reduce((m, s) => Math.max(m, Number(s.peso || s.weight || 0)), 0);
+        if (maxKg <= 0) return;
+        const d = new Date(w.Data_Treino);
+        series.push({
+            kg: maxKg,
+            date: d.toLocaleDateString('pt-BR'),
+            shortDate: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+        });
+    });
+
+    return series;
+}
+
+// â”€â”€â”€ Confirmation Modal Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let confirmationCallback = null;
 
 function openConfirmationModal(title, message, callback) {
@@ -689,6 +846,7 @@ function enviarDuvida() {
     notifs.unshift({
         type: 'duvida',
         studentId: studentId,
+        studentName: studentName,
         title: `💬 Dúvida de ${studentName}`,
         desc: `[${assuntoLabels[assunto]}] ${texto}`,
         time: new Date().toISOString(),
@@ -914,7 +1072,7 @@ function submitQuestionnaire() {
     initStudentDashboard();
 }
 
-// ─── Student Dashboard (Real Data) ──────────────────────────────────────────
+// â”€â”€â”€ Student Dashboard (Real Data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function initStudentDashboard() {
     const studentId = localStorage.getItem('currentStudentId');
@@ -1080,7 +1238,7 @@ function closeStudentDiet() {
     document.getElementById('student-diet-screen').classList.remove('active');
 }
 
-// ─── Meu Perfil (Student Profile) ──────────────────────────────────────────
+// â”€â”€â”€ Meu Perfil (Student Profile) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let _perfilModalField = '';
 
 function getStudentData() {
@@ -1180,7 +1338,7 @@ function renderStudentPerfil() {
                 <div class="metric-card-top">
                     <span class="metric-label">IMC</span>
                 </div>
-                <div class="metric-value">${imc}<span class="metric-unit">kg/m²</span></div>
+                <div class="metric-value">${imc}<span class="metric-unit">kg/mÂ²</span></div>
                 <div class="metric-delta ${imcVal < 25 && imcVal >= 18.5 ? 'healthy' : 'warn'}">
                     <i class="ph-bold ${imcVal < 25 && imcVal >= 18.5 ? 'ph-check-circle' : 'ph-warning'}"></i>
                     ${getIMCLabel(imcVal)}
@@ -1712,7 +1870,7 @@ function initTrainerDashboard() {
     updateTrainerStats();
 }
 
-// ── View switching (Dashboard / Alunos / Duvidas / Exercicios) ───────────────
+// â”€â”€ View switching (Dashboard / Alunos / Duvidas / Exercicios) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function switchDashView(view) {
     const viewDash = document.getElementById('view-dashboard');
     const viewAlunos = document.getElementById('view-alunos');
@@ -1782,7 +1940,7 @@ function switchDashView(view) {
 }
 
 
-// ── Helper: build a student row HTML ────────────────────────────────────────
+// â”€â”€ Helper: build a student row HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function buildStudentRow(s, idx) {
     const w = parseFloat(s.weight) || 70;
     const h = parseFloat(s.height) || 175;
@@ -1798,26 +1956,26 @@ function buildStudentRow(s, idx) {
 
     return `
     <div class="student-list-item grid-layout" onclick="openStudentProfile(${idx})">
-        <div class="sli-col">
+        <div class="sli-col" data-label="Status">
             <span class="badge active"><div class="dot"></div> Ativo</span>
         </div>
-        <div class="sli-col ident">
+        <div class="sli-col ident" data-label="Aluno">
             <div class="sli-avatar"><i class="ph-fill ph-user"></i></div>
             <div class="sli-info">
                 <h4>${s.name || 'Aluno ' + s.id}</h4>
                 <span class="sli-sub">${timeDesc}</span>
             </div>
         </div>
-        <div class="sli-col font-bold">${s.goal}</div>
-        <div class="sli-col font-medium">${s.weight} kg</div>
-        <div class="sli-col text-primary">${kcal} kcal/dia</div>
-        <div class="sli-col actions">
+        <div class="sli-col font-bold" data-label="Objetivo">${s.goal}</div>
+        <div class="sli-col font-medium" data-label="Peso">${s.weight} kg</div>
+        <div class="sli-col text-primary" data-label="Consumo">${kcal} kcal/dia</div>
+        <div class="sli-col actions" data-label="Acoes">
             <button class="btn-icon-minimal" onclick="event.stopPropagation()"><i class="ph-bold ph-dots-three-vertical"></i></button>
         </div>
     </div>`;
 }
 
-// ── Helper: build a pending card HTML ───────────────────────────────────────
+// â”€â”€ Helper: build a pending card HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function buildPendingCard(s, idx) {
     const reqDate = new Date(s.joinedAt || new Date()).toLocaleDateString('pt-BR');
     return `
@@ -1826,7 +1984,7 @@ function buildPendingCard(s, idx) {
         <div class="pending-card-info">
             <h4>${s.name || 'Aluno ' + s.id}</h4>
             <p class="sli-sub"><i class="ph-fill ph-target" style="color:var(--primary-color)"></i> ${s.goal}</p>
-            <p class="sli-sub">${s.weight} kg · ${s.height} cm · ${s.age} anos</p>
+            <p class="sli-sub">${s.weight} kg Â· ${s.height} cm Â· ${s.age} anos</p>
             <span class="pending-date"><i class="ph-bold ph-calendar-blank"></i> Solicitado em ${reqDate}</span>
         </div>
         <div class="pending-card-actions">
@@ -1840,14 +1998,14 @@ function buildPendingCard(s, idx) {
     </div>`;
 }
 
-// ── Main stats + list renderer ───────────────────────────────────────────────
+// â”€â”€ Main stats + list renderer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function updateTrainerStats(filterText) {
     let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
     const activeStudents = students.filter(s => s.active && !s.pending);
     const pendingStudents = students.filter(s => s.pending);
     const pendingCount = pendingStudents.length;
 
-    // ── Stats cards ──
+    // â”€â”€ Stats cards â”€â”€
     const elTotal = document.getElementById('stat-total');
     if (elTotal) elTotal.innerText = activeStudents.length;
     const elAtivos = document.getElementById('stat-ativos');
@@ -1855,14 +2013,14 @@ function updateTrainerStats(filterText) {
     const elPendentes = document.getElementById('stat-pendentes');
     if (elPendentes) elPendentes.innerText = pendingCount;
 
-    // ── Pending nav badge ──
+    // â”€â”€ Pending nav badge â”€â”€
     const navBadge = document.getElementById('pending-nav-badge');
     if (navBadge) {
         navBadge.style.display = pendingCount > 0 ? 'inline-flex' : 'none';
         navBadge.textContent = pendingCount;
     }
 
-    // ── Pending banner (dashboard view) ──
+    // â”€â”€ Pending banner (dashboard view) â”€â”€
     const banner = document.getElementById('pending-banner');
     if (banner) {
         banner.style.display = pendingCount > 0 ? 'flex' : 'none';
@@ -1870,7 +2028,7 @@ function updateTrainerStats(filterText) {
         if (bannerTitle) bannerTitle.textContent = `${pendingCount} nova${pendingCount > 1 ? 's' : ''} solicitaç${pendingCount > 1 ? 'ões' : 'ão'}`;
     }
 
-    // ── Dashboard recent list (view-dashboard) ──
+    // â”€â”€ Dashboard recent list (view-dashboard) â”€â”€
     const recentList = document.getElementById('trainer-student-list');
     if (recentList) {
         const query = (filterText || '').toLowerCase();
@@ -1884,7 +2042,7 @@ function updateTrainerStats(filterText) {
         if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${activeStudents.length} alunos`;
     }
 
-    // ── Pending requests list (view-alunos) ──
+    // â”€â”€ Pending requests list (view-alunos) â”€â”€
     const pendingList = document.getElementById('pending-student-list');
     if (pendingList) {
         const badge = document.getElementById('pending-count-badge');
@@ -1894,7 +2052,7 @@ function updateTrainerStats(filterText) {
             : pendingStudents.map((s) => buildPendingCard(s, students.indexOf(s))).join('');
     }
 
-    // ── Active list (view-alunos) ──
+    // â”€â”€ Active list (view-alunos) â”€â”€
     const activeList = document.getElementById('alunos-active-list');
     if (activeList) {
         const query = (filterText || '').toLowerCase();
@@ -1906,7 +2064,7 @@ function updateTrainerStats(filterText) {
         if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${activeStudents.length} alunos`;
     }
 
-    // ── Duvidas nav badge ──
+    // â”€â”€ Duvidas nav badge â”€â”€
     const notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
     const unreadDuvidas = notifications.filter(n => n.type === 'duvida' && n.unread).length;
     const duvidasBadge = document.getElementById('duvidas-nav-badge');
@@ -1915,7 +2073,7 @@ function updateTrainerStats(filterText) {
         duvidasBadge.textContent = unreadDuvidas;
     }
 
-    // ── Chat sidebar total unread ──
+    // â”€â”€ Chat sidebar total unread â”€â”€
     const chatTotalBadge = document.getElementById('chat-total-unread');
     if (chatTotalBadge) {
         chatTotalBadge.style.display = unreadDuvidas > 0 ? 'flex' : 'none';
@@ -1935,7 +2093,7 @@ function renderDuvidas(filterText) {
     const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
     const duvidas = notifications.filter(n => n.type === 'duvida');
 
-    // ── 1. Group by Student ──
+    // â”€â”€ 1. Group by Student â”€â”€
     const chatsMap = {};
     duvidas.forEach(d => {
         const sId = d.studentId || 'unknown';
@@ -1960,15 +2118,16 @@ function renderDuvidas(filterText) {
         chatsMap[sId].messages.push(d);
         if (d.unread) chatsMap[sId].unreadCount++;
         // Keep the latest time
-        if (new Date(d.time) > new Date(chatsMap[sId].lastTime)) {
-            chatsMap[sId].lastTime = d.time;
+        const activityIso = getNotificationActivityDate(d).toISOString();
+        if (new Date(activityIso) > new Date(chatsMap[sId].lastTime)) {
+            chatsMap[sId].lastTime = activityIso;
         }
     });
 
     // Convert to array and sort by last message time
     const chatList = Object.values(chatsMap).sort((a, b) => new Date(b.lastTime) - new Date(a.lastTime));
 
-    // ── 2. Render Sidebar ──
+    // â”€â”€ 2. Render Sidebar â”€â”€
     const listContainer = document.getElementById('chat-list');
     if (listContainer) {
         const query = (filterText || '').toLowerCase();
@@ -1980,10 +2139,15 @@ function renderDuvidas(filterText) {
             listContainer.innerHTML = filtered.map(c => {
                 const activeClass = activeChatStudentId === c.id ? 'active' : '';
                 const timeStr = formatChatTime(c.lastTime);
-                const lastMsg = c.messages[0].desc.substring(0, 35) + (c.messages[0].desc.length > 35 ? '...' : '');
+                const lastMsg = getChatPreviewMessage(c.messages);
+                const pendingCount = c.messages.filter(m => !m.fromTrainerOnly && !m.reply).length;
+                const encodedId = encodeURIComponent(c.id);
+                const statusHtml = pendingCount > 0
+                    ? `<button class="chat-status-pill pending" onclick="openChatResponder('${encodedId}', event)">Responder (${pendingCount})</button>`
+                    : `<span class="chat-status-pill resolved">Respondida</span>`;
 
                 return `
-                    <div class="chat-item ${activeClass}" onclick="selectChat('${c.id}')">
+                    <div class="chat-item ${activeClass}" onclick="selectChat(decodeURIComponent('${encodedId}'))">
                         <div class="chat-avatar"><i class="ph-fill ph-user"></i></div>
                         <div class="chat-item-info">
                             <div class="chat-item-top">
@@ -1991,7 +2155,7 @@ function renderDuvidas(filterText) {
                                 <span class="chat-time">${timeStr}</span>
                             </div>
                             <div class="chat-item-bottom">
-                                <p>${escHtml(lastMsg)}</p>
+                                <p>${escHtml(lastMsg)}</p>${statusHtml}
                                 ${c.unreadCount > 0 ? `<span class="chat-unread-badge">${c.unreadCount}</span>` : ''}
                             </div>
                         </div>
@@ -2001,7 +2165,7 @@ function renderDuvidas(filterText) {
         }
     }
 
-    // ── 3. Render Active Window ──
+    // â”€â”€ 3. Render Active Window â”€â”€
     const welcomeView = document.getElementById('chat-welcome');
     const activeView = document.getElementById('chat-active-view');
 
@@ -2024,29 +2188,40 @@ function renderDuvidas(filterText) {
     // Header info
     const elName = document.getElementById('chat-active-name');
     if (elName) elName.textContent = activeChat.name;
+    const elStatus = document.getElementById('chat-active-status');
+    if (elStatus) {
+        const pendingCount = activeChat.messages.filter(m => !m.fromTrainerOnly && !m.reply).length;
+        elStatus.textContent = pendingCount > 0 ? `${pendingCount} duvida(s) pendente(s)` : 'Conversa respondida';
+    }
 
     // Messages (Bubbles)
     const msgContainer = document.getElementById('chat-messages');
     if (msgContainer) {
         // Sort chronologically for bubbles
-        const sortedMsgs = [...activeChat.messages].sort((a, b) => new Date(a.time) - new Date(b.time));
+        const sortedMsgs = [...activeChat.messages].sort((a, b) => getNotificationActivityDate(a) - getNotificationActivityDate(b));
 
         msgContainer.innerHTML = sortedMsgs.map(m => {
-            const timeStr = formatChatTime(m.time);
-            let html = `
-                <div class="msg-bubble student">
-                    <div class="msg-content">
-                        ${escHtml(m.desc)}
-                        <span class="msg-time">${timeStr}</span>
+            const studentTimeStr = formatChatTime(m.time);
+            const trainerTimeStr = formatChatTime(m.repliedAt || m.time);
+            let html = '';
+            if (!m.fromTrainerOnly && m.desc) {
+                html += `
+                    <div class="msg-bubble student">
+                        <div class="msg-content">
+                            ${formatChatMessageText(m.desc)}
+                            ${renderChatMedia(m.media, 'student')}
+                            <span class="msg-time">${studentTimeStr}</span>
+                        </div>
                     </div>
-                </div>
-            `;
+                `;
+            }
             if (m.reply) {
                 html += `
                     <div class="msg-bubble trainer">
                         <div class="msg-content">
-                            ${escHtml(m.reply)}
-                            <span class="msg-time">${timeStr} <i class="ph-bold ph-checks" style="color:#34b7f1"></i></span>
+                            ${formatChatMessageText(m.reply)}
+                            ${renderChatMedia(m.replyMedia, 'trainer')}
+                            <span class="msg-time">${trainerTimeStr} <i class="ph-bold ph-checks" style="color:#34b7f1"></i></span>
                         </div>
                     </div>
                 `;
@@ -2085,37 +2260,303 @@ function selectChat(studentId) {
     renderDuvidas();
 }
 
+function markActiveChatAsRead() {
+    if (!activeChatStudentId) return;
+    let notifs = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    let changed = false;
+    notifs.forEach(n => {
+        if (n.type === 'duvida' && (n.studentId === activeChatStudentId || (!n.studentId && activeChatStudentId === 'unknown')) && n.unread) {
+            n.unread = false;
+            changed = true;
+        }
+    });
+    if (!changed) return;
+    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+    updateTrainerStats();
+    renderDuvidas();
+    syncChannel.postMessage({ type: 'DOUBT_RESOLVED' });
+}
+
 function filterChats(query) {
     renderDuvidas(query);
 }
 
-function responderChat() {
+function renderChatMedia(media, sender) {
+    if (!media || !media.type || !media.dataUrl) return '';
+    if (media.type === 'image') {
+        return `<div class="chat-media-wrap ${sender}"><img src="${media.dataUrl}" alt="${escHtml(media.name || 'imagem')}" class="chat-media-image"></div>`;
+    }
+    if (media.type === 'video') {
+        return `<div class="chat-media-wrap ${sender}">
+            <video controls class="chat-media-video" src="${media.dataUrl}"></video>
+            <button class="btn-pip-video" onclick="openVideoPiPFromButton(this)">PiP</button>
+        </div>`;
+    }
+    if (media.type === 'audio') {
+        return `<div class="chat-media-wrap ${sender}">
+            <audio controls class="chat-media-audio" src="${media.dataUrl}"></audio>
+        </div>`;
+    }
+    return '';
+}
+
+function openChatResponder(encodedStudentId, event) {
+    if (event) event.stopPropagation();
+    const studentId = decodeURIComponent(encodedStudentId || '');
+    if (!studentId) return;
+    selectChat(studentId);
+    setTimeout(() => {
+        const input = document.getElementById('chat-reply-input');
+        if (input) input.focus();
+    }, 50);
+}
+
+function openTrainerAttachmentPicker(source = 'gallery') {
+    const input = document.getElementById(source === 'camera' ? 'chat-camera-input' : 'chat-attach-input');
+    if (input) input.click();
+}
+
+async function handleTrainerAttachment(event) {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    if (!isImage && !isVideo) {
+        alert('Formato nao suportado. Use imagem ou video.');
+        return;
+    }
+
+    try {
+        let dataUrl;
+        if (isImage) {
+            dataUrl = await compressImageToDataUrl(file, 1280, 0.82);
+        } else {
+            // Keep video size controlled due to localStorage limits
+            if (file.size > 6 * 1024 * 1024) {
+                alert('Video muito grande. Use ate 6MB para envio no chat.');
+                return;
+            }
+            dataUrl = await fileToDataUrl(file);
+        }
+
+        trainerPendingAttachment = {
+            type: isImage ? 'image' : 'video',
+            name: file.name,
+            dataUrl
+        };
+
+        renderTrainerAttachmentPreview();
+    } catch (e) {
+        console.error('Falha ao processar anexo', e);
+        alert('Nao foi possivel processar o arquivo.');
+    } finally {
+        const input = document.getElementById('chat-attach-input');
+        if (input) input.value = '';
+    }
+}
+
+function clearTrainerAttachment() {
+    trainerPendingAttachment = null;
+    const box = document.getElementById('chat-attach-preview');
+    const content = document.getElementById('chat-attach-preview-content');
+    if (box) box.style.display = 'none';
+    if (content) content.innerHTML = '';
+}
+
+function renderTrainerAttachmentPreview() {
+    const box = document.getElementById('chat-attach-preview');
+    const content = document.getElementById('chat-attach-preview-content');
+    if (!box || !content) return;
+
+    if (!trainerPendingAttachment) {
+        box.style.display = 'none';
+        content.innerHTML = '';
+        return;
+    }
+
+    if (trainerPendingAttachment.type === 'image') {
+        content.innerHTML = `
+            <img src="${trainerPendingAttachment.dataUrl}" class="chat-preview-image" alt="${escHtml(trainerPendingAttachment.name)}">
+            <div class="chat-preview-meta"><i class="ph-bold ph-image"></i> ${escHtml(trainerPendingAttachment.name)}</div>
+        `;
+    } else if (trainerPendingAttachment.type === 'video') {
+        content.innerHTML = `
+            <video src="${trainerPendingAttachment.dataUrl}" class="chat-preview-video" controls></video>
+            <div class="chat-preview-meta"><i class="ph-bold ph-video-camera"></i> ${escHtml(trainerPendingAttachment.name)}</div>
+        `;
+    } else {
+        content.innerHTML = `
+            <audio src="${trainerPendingAttachment.dataUrl}" class="chat-preview-audio" controls></audio>
+            <div class="chat-preview-meta"><i class="ph-bold ph-waveform"></i> ${escHtml(trainerPendingAttachment.name || 'audio')}</div>
+        `;
+    }
+
+    box.style.display = 'flex';
+}
+
+function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+function compressImageToDataUrl(file, maxSize = 1280, quality = 0.82) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+                const ratio = Math.min(1, maxSize / Math.max(img.width, img.height));
+                const w = Math.round(img.width * ratio);
+                const h = Math.round(img.height * ratio);
+
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+            img.onerror = reject;
+            img.src = reader.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+function sendTrainerChat() {
     const input = document.getElementById('chat-reply-input');
     const reply = input?.value.trim();
-    if (!reply || !activeChatStudentId) return;
+    const media = trainerPendingAttachment ? { ...trainerPendingAttachment } : null;
+    if ((!reply && !media) || !activeChatStudentId) return;
 
     let notifs = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    const nowIso = new Date().toISOString();
+    const hasMediaOnly = !reply && !!media;
+    const finalReplyText = reply || (hasMediaOnly ? '[arquivo enviado]' : '');
+    const isFromActiveStudent = (n) => (
+        n.type === 'duvida' &&
+        (n.studentId === activeChatStudentId || (!n.studentId && activeChatStudentId === 'unknown'))
+    );
 
-    // Find first unreplied doubt for this student
-    const doubt = notifs.find(n => n.type === 'duvida' && (n.studentId === activeChatStudentId || (!n.studentId && activeChatStudentId === 'unknown')) && !n.reply);
+    // Reply to the oldest pending doubt first
+    const pendingIndex = notifs.findIndex(n => isFromActiveStudent(n) && !n.fromTrainerOnly && !n.reply);
+    const doubt = pendingIndex >= 0 ? notifs[pendingIndex] : null;
 
     if (doubt) {
-        doubt.reply = reply;
+        doubt.reply = finalReplyText;
+        if (media) doubt.replyMedia = media;
+        doubt.repliedAt = nowIso;
         doubt.unread = false; // Just in case
     } else {
-        // If all are replied, we could add a "pure reply" message, 
-        // but for now let's just update the last one or show an alert
-        const lastDoubt = notifs.find(n => n.type === 'duvida' && (n.studentId === activeChatStudentId || (!n.studentId && activeChatStudentId === 'unknown')));
-        if (lastDoubt) lastDoubt.reply = (lastDoubt.reply ? lastDoubt.reply + '\n' : '') + reply;
+        // If there is no pending doubt, store as a new trainer-only chat message
+        const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+        const matchedStudent = students.find(s => s.id === activeChatStudentId);
+        const fallbackNotif = notifs.find(n => isFromActiveStudent(n));
+        const fallbackName = fallbackNotif?.studentName || (fallbackNotif?.title ? String(fallbackNotif.title).replace('💬 Dúvida de ', '') : 'Aluno');
+
+        notifs.unshift({
+            type: 'duvida',
+            studentId: activeChatStudentId === 'unknown' ? null : activeChatStudentId,
+            studentName: matchedStudent?.name || fallbackName,
+            title: `💬 Dúvida de ${matchedStudent?.name || fallbackName}`,
+            desc: '',
+            fromTrainerOnly: true,
+            reply: finalReplyText,
+            replyMedia: media || null,
+            time: nowIso,
+            repliedAt: nowIso,
+            unread: false
+        });
     }
+
+    // Mark all unread messages from this student as read after sending
+    notifs.forEach(n => {
+        if (isFromActiveStudent(n)) {
+            n.unread = false;
+        }
+    });
 
     localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
     input.value = '';
+    clearTrainerAttachment();
     renderDuvidas();
     updateTrainerStats();
 
     // Broadcats reply
     syncChannel.postMessage({ type: 'DOUBT_REPLY', payload: { studentId: activeChatStudentId } });
+}
+
+function responderChat() {
+    sendTrainerChat();
+}
+
+function openVideoPiPFromButton(buttonEl) {
+    const wrap = buttonEl?.closest('.chat-media-wrap');
+    const video = wrap?.querySelector('video');
+    if (!video) return;
+    if (!document.pictureInPictureEnabled) {
+        alert('Picture-in-Picture não disponível neste navegador.');
+        return;
+    }
+    video.requestPictureInPicture().catch(() => { });
+}
+
+async function startTrainerHoldRecord(event) {
+    event?.preventDefault?.();
+    if (trainerRecordingActive) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('Gravação de áudio não suportada neste dispositivo.');
+        return;
+    }
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        trainerAudioChunks = [];
+        trainerAudioRecorder = new MediaRecorder(stream);
+        trainerAudioRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) trainerAudioChunks.push(e.data);
+        };
+        trainerAudioRecorder.onstop = async () => {
+            const blob = new Blob(trainerAudioChunks, { type: 'audio/webm' });
+            const dataUrl = await fileToDataUrl(blob);
+            trainerPendingAttachment = {
+                type: 'audio',
+                name: `audio-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`,
+                dataUrl
+            };
+            renderTrainerAttachmentPreview();
+            stream.getTracks().forEach(t => t.stop());
+        };
+
+        trainerAudioRecorder.start();
+        trainerRecordingActive = true;
+        const wave = document.getElementById('chat-recording-wave');
+        if (wave) wave.style.display = 'flex';
+        const micBtn = document.querySelector('.btn-mic-chat');
+        if (micBtn) micBtn.classList.add('recording');
+    } catch (e) {
+        console.error('Falha ao iniciar gravação', e);
+        alert('Não foi possível acessar o microfone.');
+    }
+}
+
+function stopTrainerHoldRecord(event) {
+    event?.preventDefault?.();
+    if (!trainerRecordingActive) return;
+    trainerRecordingActive = false;
+    const wave = document.getElementById('chat-recording-wave');
+    if (wave) wave.style.display = 'none';
+    const micBtn = document.querySelector('.btn-mic-chat');
+    if (micBtn) micBtn.classList.remove('recording');
+    if (trainerAudioRecorder && trainerAudioRecorder.state !== 'inactive') {
+        trainerAudioRecorder.stop();
+    }
 }
 
 let activeRoutineIdx = 0;
@@ -2172,7 +2613,7 @@ function renderStudentWorkoutContentMain() {
             <div class="routine-header">
                 <div class="routine-title-row">
                     <h3>${escHtml(block.title || `Treino ${String.fromCharCode(65 + activeRoutineIdx)}`)}</h3>
-                    ${lastPerformed ? `<span class="routine-last-performed">Última vez: ${lastPerformed}</span>` : ''}
+                    ${lastPerformed ? `<span class="routine-last-performed">Ãšltima vez: ${lastPerformed}</span>` : ''}
                 </div>
                 <div class="routine-summary">
                     <span><i class="ph-bold ph-lightning"></i> ${escHtml(muscles.join(' • '))}</span>
@@ -2345,11 +2786,11 @@ function responderDuvida(idx) {
 
         updateTrainerStats();
         renderDuvidas();
-        alert('✅ Resposta enviada ao aluno!');
+        alert('âœ… Resposta enviada ao aluno!');
     }
 }
 
-// ── Accept a pending student ─────────────────────────────────────────────────
+// â”€â”€ Accept a pending student â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function acceptStudent(idx) {
     let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
     if (!students[idx]) return;
@@ -2371,7 +2812,7 @@ function acceptStudent(idx) {
     }
 }
 
-// ── Reject / remove a pending student ───────────────────────────────────────
+// â”€â”€ Reject / remove a pending student â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function rejectStudent(idx) {
     if (!confirm('Tem certeza que deseja recusar esta solicitação?')) return;
     let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
@@ -2383,7 +2824,7 @@ function rejectStudent(idx) {
     updateTrainerStats();
 }
 
-// ── Filter helper ────────────────────────────────────────────────────────────
+// â”€â”€ Filter helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function filterStudents(query) {
     updateTrainerStats(query);
 }
@@ -2410,12 +2851,36 @@ function markNotifRead(index, btnElement) {
     }
 }
 
-// ─── Profile open / close / tab switch ──────────────────────────────────────
+// â”€â”€â”€ Profile open / close / tab switch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let currentStudentIdx = null; // tracks which student is being edited
 let workoutBlocks = [];        // local state for workout blocks
 let mealBlocks = [];           // local state for meal blocks
 let pendingBlockIdx = null;    // which block an exercise is being added to
 let pendingMealIdx = null;    // which meal an item is being added to
+
+let activeExerciseFilter = 'todos';
+let activeEquipmentFilter = 'todos';
+let selectedExerciseCatalogItem = null;
+let activeFilterPicker = null;
+
+function normalizeText(value) {
+    return (value || '')
+        .toString()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+}
+
+function escapeHTML(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 
 function openStudentProfile(studentIndex) {
     let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
@@ -2482,11 +2947,18 @@ function switchProfileTab(tabName) {
     document.getElementById(`p-nav-${tabName}`).classList.add('active');
 }
 
-// ─── Workout Blocks ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Workout Blocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function renderWorkoutBlocks() {
     const container = document.getElementById('workout-blocks-container');
     if (!container) return;
+
+    workoutBlocks.forEach(block => {
+        block.exercises.forEach(ex => {
+            if (!Array.isArray(ex.substitutes)) ex.substitutes = ['', ''];
+            if (typeof ex.supersetWithNext !== 'boolean') ex.supersetWithNext = false;
+        });
+    });
 
     if (workoutBlocks.length === 0) {
         container.innerHTML = `
@@ -2524,6 +2996,17 @@ function renderWorkoutBlocks() {
             <div class="ex-info">
                 <strong>${escHtml(ex.nome)}</strong>
                 ${ex.obs ? `<span class="ex-obs">${escHtml(ex.obs)}</span>` : ''}
+                <div class="ex-advanced-row">
+                    <input type="text" class="ex-sub-input" value="${escHtml(ex.substitutes?.[0] || '')}"
+                        oninput="updateExerciseSubstitute(${bIdx}, ${eIdx}, 0, this.value)" placeholder="Substituto 1 (opcional)">
+                    <input type="text" class="ex-sub-input" value="${escHtml(ex.substitutes?.[1] || '')}"
+                        oninput="updateExerciseSubstitute(${bIdx}, ${eIdx}, 1, this.value)" placeholder="Substituto 2 (opcional)">
+                    <label class="ex-superset-toggle ${eIdx === block.exercises.length - 1 ? 'disabled' : ''}">
+                        <input type="checkbox" ${ex.supersetWithNext ? 'checked' : ''} ${eIdx === block.exercises.length - 1 ? 'disabled' : ''}
+                            onchange="toggleSupersetWithNext(${bIdx}, ${eIdx}, this.checked)">
+                        Super série com próximo
+                    </label>
+                </div>
             </div>
             <div class="ex-stats">
                 <div class="ex-stat">
@@ -2576,6 +3059,20 @@ function deleteExercise(bIdx, eIdx) {
     renderWorkoutBlocks();
 }
 
+function updateExerciseSubstitute(bIdx, eIdx, subIdx, value) {
+    const ex = workoutBlocks?.[bIdx]?.exercises?.[eIdx];
+    if (!ex) return;
+    if (!Array.isArray(ex.substitutes)) ex.substitutes = ['', ''];
+    ex.substitutes[subIdx] = value;
+}
+
+function toggleSupersetWithNext(bIdx, eIdx, checked) {
+    const ex = workoutBlocks?.[bIdx]?.exercises?.[eIdx];
+    if (!ex) return;
+    ex.supersetWithNext = !!checked;
+    renderWorkoutBlocks();
+}
+
 function updateSummaryBar() {
     let totalSeries = 0;
     workoutBlocks.forEach(b => b.exercises.forEach(e => { totalSeries += parseInt(e.series) || 0; }));
@@ -2594,7 +3091,7 @@ function updateSummaryBar() {
     el('summary-intensidade', intensity);
 }
 
-// ─── Exercise Modal ───────────────────────────────────────────────────────────
+// â”€â”€â”€ Exercise Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function openExModal(blockIdx) {
     pendingBlockIdx = blockIdx;
@@ -2602,64 +3099,114 @@ function openExModal(blockIdx) {
         const el = document.getElementById(id); if (el) el.value = '';
     });
 
-    // Clear library results
-    const results = document.getElementById('ex-library-results');
-    if (results) results.innerHTML = '';
+    selectedExerciseCatalogItem = null;
+    activeExerciseFilter = 'todos';
+    activeEquipmentFilter = 'todos';
+    closeFilterPicker();
+    updateExerciseFilterButtons();
 
     document.getElementById('ex-modal-overlay').classList.add('active');
     document.getElementById('ex-modal').classList.add('active');
+    searchExerciseLibrary('');
     document.getElementById('ex-nome').focus();
 }
 
 function searchExerciseLibrary(query) {
+    const searchInput = document.getElementById('ex-nome');
     const results = document.getElementById('ex-library-results');
-    if (!results) return;
+    if (!searchInput || !results) return;
 
-    if (!query || query.length < 2) {
-        results.innerHTML = '';
-        results.classList.remove('active');
+    const q = normalizeText(query);
+    const filtered = EXERCISE_CATALOG_DATA.filter(ex => {
+        const passMuscle = activeExerciseFilter === 'todos' || ex.group === activeExerciseFilter;
+        const passEquipment = activeEquipmentFilter === 'todos' || ex.equipment === activeEquipmentFilter;
+        const passSearch = !q || normalizeText(ex.name).includes(q) || normalizeText(GROUP_DISPLAY[ex.group] || ex.group).includes(q);
+        return passMuscle && passEquipment && passSearch;
+    });
+
+    if (filtered.length === 0) {
+        results.innerHTML = `
+            <div class="ex-library-empty">
+                <i class="ph-bold ph-magnifying-glass"></i>
+                <p>Nenhum exercício encontrado.</p>
+            </div>`;
         return;
     }
 
-    const q = query.toLowerCase();
-    let html = '';
-
-    for (const category in EXERCISE_LIBRARY) {
-        const matches = EXERCISE_LIBRARY[category].filter(ex => ex.toLowerCase().includes(q));
-        if (matches.length > 0) {
-            html += `<div class="lib-category">${category}</div>`;
-            matches.forEach(ex => {
-                html += `<div class="lib-item" onclick="selectExerciseFromLibrary('${ex.replace(/'/g, "\\'")}')">
-                    <i class="ph-bold ph-plus-circle"></i> ${ex}
-                </div>`;
-            });
-        }
-    }
-
-    results.innerHTML = html;
-    if (html) results.classList.add('active');
-    else results.classList.remove('active');
+    results.innerHTML = filtered.map(ex => {
+        const active = selectedExerciseCatalogItem === ex.name ? 'active' : '';
+        return `
+        <button type="button" class="ex-hevy-item ${active}" onclick="selectExerciseFromLibrary('${ex.name.replace(/'/g, "\'")}')">
+            <div class="ex-hevy-thumb"><i class="ph-bold ${ex.icon || 'ph-barbell'}"></i></div>
+            <div class="ex-hevy-info">
+                <strong>${escapeHTML(ex.name)}</strong>
+                <span>${escapeHTML(GROUP_DISPLAY[ex.group] || ex.group)} Â· ${escapeHTML(EQUIPMENT_DISPLAY[ex.equipment] || ex.equipment)}</span>
+            </div>
+            <i class="ph-bold ${active ? 'ph-check-circle' : 'ph-trend-up'}"></i>
+        </button>`;
+    }).join('');
 }
 
 function selectExerciseFromLibrary(name) {
-    const input = document.getElementById('ex-nome');
-    if (input) input.value = name;
+    selectedExerciseCatalogItem = name;
+    const nameInput = document.getElementById('ex-nome');
+    if (nameInput) nameInput.value = name;
+    searchExerciseLibrary(name);
+}
 
-    const results = document.getElementById('ex-library-results');
-    if (results) {
-        results.innerHTML = '';
-        results.classList.remove('active');
-    }
+function updateExerciseFilterButtons() {
+    const muscleBtn = document.getElementById('ex-muscle-filter-btn');
+    const equipBtn = document.getElementById('ex-equipment-filter-btn');
+    if (muscleBtn) muscleBtn.textContent = MUSCLE_FILTER_OPTIONS.find(o => o.value === activeExerciseFilter)?.label || 'Todos os Músculos';
+    if (equipBtn) equipBtn.textContent = EQUIPMENT_FILTER_OPTIONS.find(o => o.value === activeEquipmentFilter)?.label || 'Todo o Equipamento';
+}
+
+function openFilterPicker(type) {
+    activeFilterPicker = type;
+    const picker = document.getElementById('ex-filter-picker');
+    const title = document.getElementById('ex-filter-picker-title');
+    const list = document.getElementById('ex-filter-picker-list');
+    if (!picker || !title || !list) return;
+
+    const options = type === 'muscle' ? MUSCLE_FILTER_OPTIONS : EQUIPMENT_FILTER_OPTIONS;
+    const activeVal = type === 'muscle' ? activeExerciseFilter : activeEquipmentFilter;
+    title.textContent = type === 'muscle' ? 'Grupo Muscular' : 'Tipo de Categoria';
+
+    list.innerHTML = options.map(opt => `
+        <button type="button" class="ex-filter-option" onclick="selectFilterOption('${type}','${opt.value}')">
+            <div class="ex-filter-icon"><i class="ph-bold ${opt.icon}"></i></div>
+            <span>${opt.label}</span>
+            ${activeVal === opt.value ? '<i class="ph-bold ph-check"></i>' : ''}
+        </button>`).join('');
+
+    picker.style.display = 'block';
+}
+
+function selectFilterOption(type, value) {
+    if (type === 'muscle') activeExerciseFilter = value;
+    if (type === 'equipment') activeEquipmentFilter = value;
+    updateExerciseFilterButtons();
+    closeFilterPicker();
+    const search = document.getElementById('ex-nome');
+    searchExerciseLibrary(search ? search.value : '');
+}
+
+function closeFilterPicker() {
+    const picker = document.getElementById('ex-filter-picker');
+    if (picker) picker.style.display = 'none';
+    activeFilterPicker = null;
 }
 
 function closeExModal() {
+
     document.getElementById('ex-modal-overlay').classList.remove('active');
     document.getElementById('ex-modal').classList.remove('active');
     pendingBlockIdx = null;
+    closeFilterPicker();
 }
 
 function confirmAddExercise() {
-    const nome = document.getElementById('ex-nome').value.trim();
+    const nome = (selectedExerciseCatalogItem || document.getElementById('ex-nome').value || '').trim();
     if (!nome) { document.getElementById('ex-nome').focus(); return; }
     const ex = {
         nome,
@@ -2668,6 +3215,8 @@ function confirmAddExercise() {
         reps: document.getElementById('ex-reps').value || '10-12',
         carga: document.getElementById('ex-carga').value || '--',
         descanso: document.getElementById('ex-descanso').value || '60s',
+        substitutes: ['', ''],
+        supersetWithNext: false
     };
     if (pendingBlockIdx !== null) {
         workoutBlocks[pendingBlockIdx].exercises.push(ex);
@@ -2676,7 +3225,7 @@ function confirmAddExercise() {
     renderWorkoutBlocks();
 }
 
-// ─── Diet / Meals ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Diet / Meals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function renderMeals() {
     const container = document.getElementById('meal-blocks-container');
@@ -2857,7 +3406,7 @@ function confirmAddFood() {
     closeFoodModal();
 }
 
-// ─── Save plan ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Save plan â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function saveStudentPlan() {
     if (currentStudentIdx === null) return;
@@ -2920,19 +3469,22 @@ function confirmRemoveStudent() {
     updateTrainerStats();
 }
 
-// ─── UTILITY ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ UTILITY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function escHtml(str) {
     return String(str || '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// ─── HEVY STYLE WORKOUT LOG LOGIC ───────────────────────────────────────
+// â”€â”€â”€ HEVY STYLE WORKOUT LOG LOGIC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let workoutState = null;
 let workoutTimerInterval = null;
 let restTimerInterval = null;
 let restTimeLeft = 0;
 let totalRestTime = 0;
+let workoutFeedbackRating = 0;
+let workoutFeedbackIntensity = 'moderado';
+let pendingSetCompletion = null;
 
 function saveWorkoutBackup() {
     if (workoutState) {
@@ -2999,6 +3551,7 @@ function startWorkoutSession(blockIdx = 0) {
 
     const block = student.workoutBlocks[blockIdx];
     const personalRecords = student.personalRecords || {};
+    const supersetGroups = computeSupersetGroups(block.exercises || []);
 
     workoutState = {
         startTime: Date.now(),
@@ -3006,12 +3559,19 @@ function startWorkoutSession(blockIdx = 0) {
         exercises: block.exercises.map((ex, idx) => ({
             id: `ex-${idx}`,
             nome: ex.nome,
+            baseNome: ex.nome,
+            substitutes: Array.isArray(ex.substitutes) ? ex.substitutes.filter(Boolean) : [],
+            showSubstitutes: false,
+            supersetGroup: supersetGroups[idx] || 0,
             notes: '',
             best: personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxReps: 0 },
             sets: Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => ({
                 id: `set-${idx}-${sIdx}`,
                 weight: ex.carga || '',
                 reps: ex.reps || '',
+                intensityLevel: 0,
+                rpe: '',
+                rir: '',
                 completed: false,
                 brokenPRs: { weight: false, volume: false, reps: false },
                 prev: getPreviousSessionData(studentId, ex.nome)
@@ -3041,47 +3601,83 @@ function renderWorkoutLog() {
     const container = document.getElementById('log-workout-content');
     if (!container || !workoutState) return;
 
-    // Update Title
     const titleEl = document.getElementById('log-workout-title');
     if (titleEl) titleEl.innerText = workoutState.title;
 
-    container.innerHTML = workoutState.exercises.map((ex, exIdx) => `
-        <div class="log-exercise-card">
-            <div class="log-ex-header" style="justify-content: space-between; align-items: flex-start; gap: 1rem;">
-                <div style="flex: 1;">
-                    <h3 style="margin-bottom: 4px;">${escHtml(ex.nome)}</h3>
-                    <input type="text" class="exercise-notes-input" 
-                        placeholder="Adicionar nota..." 
-                        value="${escHtml(ex.notes || '')}"
-                        oninput="updateExerciseNotes(${exIdx}, this.value)"
-                        style="width: 100%; max-width: 400px; font-size: 0.8rem; color: var(--text-muted); background: transparent; border: none; padding: 0; outline: none;">
+    container.innerHTML = workoutState.exercises.map((ex, exIdx) => {
+        const completed = ex.sets.filter(s => s.completed).length;
+        const total = ex.sets.length;
+        const nextEx = workoutState.exercises[exIdx + 1];
+        const linkedToNext = ex.supersetGroup > 0 && nextEx && nextEx.supersetGroup === ex.supersetGroup;
+
+        return `
+        <div class="log-exercise-card ${ex.supersetGroup ? 'superset-card' : ''} ${linkedToNext ? 'superset-linked' : ''}">
+            <div class="log-ex-header">
+                <div class="log-ex-head-main">
+                    <h3 class="clickable-ex-title" onclick="openExerciseProgressModalEncoded('${encodeURIComponent(ex.nome)}')">${escHtml(ex.nome)}</h3>
+                    <div class="log-ex-meta">
+                        <span class="meta-pill"><i class="ph-bold ph-check-circle"></i> ${completed}/${total} séries</span>
+                        <span class="meta-pill muted"><i class="ph-bold ph-chart-line-up"></i> registrar carga</span>
+                        ${ex.supersetGroup ? `<span class="meta-pill"><i class="ph-bold ph-lightning"></i> bi-set ${ex.supersetGroup}</span>` : ''}
+                    </div>
                 </div>
+                <div class="log-ex-top-actions">
+                    ${ex.substitutes && ex.substitutes.length > 0 ? `
+                    <button class="btn-icon-tiny" onclick="toggleLogSubstitutes(${exIdx})" title="Trocar exercicio">
+                        <i class="ph-bold ph-arrows-clockwise"></i>
+                    </button>` : ''}
                 <button class="btn-icon-tiny" onclick="removeExerciseFromLog(${exIdx})"><i class="ph-bold ph-trash"></i></button>
+                </div>
             </div>
+
+            ${ex.showSubstitutes ? `
+                <div class="log-substitute-box">
+                    <strong>Substitutos aprovados pelo coach:</strong>
+                    <div class="log-substitute-list">
+                        ${ex.substitutes.map(sub => `<button class="btn-substitute-ex" onclick="applyExerciseSubstituteEncoded(${exIdx}, '${encodeURIComponent(sub)}')">${escHtml(sub)}</button>`).join('')}
+                        <button class="btn-substitute-ex muted" onclick="applyExerciseSubstituteEncoded(${exIdx}, '${encodeURIComponent(ex.baseNome)}')">Voltar original</button>
+                    </div>
+                </div>
+            ` : ''}
+
+            <input type="text" class="exercise-notes-input" 
+                placeholder="Notas do exercício..." 
+                value="${escHtml(ex.notes || '')}"
+                oninput="updateExerciseNotes(${exIdx}, this.value)">
             
             <div class="log-set-table">
                 <div class="log-set-header">
-                    <span>Set</span>
-                    <span class="col-prev">Anterior</span>
-                    <span>Peso</span>
+                    <span>Série</span>
+                    <span class="col-prev">Ãšltimo</span>
+                    <span>Kg</span>
                     <span>Reps</span>
-                    <span><i class="ph-bold ph-check"></i></span>
+                    <span>Intensidade</span>
+                    <span>OK</span>
                 </div>
                 ${ex.sets.map((set, setIdx) => `
                     <div class="log-set-row ${set.completed ? 'completed' : ''}" id="row-${exIdx}-${setIdx}">
                         <div class="set-number">${setIdx + 1}</div>
-                        <div class="set-prev col-prev">${escHtml(set.prev)}</div>
-                        <div style="position: relative; display: flex; align-items: center;">
+                        <button class="set-prev col-prev" onclick="fillFromPreviousSet(${exIdx}, ${setIdx})">${escHtml(set.prev)}</button>
+
+                        <div class="set-input-wrap">
                             <input type="number" class="set-input log-input-tactile" value="${set.weight}" 
                                 placeholder="--" oninput="updateSetData(${exIdx}, ${setIdx}, 'weight', this.value)"
                                 ${set.completed ? 'disabled' : ''}>
+                            <button class="mini-adjust" onclick="adjustSetWeight(${exIdx}, ${setIdx}, 2.5)">+2.5</button>
                         </div>
-                        <div style="position: relative; display: flex; align-items: center;">
+
+                        <div class="set-input-wrap">
                             <input type="number" class="set-input log-input-tactile" value="${set.reps}" 
                                 placeholder="--" oninput="updateSetData(${exIdx}, ${setIdx}, 'reps', this.value)"
                                 ${set.completed ? 'disabled' : ''}>
+                            <button class="mini-adjust" onclick="adjustSetReps(${exIdx}, ${setIdx}, 1)">+1</button>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+
+                        <div class="set-intensity-visual" title="${getIntensityLabel(set.intensityLevel)}">
+                            ${renderIntensitySelector(exIdx, setIdx, set.intensityLevel)}
+                        </div>
+
+                        <div class="set-check-wrap">
                             <button class="btn-check-set ${set.completed ? 'active' : ''}" 
                                 onclick="toggleSetCompletion(${exIdx}, ${setIdx})">
                                 <i class="ph-bold ${set.completed ? 'ph-check' : 'ph-circle'}"></i>
@@ -3098,7 +3694,8 @@ function renderWorkoutLog() {
                 </button>
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 }
 
 function updateExerciseNotes(exIdx, notes) {
@@ -3131,6 +3728,49 @@ function updateSetData(exIdx, setIdx, field, value) {
         updateExercisePRs(exIdx);
         saveWorkoutBackup();
     }
+}
+
+
+function fillFromPreviousSet(exIdx, setIdx) {
+    if (!workoutState) return;
+    const ex = workoutState.exercises[exIdx];
+    if (!ex || !ex.sets[setIdx]) return;
+
+    const prevSet = ex.sets[setIdx - 1];
+    if (!prevSet) return;
+
+    ex.sets[setIdx].weight = prevSet.weight || ex.sets[setIdx].weight;
+    ex.sets[setIdx].reps = prevSet.reps || ex.sets[setIdx].reps;
+    updateExercisePRs(exIdx);
+    saveWorkoutBackup();
+    renderWorkoutLog();
+}
+
+function adjustSetWeight(exIdx, setIdx, delta) {
+    if (!workoutState) return;
+    const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
+    if (!set || set.completed) return;
+
+    const current = parseFloat(set.weight) || 0;
+    const next = Math.max(0, current + delta);
+    set.weight = Number.isInteger(next) ? String(next) : next.toFixed(1);
+
+    updateExercisePRs(exIdx);
+    saveWorkoutBackup();
+    renderWorkoutLog();
+}
+
+function adjustSetReps(exIdx, setIdx, delta) {
+    if (!workoutState) return;
+    const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
+    if (!set || set.completed) return;
+
+    const current = parseInt(set.reps) || 0;
+    set.reps = String(Math.max(0, current + delta));
+
+    updateExercisePRs(exIdx);
+    saveWorkoutBackup();
+    renderWorkoutLog();
 }
 
 function updateExercisePRs(exIdx) {
@@ -3181,6 +3821,13 @@ function checkPRs(exIdx, setIdx) {
 function toggleSetCompletion(exIdx, setIdx) {
     if (!workoutState) return;
     const set = workoutState.exercises[exIdx].sets[setIdx];
+
+    if (!set.completed && !set.intensityLevel) {
+        pendingSetCompletion = { exIdx, setIdx };
+        openSetEffortQuickModal();
+        return;
+    }
+
     set.completed = !set.completed;
 
     if (set.completed) {
@@ -3192,7 +3839,51 @@ function toggleSetCompletion(exIdx, setIdx) {
     saveWorkoutBackup();
     renderWorkoutLog();
 }
-// ─── REST TIMER LOGIC ──────────────────────────────────────────────────
+
+function computeSupersetGroups(exercises) {
+    const groups = [];
+    let g = 0;
+    for (let i = 0; i < exercises.length; i++) {
+        const prevLinks = i > 0 && !!exercises[i - 1]?.supersetWithNext;
+        const currLinks = !!exercises[i]?.supersetWithNext;
+
+        if (prevLinks) {
+            groups[i] = groups[i - 1] || ++g;
+            continue;
+        }
+        if (currLinks) {
+            groups[i] = ++g;
+            continue;
+        }
+        groups[i] = 0;
+    }
+    return groups;
+}
+
+function openSetEffortQuickModal() {
+    const modal = document.getElementById('set-effort-quick-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+}
+
+function closeSetEffortQuickModal() {
+    const modal = document.getElementById('set-effort-quick-modal');
+    if (!modal) return;
+    pendingSetCompletion = null;
+    modal.classList.remove('active');
+    setTimeout(() => { modal.style.display = 'none'; }, 180);
+}
+
+function chooseQuickSetEffort(level) {
+    if (!pendingSetCompletion) return;
+    const { exIdx, setIdx } = pendingSetCompletion;
+    setSetIntensity(exIdx, setIdx, level);
+    pendingSetCompletion = null;
+    closeSetEffortQuickModal();
+    toggleSetCompletion(exIdx, setIdx);
+}
+// â”€â”€â”€ REST TIMER LOGIC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function startRestTimer(seconds) {
     restTimeLeft = seconds;
     totalRestTime = seconds;
@@ -3229,7 +3920,35 @@ function updateRestTimerUI() {
     if (progressFill && totalRestTime > 0) {
         const percentage = (restTimeLeft / totalRestTime) * 100;
         progressFill.style.width = `${percentage}%`;
+        const overlay = document.getElementById('rest-timer-overlay');
+        if (overlay) overlay.style.setProperty('--rest-progress', `${percentage}%`);
     }
+}
+
+function getNotificationActivityDate(notification) {
+    const raw = notification?.repliedAt || notification?.time;
+    const d = raw ? new Date(raw) : new Date(0);
+    return Number.isNaN(d.getTime()) ? new Date(0) : d;
+}
+
+function formatChatMessageText(text) {
+    const safeText = escHtml(text || '');
+    return safeText.replace(/\r?\n/g, '<br>');
+}
+
+function getChatPreviewMessage(messages) {
+    if (!Array.isArray(messages) || messages.length === 0) return 'Sem mensagens';
+
+    const ordered = [...messages].sort((a, b) => getNotificationActivityDate(b) - getNotificationActivityDate(a));
+    const latest = ordered[0];
+    if (!latest) return 'Sem mensagens';
+
+    const baseText = latest.reply || latest.desc || '';
+    const normalized = String(baseText).replace(/\s+/g, ' ').trim();
+    if (normalized) return normalized;
+
+    if (latest.replyMedia || latest.media) return 'Midia enviada';
+    return 'Sem mensagem de texto';
 }
 
 function onRestTimerEnd() {
@@ -3273,6 +3992,9 @@ function addSetToExercise(exIdx) {
         id: `set-${exIdx}-${ex.sets.length}`,
         weight: lastSet ? lastSet.weight : '',
         reps: lastSet ? lastSet.reps : '',
+        intensityLevel: 0,
+        rpe: '',
+        rir: '',
         completed: false,
         brokenPRs: { weight: false, volume: false, reps: false },
         prev: '-'
@@ -3288,6 +4010,28 @@ function removeExerciseFromLog(exIdx) {
     renderWorkoutLog();
 }
 
+function toggleLogSubstitutes(exIdx) {
+    if (!workoutState) return;
+    const ex = workoutState.exercises?.[exIdx];
+    if (!ex) return;
+    ex.showSubstitutes = !ex.showSubstitutes;
+    renderWorkoutLog();
+}
+
+function applyExerciseSubstitute(exIdx, substituteName) {
+    if (!workoutState) return;
+    const ex = workoutState.exercises?.[exIdx];
+    if (!ex) return;
+    ex.nome = substituteName;
+    ex.showSubstitutes = false;
+    saveWorkoutBackup();
+    renderWorkoutLog();
+}
+
+function applyExerciseSubstituteEncoded(exIdx, encodedName) {
+    applyExerciseSubstitute(exIdx, decodeURIComponent(encodedName || ''));
+}
+
 function handleFinishWorkout() {
     if (!workoutState) return;
 
@@ -3296,6 +4040,70 @@ function handleFinishWorkout() {
     if (completedSets === 0) {
         if (!confirm('Nenhuma série foi marcada como concluída. Deseja realmente finalizar?')) return;
     }
+
+    openWorkoutFeedbackModal();
+}
+
+function openWorkoutFeedbackModal() {
+    const modal = document.getElementById('workout-feedback-modal-overlay');
+    if (!modal) {
+        finalizeWorkoutWithFeedback();
+        return;
+    }
+
+    workoutFeedbackRating = 0;
+    workoutFeedbackIntensity = 'moderado';
+
+    const notes = document.getElementById('workout-feedback-notes');
+    if (notes) notes.value = '';
+
+    updateWorkoutFeedbackUI();
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+}
+
+function closeWorkoutFeedbackModal() {
+    const modal = document.getElementById('workout-feedback-modal-overlay');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => { modal.style.display = 'none'; }, 220);
+}
+
+function setWorkoutFeedbackRating(rating) {
+    workoutFeedbackRating = Number(rating) || 0;
+    updateWorkoutFeedbackUI();
+}
+
+function setWorkoutFeedbackIntensity(level) {
+    workoutFeedbackIntensity = level || 'moderado';
+    updateWorkoutFeedbackUI();
+}
+
+function updateWorkoutFeedbackUI() {
+    const ratingButtons = document.querySelectorAll('.wfb-emoji-btn');
+    ratingButtons.forEach(btn => {
+        const rating = Number(btn.dataset.rating || 0);
+        btn.classList.toggle('active', rating <= workoutFeedbackRating && workoutFeedbackRating > 0);
+    });
+
+    const intensityButtons = document.querySelectorAll('.wfb-intensity-btn');
+    intensityButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.level === workoutFeedbackIntensity);
+    });
+}
+
+function confirmWorkoutFeedbackAndFinish() {
+    const feedback = {
+        quality: workoutFeedbackRating,
+        intensity: workoutFeedbackIntensity,
+        notes: document.getElementById('workout-feedback-notes')?.value.trim() || ''
+    };
+    closeWorkoutFeedbackModal();
+    finalizeWorkoutWithFeedback(feedback);
+}
+
+function finalizeWorkoutWithFeedback(feedback = {}) {
+    if (!workoutState) return;
 
     const elapsed = Math.floor((Date.now() - workoutState.startTime) / 1000);
 
@@ -3319,9 +4127,17 @@ function handleFinishWorkout() {
                 .map(s => ({
                     peso: parseFloat(s.weight) || 0,
                     reps: parseInt(s.reps) || 0,
+                    intensidade: s.intensityLevel || null,
+                    rpe: s.rpe ? parseFloat(s.rpe) : null,
+                    rir: s.rir ? parseInt(s.rir) : null,
                     brokenPRs: s.brokenPRs // Keep this for summary visualization
                 }))
-        })).filter(ex => ex.sets.length > 0)
+        })).filter(ex => ex.sets.length > 0),
+        Avaliacao_Geral: {
+            qualidade: Number(feedback.quality) || 0,
+            intensidade: feedback.intensity || 'moderado',
+            comentario: feedback.notes || ''
+        }
     };
 
     // SAVE TO HISTORY
@@ -3403,6 +4219,11 @@ function showWorkoutSummary(archive) {
             <span class="summary-stat-value">${prCount}</span>
             <span class="summary-stat-label">Novos PRs</span>
         </div>
+        <div class="summary-stat-card">
+            <i class="ph-bold ph-smiley"></i>
+            <span class="summary-stat-value">${archive.Avaliacao_Geral?.qualidade ? `${archive.Avaliacao_Geral.qualidade}/5` : '-'}</span>
+            <span class="summary-stat-label">Qualidade</span>
+        </div>
     `;
 
     // Render Exercises
@@ -3416,7 +4237,7 @@ function showWorkoutSummary(archive) {
         const hasPR = s.brokenPRs && (s.brokenPRs.weight || s.brokenPRs.volume);
         return `
                         <div class="summary-set-pill ${hasPR ? 'has-pr' : ''}">
-                            <span>${idx + 1}ª: <strong>${s.peso}kg</strong> x ${s.reps}</span>
+                            <span>${idx + 1}Âª: <strong>${s.peso}kg</strong> x ${s.reps}</span>
                             ${hasPR ? '<i class="ph-fill ph-trophy" style="font-size: 0.8rem;"></i>' : ''}
                         </div>
                     `;
@@ -3433,6 +4254,8 @@ function showWorkoutSummary(archive) {
 function closeWorkoutSummary() {
     // Final clear of state and return home
     workoutState = null;
+    workoutFeedbackRating = 0;
+    workoutFeedbackIntensity = 'moderado';
     clearWorkoutBackup();
     switchStudentView('home');
 }
@@ -3452,40 +4275,104 @@ function escHtml(str) {
         .replace(/'/g, "&#039;");
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // EXERCISE CATALOG (Trainer > Exercicios view)
-// ═══════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 const EXERCISE_CATALOG_DATA = [
-    { name: "Supino Reto (Barra)", group: "Peito", icon: "ph-barbell", hasHistory: true },
-    { name: "Agachamento Livre", group: "Pernas", icon: "ph-person-simple-walk", hasHistory: true },
-    { name: "Puxada Alta (Polia)", group: "Costas", icon: "ph-arrows-in-line-vertical", hasHistory: true },
-    { name: "Desenvolvimento (Halteres)", group: "Ombros", icon: "ph-barbell", hasHistory: false },
-    { name: "Rosca Direta (Barra W)", group: "Bracos", icon: "ph-barbell", hasHistory: true },
-    { name: "Triceps Corda (Polia)", group: "Bracos", icon: "ph-barbell", hasHistory: false },
-    { name: "Leg Press 45 graus", group: "Pernas", icon: "ph-person-simple-walk", hasHistory: true },
-    { name: "Remada Curvada (Barra)", group: "Costas", icon: "ph-arrows-in-line-vertical", hasHistory: false },
-    { name: "Crucifixo Inclinado (Halteres)", group: "Peito", icon: "ph-barbell", hasHistory: true },
-    { name: "Elevacao Lateral", group: "Ombros", icon: "ph-barbell", hasHistory: false }
+    { name: "Puxada Alta na Polia", group: "Dorsais", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
+    { name: "Remada Sentada na Polia", group: "CostasSuperiores", equipment: "Maquina", icon: "ph-arrows-in-line-vertical", hasHistory: true },
+    { name: "Supino (Barra)", group: "Peito", equipment: "Barra", icon: "ph-barbell", hasHistory: true },
+    { name: "Supino Inclinado (Halter)", group: "Peito", equipment: "Haltere", icon: "ph-barbell", hasHistory: false },
+    { name: "Crucifixo no Voador", group: "Peito", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
+    { name: "Rosca Scott (Máquina)", group: "Biceps", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
+    { name: "Rosca Direta (Barra W)", group: "Biceps", equipment: "Barra", icon: "ph-barbell", hasHistory: true },
+    { name: "Tríceps na Polia com Corda", group: "Triceps", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
+    { name: "Desenvolvimento (Halteres)", group: "Ombros", equipment: "Haltere", icon: "ph-barbell", hasHistory: false },
+    { name: "Elevação Lateral", group: "Ombros", equipment: "Haltere", icon: "ph-barbell", hasHistory: false },
+    { name: "Agachamento Livre", group: "Pernas", equipment: "Barra", icon: "ph-person-simple-walk", hasHistory: true },
+    { name: "Leg Press 45", group: "Pernas", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: true },
+    { name: "Cadeira Extensora", group: "Quadriceps", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: true },
+    { name: "Mesa Flexora", group: "Posteriores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
+    { name: "Stiff com Halteres", group: "Posteriores", equipment: "Haltere", icon: "ph-person-simple-walk", hasHistory: false },
+    { name: "Abdução de Quadril", group: "Abdutores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
+    { name: "Adução de Quadril", group: "Adutores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
+    { name: "Prancha", group: "Abdominais", equipment: "Nenhum", icon: "ph-person-simple", hasHistory: false },
+    { name: "Abdominal Infra", group: "Abdominais", equipment: "Nenhum", icon: "ph-person-simple", hasHistory: true },
+    { name: "Corrida Esteira", group: "Cardio", equipment: "Maquina", icon: "ph-heartbeat", hasHistory: false },
+    { name: "Burpee", group: "CorpoInteiro", equipment: "Nenhum", icon: "ph-lightning", hasHistory: false },
+    { name: "Kettlebell Swing", group: "CorpoInteiro", equipment: "Kettlebell", icon: "ph-barbell", hasHistory: false }
 ];
 
-// Display-friendly group labels (accented)
+// Display-friendly labels
 const GROUP_DISPLAY = {
-    "Peito": "Peito",
-    "Pernas": "Pernas (Quadriceps)",
-    "Costas": "Costas (Dorsais)",
+    "todos": "Todos os Músculos",
+    "Abdominais": "Abdominais",
+    "Abdutores": "Abdutores",
+    "Adutores": "Adutores",
+    "Biceps": "Bíceps",
+    "Cardio": "Cardio",
+    "CorpoInteiro": "Corpo Inteiro",
+    "CostasSuperiores": "Costas Superiores",
+    "Dorsais": "Dorsais",
     "Ombros": "Ombros",
-    "Bracos": "Biceps / Triceps"
+    "Peito": "Peito",
+    "Pernas": "Pernas",
+    "Posteriores": "Posteriores",
+    "Quadriceps": "Quadríceps",
+    "Triceps": "Tríceps"
 };
+
+const EQUIPMENT_DISPLAY = {
+    "todos": "Todo o Equipamento",
+    "Nenhum": "Nenhum",
+    "Banda": "Banda de Resistência",
+    "Barra": "Barra",
+    "Disco": "Disco de Peso",
+    "Haltere": "Haltere",
+    "Kettlebell": "Kettlebell",
+    "Maquina": "Máquina",
+    "Outro": "Outro"
+};
+
+const MUSCLE_FILTER_OPTIONS = [
+    { value: 'todos', label: 'Todos os Músculos', icon: 'ph-squares-four' },
+    { value: 'Abdominais', label: 'Abdominais', icon: 'ph-person-simple' },
+    { value: 'Abdutores', label: 'Abdutores', icon: 'ph-person-simple-walk' },
+    { value: 'Adutores', label: 'Adutores', icon: 'ph-person-simple-walk' },
+    { value: 'Biceps', label: 'Bíceps', icon: 'ph-barbell' },
+    { value: 'Cardio', label: 'Cardio', icon: 'ph-heartbeat' },
+    { value: 'CorpoInteiro', label: 'Corpo Inteiro', icon: 'ph-person-simple' },
+    { value: 'CostasSuperiores', label: 'Costas Superiores', icon: 'ph-arrows-in-line-vertical' },
+    { value: 'Dorsais', label: 'Dorsais', icon: 'ph-arrows-in-line-vertical' },
+    { value: 'Ombros', label: 'Ombros', icon: 'ph-barbell' },
+    { value: 'Peito', label: 'Peito', icon: 'ph-barbell' },
+    { value: 'Pernas', label: 'Pernas', icon: 'ph-person-simple-walk' },
+    { value: 'Posteriores', label: 'Posteriores', icon: 'ph-person-simple-walk' },
+    { value: 'Quadriceps', label: 'Quadríceps', icon: 'ph-person-simple-walk' },
+    { value: 'Triceps', label: 'Tríceps', icon: 'ph-barbell' }
+];
+
+const EQUIPMENT_FILTER_OPTIONS = [
+    { value: 'todos', label: 'Todo o Equipamento', icon: 'ph-squares-four' },
+    { value: 'Nenhum', label: 'Nenhum', icon: 'ph-person-simple' },
+    { value: 'Banda', label: 'Banda de Resistência', icon: 'ph-wave-sine' },
+    { value: 'Barra', label: 'Barra', icon: 'ph-barbell' },
+    { value: 'Disco', label: 'Disco de Peso', icon: 'ph-circle' },
+    { value: 'Haltere', label: 'Haltere', icon: 'ph-barbell' },
+    { value: 'Kettlebell', label: 'Kettlebell', icon: 'ph-barbell' },
+    { value: 'Maquina', label: 'Máquina', icon: 'ph-desktop' },
+    { value: 'Outro', label: 'Outro', icon: 'ph-dots-three' }
+];
 
 // Map chip labels to internal group keys
 const GROUP_MAP = {
     "todos": null,
     "Peito": "Peito",
-    "Costas": "Costas",
+    "Costas": "Dorsais",
     "Pernas": "Pernas",
     "Ombros": "Ombros",
-    "Bracos": "Bracos"
+    "Bracos": "Biceps"
 };
 
 let _exCatalogActiveGroup = "todos";
@@ -3553,3 +4440,52 @@ function searchExercises(query) {
     _exCatalogSearchQuery = query.trim();
     renderExerciseCatalog();
 }
+
+
+function mapIntensityToMetrics(level) {
+    const map = {
+        1: { rpe: 6.0, rir: 4 },
+        2: { rpe: 7.0, rir: 3 },
+        3: { rpe: 8.0, rir: 2 },
+        4: { rpe: 9.0, rir: 1 },
+        5: { rpe: 10.0, rir: 0 }
+    };
+    return map[level] || { rpe: null, rir: null };
+}
+
+function getIntensityLabel(level) {
+    const labels = {
+        0: 'Sem intensidade',
+        1: 'Leve',
+        2: 'Confortavel',
+        3: 'No ponto',
+        4: 'Pesado',
+        5: 'Falha total'
+    };
+    return labels[level] || labels[0];
+}
+
+function renderIntensitySelector(exIdx, setIdx, selectedLevel) {
+    return Array.from({ length: 5 }, (_, idx) => {
+        const level = idx + 1;
+        const active = level <= (Number(selectedLevel) || 0) ? 'active' : '';
+        return `<button type="button" class="set-intensity-dot ${active}" onclick="setSetIntensity(${exIdx}, ${setIdx}, ${level})"></button>`;
+    }).join('');
+}
+
+function setSetIntensity(exIdx, setIdx, level) {
+    if (!workoutState) return;
+    const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
+    if (!set || set.completed) return;
+
+    const l = Number(level) || 0;
+    const mapped = mapIntensityToMetrics(l);
+
+    set.intensityLevel = l;
+    set.rpe = mapped.rpe;
+    set.rir = mapped.rir;
+
+    saveWorkoutBackup();
+    renderWorkoutLog();
+}
+

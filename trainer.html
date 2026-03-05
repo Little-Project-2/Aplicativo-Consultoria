@@ -4,7 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#080808">
+    <meta name="application-name" content="Consultoria">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Consultoria">
     <title>Painel do Treinador - Consultoria</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -335,8 +343,8 @@
                                         </div>
                                     </div>
                                     <div class="chat-header-actions">
-                                        <button class="btn-icon" title="Marcar tudo como lido">
-                                            <i class="ph-bold ph-check-square"></i>
+                                        <button class="btn-icon" title="Concluir atendimento" onclick="markActiveChatAsRead()">
+                                            <i class="ph-bold ph-check-circle"></i>
                                         </button>
                                     </div>
                                 </div>
@@ -346,10 +354,42 @@
                                 </div>
 
                                 <div class="chat-input-area">
+                                    <input type="file" id="chat-attach-input" accept="image/*,video/*"
+                                        style="display:none;" onchange="handleTrainerAttachment(event)">
+                                    <input type="file" id="chat-camera-input" accept="image/*,video/*" capture="environment"
+                                        style="display:none;" onchange="handleTrainerAttachment(event)">
+
+                                    <div id="chat-attach-preview" class="chat-attach-preview" style="display:none;">
+                                        <div id="chat-attach-preview-content" class="chat-attach-preview-content"></div>
+                                        <button class="btn-icon btn-attach-remove" onclick="clearTrainerAttachment()">
+                                            <i class="ph-bold ph-x"></i>
+                                        </button>
+                                    </div>
+
+                                    <div id="chat-recording-wave" class="chat-recording-wave" style="display:none;">
+                                        <span></span><span></span><span></span><span></span><span></span>
+                                        <small>Gravando áudio...</small>
+                                    </div>
+
                                     <div class="chat-input-wrapper">
+                                        <button class="btn-attach-chat" onclick="openTrainerAttachmentPicker('camera')"
+                                            title="Câmera">
+                                            <i class="ph-bold ph-camera"></i>
+                                        </button>
+                                        <button class="btn-attach-chat" onclick="openTrainerAttachmentPicker('gallery')"
+                                            title="Galeria">
+                                            <i class="ph-bold ph-paperclip"></i>
+                                        </button>
+                                        <button class="btn-attach-chat btn-mic-chat"
+                                            onpointerdown="startTrainerHoldRecord(event)"
+                                            onpointerup="stopTrainerHoldRecord(event)"
+                                            onpointerleave="stopTrainerHoldRecord(event)"
+                                            title="Segure para gravar áudio">
+                                            <i class="ph-bold ph-microphone"></i>
+                                        </button>
                                         <textarea id="chat-reply-input" placeholder="Digite sua resposta..."
-                                            onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); responderChat(); }"></textarea>
-                                        <button class="btn-send-chat" onclick="responderChat()">
+                                            onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); sendTrainerChat(); }"></textarea>
+                                        <button class="btn-send-chat" onclick="sendTrainerChat()">
                                             <i class="ph-fill ph-paper-plane-right"></i>
                                         </button>
                                     </div>
@@ -581,50 +621,67 @@
 
         <!-- ── Modal: Add Exercise ─────────────────────────────────── -->
         <div id="ex-modal-overlay" class="ex-modal-overlay" onclick="closeExModal()"></div>
-        <div id="ex-modal" class="ex-modal">
-            <div class="ex-modal-header">
+        <div id="ex-modal" class="ex-modal ex-hevy-modal">
+            <div class="ex-hevy-topbar">
+                <button type="button" class="hevy-link-btn" onclick="closeExModal()">Cancelar</button>
                 <h3>Adicionar Exercício</h3>
-                <button class="btn-icon" onclick="closeExModal()"><i class="ph-bold ph-x"></i></button>
+                <button type="button" class="hevy-link-btn" onclick="confirmAddExercise()">Criar</button>
             </div>
-            <div class="ex-modal-body">
-                <div class="input-group" style="width:100%; position: relative;">
-                    <label>NOME DO EXERCÍCIO</label>
-                    <input type="text" id="ex-nome" class="q-input" placeholder="Ex: Supino Reto Barra"
+            <div class="ex-modal-body ex-hevy-body">
+                <div class="ex-hevy-search-wrap">
+                    <i class="ph-bold ph-magnifying-glass"></i>
+                    <input type="text" id="ex-nome" class="q-input" placeholder="Procurar exercício"
                         autocomplete="off" oninput="searchExerciseLibrary(this.value)">
-                    <div id="ex-library-results" class="library-results"></div>
                 </div>
-                <div class="input-group" style="width:100%;">
-                    <label>OBSERVAÇÃO (opcional)</label>
-                    <input type="text" id="ex-obs" class="q-input" placeholder="Ex: Foco na fase excêntrica"
-                        autocomplete="off">
+
+                <div class="ex-hevy-filter-buttons">
+                    <button type="button" class="ex-filter-btn" id="ex-equipment-filter-btn" onclick="openFilterPicker('equipment')">
+                        Todo o Equipamento
+                    </button>
+                    <button type="button" class="ex-filter-btn" id="ex-muscle-filter-btn" onclick="openFilterPicker('muscle')">
+                        Todos os Músculos
+                    </button>
                 </div>
-                <div class="ex-modal-grid">
-                    <div class="input-group">
-                        <label>SÉRIES</label>
-                        <input type="number" id="ex-series" class="q-input" placeholder="4" min="1">
+
+                <div class="ex-hevy-section-label">Banco de Exercícios</div>
+                <div id="ex-library-results" class="ex-library-hevy-list"></div>
+
+                <div class="ex-hevy-extra-fields">
+                    <div class="input-group" style="width:100%;">
+                        <label>OBSERVAÇÃO (opcional)</label>
+                        <input type="text" id="ex-obs" class="q-input" placeholder="Ex: controlar descida"
+                            autocomplete="off">
                     </div>
-                    <div class="input-group">
-                        <label>REPS</label>
-                        <input type="text" id="ex-reps" class="q-input" placeholder="10-12">
-                    </div>
-                    <div class="input-group">
-                        <label>CARGA</label>
-                        <input type="text" id="ex-carga" class="q-input" placeholder="30kg">
-                    </div>
-                    <div class="input-group">
-                        <label>DESCANSO</label>
-                        <input type="text" id="ex-descanso" class="q-input" placeholder="60s">
+                    <div class="ex-modal-grid">
+                        <div class="input-group">
+                            <label>SÉRIES</label>
+                            <input type="number" id="ex-series" class="q-input" placeholder="4" min="1">
+                        </div>
+                        <div class="input-group">
+                            <label>REPS</label>
+                            <input type="text" id="ex-reps" class="q-input" placeholder="10-12">
+                        </div>
+                        <div class="input-group">
+                            <label>CARGA</label>
+                            <input type="text" id="ex-carga" class="q-input" placeholder="--">
+                        </div>
+                        <div class="input-group">
+                            <label>DESCANSO</label>
+                            <input type="text" id="ex-descanso" class="q-input" placeholder="60s">
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="ex-modal-footer">
-                <button class="btn-secondary" style="width:auto;padding:0.75rem 1.5rem;"
-                    onclick="closeExModal()">Cancelar</button>
-                <button class="btn-primary" style="width:auto;padding:0.75rem 1.5rem;" onclick="confirmAddExercise()">
-                    <i class="ph-bold ph-check"></i> Adicionar
-                </button>
+
+            <div id="ex-filter-picker" class="ex-filter-picker" style="display:none;">
+                <div class="ex-filter-picker-head">
+                    <button type="button" class="btn-icon-minimal" onclick="closeFilterPicker()"><i class="ph-bold ph-arrow-left"></i></button>
+                    <h4 id="ex-filter-picker-title">Filtro</h4>
+                </div>
+                <div id="ex-filter-picker-list" class="ex-filter-picker-list"></div>
             </div>
         </div>
+
 
         <!-- ── Modal: Add Meal Item ────────────────────────────────── -->
         <div id="food-modal-overlay" class="ex-modal-overlay" onclick="closeFoodModal()"></div>
@@ -640,7 +697,7 @@
                         autocomplete="off" oninput="searchFoodAPI(this.value)">
                     <div id="food-library-results" class="library-results"></div>
                 </div>
-                <div class="ex-modal-grid" style="grid-template-columns: repeat(5, 1fr);">
+                <div class="ex-modal-grid food-modal-grid">
                     <div class="input-group">
                         <label>QUANTIDADE</label>
                         <input type="text" id="food-qtd" class="q-input" placeholder="150g">
@@ -704,6 +761,7 @@
     </div>
 
     <script src="script.js"></script>
+    <script src="pwa-register.js"></script>
     <script>
         // Init trainer dashboard automatically when this page loads
         document.addEventListener('DOMContentLoaded', () => {

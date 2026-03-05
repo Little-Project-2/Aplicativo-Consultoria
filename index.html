@@ -4,7 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#080808">
+    <meta name="application-name" content="Consultoria">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Consultoria">
     <title>Aplicativo Consultoria</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -321,7 +329,7 @@
                 <div class="logo-icon inactive-icon lg">
                     <i class="ph-bold ph-barbell"></i>
                 </div>
-                <h2>Área do Aluno</h2>
+                <h2>Ãrea do Aluno</h2>
                 <p class="subtitle">Insira o código enviado pelo seu treinador</p>
 
                 <form class="login-form" onsubmit="event.preventDefault(); connectStudent();">
@@ -351,7 +359,7 @@
                     Treinamento</p>
 
                 <button class="btn-primary" onclick="confirmConnection()" style="margin-bottom: 1.5rem;">Confirmar
-                    ✓</button>
+                    âœ“</button>
                 <button class="btn-link" onclick="goToStudentArea()">Não é meu treinador</button>
             </div>
         </div>
@@ -383,7 +391,7 @@
             <div class="q-content-container">
                 <form id="questionnaire-form" onsubmit="event.preventDefault(); submitQuestionnaire();">
 
-                    <!-- TAB: SAÚDE -->
+                    <!-- TAB: SAÃšDE -->
                     <div id="q-tab-saude" class="q-tab-content active">
                         <div class="q-header-title">
                             <i class="ph-fill ph-heartbeat"></i>
@@ -396,14 +404,14 @@
                                 autocomplete="off" required style="text-transform: capitalize;">
                         </div>
 
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
+                        <div class="q-grid-2cols">
                             <div class="q-field" style="margin-bottom: 0;">
                                 <label>IDADE</label>
                                 <input type="number" id="q_idade" class="q-input" placeholder="Ex: 25"
                                     autocomplete="off" required>
                             </div>
                             <div class="q-field" style="margin-bottom: 0;">
-                                <label>GÊNERO</label>
+                                <label>GÃŠNERO</label>
                                 <select id="q_genero" class="q-input" required>
                                     <option value="" disabled selected>Selecione</option>
                                     <option value="M">Masculino</option>
@@ -456,7 +464,7 @@
                         </div>
 
                         <div class="q-field">
-                            <label>USO DE MEDICAMENTOS CONTÍNUOS?</label>
+                            <label>USO DE MEDICAMENTOS CONTÃNUOS?</label>
                             <div class="segmented-control">
                                 <label class="segment-opt"><input type="radio" name="q_med" value="sim"
                                         onchange="toggleConditional('cond-med', true)"><span>Sim</span></label>
@@ -469,7 +477,7 @@
                         </div>
 
                         <div class="q-field">
-                            <label>JÁ PASSOU POR CIRURGIA?</label>
+                            <label>JÃ PASSOU POR CIRURGIA?</label>
                             <div class="segmented-control">
                                 <label class="segment-opt"><input type="radio" name="q_cirurgia" value="sim"
                                         onchange="toggleConditional('cond-cirurgia', true)"><span>Sim</span></label>
@@ -514,7 +522,7 @@
                         </div>
 
                         <div class="q-field">
-                            <label>ALIMENTOS QUE NÃO COME DE JEITO NENHUM</label>
+                            <label>ALIMENTOS QUE NÃƒO COME DE JEITO NENHUM</label>
                             <input type="text" class="q-input" placeholder="Ex: brócolis, fígado..." autocomplete="off">
                         </div>
 
@@ -579,7 +587,7 @@
                         </div>
 
                         <div class="q-field">
-                            <label>NÍVEL DE ESTRESSE (1-10)</label>
+                            <label>NÃVEL DE ESTRESSE (1-10)</label>
                             <div class="slider-container">
                                 <input type="range" class="q-slider" min="1" max="10" value="5"
                                     oninput="document.getElementById('val-estresse').innerText = this.value">
@@ -600,7 +608,7 @@
                         </div>
 
                         <div class="q-field">
-                            <label>CONSUMO DE ÁLCOOL</label>
+                            <label>CONSUMO DE ÃLCOOL</label>
                             <div class="segmented-control">
                                 <label class="segment-opt"><input type="radio" name="q_alcool" value="nao"
                                         checked><span>Não bebe</span></label>
@@ -645,19 +653,19 @@
                         </div>
 
                         <div class="q-field">
-                            <label>EXERCÍCIOS QUE AMA FAZER</label>
+                            <label>EXERCÃCIOS QUE AMA FAZER</label>
                             <input type="text" class="q-input" placeholder="Ex: Supino, Agachamento..."
                                 autocomplete="off">
                         </div>
 
                         <div class="q-field">
-                            <label>EXERCÍCIOS QUE DETESTA</label>
+                            <label>EXERCÃCIOS QUE DETESTA</label>
                             <input type="text" class="q-input" placeholder="Ex: Leg Press, Abdominal..."
                                 autocomplete="off">
                         </div>
 
                         <div class="q-field">
-                            <label>DIAS DISPONÍVEIS PARA TREINAR</label>
+                            <label>DIAS DISPONÃVEIS PARA TREINAR</label>
                             <div class="pill-group">
                                 <label class="pill"><input type="checkbox" name="q_dias" value="seg"
                                         checked><span>Segunda</span></label>
@@ -720,7 +728,7 @@
                         </div>
 
                         <div class="q-field">
-                            <label>JÁ FEZ CONSULTORIA ANTES? O QUE GOSTOU/ODIOU?</label>
+                            <label>JÃ FEZ CONSULTORIA ANTES? O QUE GOSTOU/ODIOU?</label>
                             <textarea class="q-input" rows="2"
                                 placeholder="Ex: Sim, mas o treinador nunca mudava o treino..."></textarea>
                         </div>
@@ -919,10 +927,10 @@
                                 <div class="user-info">
                                     <h2><i class="ph-bold ph-list-magnifying-glass"
                                             style="color:var(--primary-color);"></i> Analisar Meu Treino</h2>
-                                    <p class="subtitle">Treino montado pelo seu treinador</p>
+                                    <p class="subtitle">Painel completo de execucao, progresso e suporte do treinador</p>
                                 </div>
                                 <button class="btn-duvida-treino" onclick="openDuvidaModal()">
-                                    <i class="ph-bold ph-question"></i> Dúvidas
+                                    <i class="ph-bold ph-question"></i> Duvida
                                 </button>
                             </div>
 
@@ -982,7 +990,7 @@
                                         </select>
                                     </div>
                                     <div class="perfil-modal-field">
-                                        <label>SUA DÚVIDA</label>
+                                        <label>SUA DÃšVIDA</label>
                                         <textarea id="duvida-texto" class="q-input" rows="4"
                                             placeholder="Descreva sua dúvida com detalhes..."></textarea>
                                     </div>
@@ -1093,8 +1101,8 @@
                             <i class="ph-fill ph-chart-line"></i>
                             <h3>Progresso de Peso</h3>
                             <select id="perfil-chart-range" class="perfil-range-select" onchange="renderPerfilChart()">
-                                <option value="6">Últimos 6 registros</option>
-                                <option value="12">Últimos 12 registros</option>
+                                <option value="6">Ãšltimos 6 registros</option>
+                                <option value="12">Ãšltimos 12 registros</option>
                                 <option value="all">Todos</option>
                             </select>
                         </div>
@@ -1186,9 +1194,88 @@
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Modal rapido: intensidade antes do OK -->
+                        <div id="set-effort-quick-modal" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal set-effort-quick-card">
+                                <div class="perfil-modal-header">
+                                    <h3>Como foi esta serie?</h3>
+                                    <button class="btn-icon" onclick="closeSetEffortQuickModal()">
+                                        <i class="ph-bold ph-x"></i>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body">
+                                    <div class="seqm-options">
+                                        <button type="button" class="seqm-btn leve" onclick="chooseQuickSetEffort(1)">⚪ Leve</button>
+                                        <button type="button" class="seqm-btn ponto" onclick="chooseQuickSetEffort(3)">🟡 No Ponto</button>
+                                        <button type="button" class="seqm-btn falha" onclick="chooseQuickSetEffort(5)">🔴 Falhei</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="exercise-progress-modal-overlay" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal" style="max-width:680px;">
+                                <div class="perfil-modal-header">
+                                    <h3 id="exercise-progress-title">Historico de Carga</h3>
+                                    <button class="btn-icon" onclick="closeExerciseProgressModal()">
+                                        <i class="ph-bold ph-x"></i>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body" id="exercise-progress-body" style="max-height:70vh;overflow-y:auto;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Modal: Feedback final do treino -->
+                        <div id="workout-feedback-modal-overlay" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal workout-feedback-modal">
+                                <div class="perfil-modal-header">
+                                    <h3><i class="ph-bold ph-star" style="color:var(--primary-color);"></i> Avaliar treino</h3>
+                                    <button class="btn-icon" onclick="closeWorkoutFeedbackModal()">
+                                        <i class="ph-bold ph-x"></i>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body">
+                                    <div class="perfil-modal-field">
+                                        <label>QUALIDADE GERAL</label>
+                                        <div class="wfb-rating-row">
+                                            <button type="button" class="wfb-emoji-btn" data-rating="1" onclick="setWorkoutFeedbackRating(1)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="2" onclick="setWorkoutFeedbackRating(2)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="3" onclick="setWorkoutFeedbackRating(3)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="4" onclick="setWorkoutFeedbackRating(4)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="5" onclick="setWorkoutFeedbackRating(5)">★</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="perfil-modal-field">
+                                        <label>INTENSIDADE PERCEBIDA</label>
+                                        <div class="wfb-intensity-row">
+                                            <button type="button" class="wfb-intensity-btn" data-level="leve" onclick="setWorkoutFeedbackIntensity('leve')">Leve</button>
+                                            <button type="button" class="wfb-intensity-btn active" data-level="moderado" onclick="setWorkoutFeedbackIntensity('moderado')">Moderado</button>
+                                            <button type="button" class="wfb-intensity-btn" data-level="pesado" onclick="setWorkoutFeedbackIntensity('pesado')">Pesado</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="perfil-modal-field">
+                                        <label>OBSERVACAO (OPCIONAL)</label>
+                                        <textarea id="workout-feedback-notes" class="q-input" rows="3"
+                                            placeholder="Ex: muito cansativo no final, ombro esquerdo cansou cedo..."></textarea>
+                                    </div>
+                                </div>
+                                <div class="perfil-modal-footer">
+                                    <button class="btn-secondary" onclick="closeWorkoutFeedbackModal()"
+                                        style="width:auto; padding: 0.75rem 1.5rem;">Voltar</button>
+                                    <button class="btn-primary" onclick="confirmWorkoutFeedbackAndFinish()"
+                                        style="width:auto; padding: 0.75rem 1.5rem;">
+                                        <i class="ph-bold ph-check"></i> Finalizar treino
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
-                    <!-- ── Student Workout Summary ── -->
+                    <!-- â”€â”€ Student Workout Summary â”€â”€ -->
                     <div id="view-student-workout-summary" class="view-section" style="display: none; padding: 1.5rem;">
                         <div class="summary-header"
                             style="text-align: center; margin-bottom: 2rem; animation: slideUp 0.6s ease;">
@@ -1224,7 +1311,7 @@
             </div>
         </div>
 
-        <!-- ── Student Workout Detail ── -->
+        <!-- â”€â”€ Student Workout Detail â”€â”€ -->
         <div id="student-workout-screen" class="screen">
             <div class="dashboard-header">
                 <div class="user-info">
@@ -1240,7 +1327,7 @@
             </div>
         </div>
 
-        <!-- ── Student Diet Detail ── -->
+        <!-- â”€â”€ Student Diet Detail â”€â”€ -->
         <div id="student-diet-screen" class="screen">
             <div class="dashboard-header">
                 <div class="user-info">
@@ -1257,6 +1344,7 @@
         </div>
 
         <script src="script.js"></script>
+        <script src="pwa-register.js"></script>
 </body>
 
 </html>
