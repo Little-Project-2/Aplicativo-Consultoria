@@ -1,7 +1,8 @@
 ﻿function hideAllScreens() {
     const screens = document.querySelectorAll('.screen');
     screens.forEach(screen => screen.classList.remove('active'));
-    document.getElementById('app').classList.remove('wide');
+    const app = document.getElementById('app');
+    if (app) app.classList.remove('wide');
 }
 
 function goToHome() {
@@ -9,7 +10,8 @@ function goToHome() {
     localStorage.removeItem('currentStudentId');
     localStorage.removeItem('connectedTrainerCode');
     hideAllScreens();
-    document.getElementById('home-screen').classList.add('active');
+    const home = document.getElementById('home-screen');
+    if (home) home.classList.add('active');
 }
 
 function logout() {
@@ -67,11 +69,20 @@ syncChannel.onmessage = (event) => {
 document.addEventListener('DOMContentLoaded', () => {
     // Check if student is already "logged in"
     const studentId = localStorage.getItem('currentStudentId');
-    if (studentId) {
+    const studentDashboardScreen = document.getElementById('student-dashboard-screen');
+    if (studentId && studentDashboardScreen) {
         hideAllScreens();
-        document.getElementById('app').classList.add('wide');
-        document.getElementById('student-dashboard-screen').classList.add('active');
+        const app = document.getElementById('app');
+        if (app) app.classList.add('wide');
+        studentDashboardScreen.classList.add('active');
         initStudentDashboard();
+        return;
+    }
+
+    const home = document.getElementById('home-screen');
+    if (home && !studentId) {
+        hideAllScreens();
+        home.classList.add('active');
     }
 });
 
@@ -102,13 +113,16 @@ window.addEventListener('storage', (e) => {
     // Sync Student Dashboard
     if (e.key === 'trainerStudents') {
         const studentId = localStorage.getItem('currentStudentId');
-        if (studentId && document.getElementById('student-dashboard-screen').classList.contains('active')) {
+        const studentDash = document.getElementById('student-dashboard-screen');
+        if (studentId && studentDash && studentDash.classList.contains('active')) {
             initStudentDashboard();
 
             // If detail views are open, they will be refreshed next time they open, 
             // but we can also trigger a refresh if they are currently visible
-            if (document.getElementById('student-workout-screen').classList.contains('active')) openStudentWorkout();
-            if (document.getElementById('student-diet-screen').classList.contains('active')) openStudentDiet();
+            const workoutScreen = document.getElementById('student-workout-screen');
+            const dietScreen = document.getElementById('student-diet-screen');
+            if (workoutScreen && workoutScreen.classList.contains('active')) openStudentWorkout();
+            if (dietScreen && dietScreen.classList.contains('active')) openStudentDiet();
         }
     }
 });
@@ -157,17 +171,24 @@ function logoutTrainerFromMenu() {
 
 function goToStudentArea() {
     hideAllScreens();
-    document.getElementById('student-screen').classList.add('active');
+    const studentScreen = document.getElementById('student-screen');
+    if (studentScreen) studentScreen.classList.add('active');
 }
 
 function goToGlobalLogin() {
     hideAllScreens();
-    document.getElementById('global-login-screen').classList.add('active');
+    const globalLoginScreen = document.getElementById('global-login-screen');
+    if (globalLoginScreen) globalLoginScreen.classList.add('active');
 }
 
 function goToProfileCreate() {
     hideAllScreens();
-    document.getElementById('profile-create-screen').classList.add('active');
+    const profileCreateScreen = document.getElementById('profile-create-screen');
+    if (profileCreateScreen) profileCreateScreen.classList.add('active');
+}
+
+function openTrainerArea() {
+    window.location.href = 'trainer.html';
 }
 
 function toggleElement(id) {
