@@ -1,8 +1,8 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 
 <head>
-    <meta charset="UTF-8">
+    <meta charset='UTF-8'>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#080808">
     <meta name="application-name" content="Consultoria">
@@ -158,20 +158,6 @@
                             <button class="profile-avatar profile-menu-trigger" onclick="toggleTrainerProfileMenu(event)" title="Abrir perfil">
                                 <i class="ph-fill ph-user"></i>
                             </button>
-                            <div id="trainer-profile-menu" class="trainer-profile-menu" style="display:none;">
-                                <div class="trainer-profile-menu-head">
-                                    <span class="profile-name" id="dash-trainer-name">Treinador</span>
-                                </div>
-                                <div class="trainer-profile-menu-code">
-                                    <span class="profile-code" id="dash-trainer-code">00000</span>
-                                    <button class="btn-copy-tiny" id="btn-copy-code-menu" onclick="copyTrainerCode(event)">
-                                        <i class="ph-bold ph-copy"></i>
-                                    </button>
-                                </div>
-                                <button class="btn-profile-logout" onclick="logoutTrainerFromMenu()">
-                                    <i class="ph-bold ph-sign-out"></i> Sair
-                                </button>
-                            </div>
                         </div>
                     </header>
 
@@ -248,7 +234,7 @@
                             <div class="section-header">
                                 <h2>Alunos Ativos</h2>
                                 <div class="section-actions">
-                                    <div class="small-search">
+                                    <div class="small-search alunos-filter-sticky">
                                         <i class="ph-bold ph-funnel"></i>
                                         <input type="text" id="alunos-search" placeholder="Filtrar alunos..."
                                             oninput="filterStudents(this.value)">
@@ -712,7 +698,26 @@
             </div>
         </div>
 
-
+        <div id="trainer-profile-sheet-overlay" class="trainer-profile-sheet-overlay" style="display:none;" onclick="closeTrainerProfileMenu()"></div>
+        <div id="trainer-profile-menu" class="trainer-profile-menu trainer-profile-sheet" style="display:none;" role="dialog" aria-modal="true" aria-label="Menu do perfil do treinador" onclick="event.stopPropagation()">
+            <div class="trainer-profile-sheet-handle"></div>
+            <div class="trainer-profile-menu-head">
+                <span class="profile-label">Treinador</span>
+                <span class="profile-name" id="dash-trainer-name">Treinador</span>
+            </div>
+            <div class="trainer-profile-menu-code">
+                <div class="profile-code-wrap">
+                    <span class="profile-label">Código de Convite</span>
+                    <span class="profile-code" id="dash-trainer-code">00000</span>
+                </div>
+                <button class="btn-copy-tiny" id="btn-copy-code-menu" onclick="copyTrainerCode(event)">
+                    <i class="ph-bold ph-copy"></i>
+                </button>
+            </div>
+            <button class="btn-profile-logout" onclick="logoutTrainerFromMenu()">
+                <i class="ph-bold ph-sign-out"></i> Sair
+            </button>
+        </div>
     </div>
 
     <!-- REMOVE STUDENT CONFIRMATION MODAL -->
@@ -754,3 +759,5 @@
 </body>
 
 </html>
+
+

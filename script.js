@@ -5,6 +5,34 @@
     if (app) app.classList.remove('wide');
 }
 
+const ADMIN_STUDENT_CODE = '12345';
+const ADMIN_STUDENT_NAME = 'Aluno Admin';
+
+function ensureAdminStudent() {
+    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const exists = students.some(s => s.id === ADMIN_STUDENT_CODE);
+    if (exists) return;
+
+    students.push({
+        id: ADMIN_STUDENT_CODE,
+        name: ADMIN_STUDENT_NAME,
+        age: '25',
+        goal: 'Hipertrofia',
+        weight: '75',
+        height: '175',
+        status: 'Ativo',
+        active: false,
+        dailyKcal: 2200,
+        workoutBlocks: [],
+        mealBlocks: [],
+        trainerCode: '00001',
+        progressLogs: [{ date: new Date().toISOString().slice(0, 10), weight: 75, notes: 'Perfil admin padrão.' }],
+        personalRecords: {}
+    });
+
+    localStorage.setItem('trainerStudents', JSON.stringify(students));
+}
+
 function goToHome() {
     // Clear student session if they go back to selection (optional, but safer for logout)
     localStorage.removeItem('currentStudentId');
@@ -23,7 +51,7 @@ function logout() {
     }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Real-Time Sync (Cross-Tab) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ Real-Time Sync (Cross-Tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const syncChannel = new BroadcastChannel('consultoria_sync');
 
 syncChannel.onmessage = (event) => {
@@ -67,6 +95,15 @@ syncChannel.onmessage = (event) => {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+    ensureAdminStudent();
+
+    // Prevent # anchors from jumping the page in app navigation
+    document.querySelectorAll('.sidebar-nav .nav-item[href="#"]').forEach((link) => {
+        if (link.dataset.preventInit === '1') return;
+        link.addEventListener('click', (evt) => evt.preventDefault());
+        link.dataset.preventInit = '1';
+    });
+
     // Check if student is already "logged in"
     const studentId = localStorage.getItem('currentStudentId');
     const studentDashboardScreen = document.getElementById('student-dashboard-screen');
@@ -86,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Real-Time Sync (Cross-Tab) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ Real-Time Sync (Cross-Tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 window.addEventListener('storage', (e) => {
     // Sync Trainer Dashboard
     if (e.key === 'trainerStudents' || e.key === 'trainerNotifications') {
@@ -151,15 +188,35 @@ function copyTrainerCode(event) {
 
 function toggleTrainerProfileMenu(event) {
     if (event) event.stopPropagation();
+    const overlay = document.getElementById('trainer-profile-sheet-overlay');
     const menu = document.getElementById('trainer-profile-menu');
-    if (!menu) return;
-    menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+    if (!overlay || !menu) return;
+
+    const isOpen = menu.classList.contains('active');
+    if (isOpen) {
+        closeTrainerProfileMenu();
+        return;
+    }
+
+    overlay.style.display = 'block';
+    menu.style.display = 'block';
+    requestAnimationFrame(() => {
+        overlay.classList.add('active');
+        menu.classList.add('active');
+    });
 }
 
 function closeTrainerProfileMenu() {
+    const overlay = document.getElementById('trainer-profile-sheet-overlay');
     const menu = document.getElementById('trainer-profile-menu');
-    if (!menu) return;
-    menu.style.display = 'none';
+    if (!overlay || !menu) return;
+
+    overlay.classList.remove('active');
+    menu.classList.remove('active');
+    setTimeout(() => {
+        overlay.style.display = 'none';
+        menu.style.display = 'none';
+    }, 220);
 }
 
 function logoutTrainerFromMenu() {
@@ -196,7 +253,7 @@ function toggleElement(id) {
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Authentication Logic Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ Authentication Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function handleEmailLogin() {
     const email = document.getElementById('login-email').value.trim().toLowerCase();
@@ -255,7 +312,7 @@ function handleProfileCreation() {
 
     let users = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
     if (users.some(u => String(u.email || '').trim().toLowerCase() === email)) {
-        alert('Este e-mail jÃ¡ estÃ¡ cadastrado.');
+        alert('Este e-mail já está cadastrado.');
         return;
     }
 
@@ -281,7 +338,7 @@ function handleGoogleLogin() {
                 <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" width="48" style="margin-bottom:1rem;">
                 <h2 style="margin:0 0 0.5rem 0;">Fazer login com Google</h2>
                 <p style="color:#5f6368; margin-bottom:2rem;">Use sua Conta do Google para continuar</p>
-                <button onclick="window.opener.postMessage('google_success', '*'); window.close();" style="background:#1a73e8; color:white; border:none; padding:10px 24px; border-radius:4px; font-weight:500; cursor:pointer;">Continuar como UsuÃ¡rio</button>
+                <button onclick="window.opener.postMessage('google_success', '*'); window.close();" style="background:#1a73e8; color:white; border:none; padding:10px 24px; border-radius:4px; font-weight:500; cursor:pointer;">Continuar como Usuário</button>
             </div>
         </body>
     `);
@@ -306,6 +363,9 @@ function processLogin(user) {
         localStorage.setItem('studentName', user.name);
         // Find if this user already has an ID, or generate one
         let studentId = localStorage.getItem('currentStudentId') || Math.floor(10000 + Math.random() * 90000).toString();
+        if (studentId === ADMIN_STUDENT_CODE) {
+            studentId = Math.floor(10000 + Math.random() * 90000).toString();
+        }
         localStorage.setItem('currentStudentId', studentId);
 
         hideAllScreens();
@@ -434,7 +494,7 @@ function renderStudentWorkoutMain() {
                                 <div class="exercise-order-badge">${idx + 1}</div>
                                 <div class="ex-name-box">
                                     <span>${escHtml(ex.nome)}</span>
-                                    <div class="ex-sets-mini">${ex.series} series â€¢ ${ex.reps} reps ${ex.descanso ? `â€¢ ${escHtml(ex.descanso)} descanso` : ''}</div>
+                                    <div class="ex-sets-mini">${ex.series} series • ${ex.reps} reps ${ex.descanso ? `• ${escHtml(ex.descanso)} descanso` : ''}</div>
                                     ${ex.observacao ? `<p class="exercise-note"><i class="ph-bold ph-info"></i> ${escHtml(ex.observacao)}</p>` : ''}
                                     ${substitutes.length ? `<div class="analysis-substitute-chips">${substitutes.map(s => `<span>${escHtml(s)}</span>`).join('')}</div>` : ''}
                                     ${ex.supersetWithNext ? `<p class="exercise-note"><i class="ph-bold ph-lightning"></i> Super serie com o proximo exercicio</p>` : ''}
@@ -472,7 +532,7 @@ function switchWorkoutTab(idx) {
     renderStudentWorkoutMain();
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Treino Subview System Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ Treino Subview System â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function switchTreinoSubview(view) {
     const landing = document.getElementById('treino-landing');
@@ -596,7 +656,7 @@ function renderWorkoutHistory() {
         listEl.innerHTML = `
             <div class="perfil-history-empty">
                 <i class="ph-bold ph-barbell"></i>
-                <p>VocÃª ainda nÃ£o completou nenhum treino. Inicie um treino pelo Dashboard para comeÃ§ar a acompanhar sua evoluÃ§Ã£o!</p>
+                <p>Você ainda não completou nenhum treino. Inicie um treino pelo Dashboard para começar a acompanhar sua evolução!</p>
             </div>
         `;
         return;
@@ -615,8 +675,8 @@ function renderWorkoutHistory() {
                 <div class="history-workout-left">
                     <div class="history-workout-date">${date}</div>
                     <div class="history-workout-meta">
-                        <span><i class="ph-bold ph-barbell"></i> ${exerciseCount} exercÃ­cios</span>
-                        <span><i class="ph-bold ph-stack"></i> ${totalSets} sÃ©ries</span>
+                        <span><i class="ph-bold ph-barbell"></i> ${exerciseCount} exercícios</span>
+                        <span><i class="ph-bold ph-stack"></i> ${totalSets} séries</span>
                         <span><i class="ph-bold ph-timer"></i> ${durationMin} min</span>
                     </div>
                     <div class="history-workout-exercises">
@@ -652,14 +712,14 @@ function openHistoryDetail(originalIdx) {
     const durationMin = Math.floor((workout.Duracao || 0) / 60);
     const durationSec = (workout.Duracao || 0) % 60;
 
-    title.textContent = `Treino â€” ${formatDate(workout.Data_Treino)}`;
+    title.textContent = `Treino — ${formatDate(workout.Data_Treino)}`;
 
     body.innerHTML = `
         <div class="history-detail-stats">
             <div class="hd-stat">
                 <i class="ph-bold ph-timer"></i>
                 <span>${durationMin}:${durationSec.toString().padStart(2, '0')}</span>
-                <small>DuraÃ§Ã£o</small>
+                <small>Duração</small>
             </div>
             <div class="hd-stat">
                 <i class="ph-bold ph-barbell"></i>
@@ -669,7 +729,7 @@ function openHistoryDetail(originalIdx) {
             <div class="hd-stat">
                 <i class="ph-bold ph-stack"></i>
                 <span>${(workout.Exercicios || []).reduce((s, ex) => s + ex.sets.length, 0)}</span>
-                <small>SÃ©ries</small>
+                <small>Séries</small>
             </div>
         </div>
 
@@ -682,7 +742,7 @@ function openHistoryDetail(originalIdx) {
                             <div class="hd-set-row ${s.brokenPRs && s.brokenPRs.length > 0 ? 'has-pr' : ''}">
                                 <span class="hd-set-num">${si + 1}</span>
                                 <span>${s.peso || 0} kg</span>
-                                <span>Ãƒâ€”</span>
+                                <span>×</span>
                                 <span>${s.reps || 0} reps</span>
                                 ${s.brokenPRs && s.brokenPRs.length > 0 ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
                             </div>
@@ -794,7 +854,7 @@ function getExerciseProgressSeries(studentId, exerciseName) {
     return series;
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Confirmation Modal Logic Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ Confirmation Modal Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let confirmationCallback = null;
 
 function openConfirmationModal(title, message, callback) {
@@ -837,7 +897,7 @@ function closeConfirmationModal() {
 function confirmDeleteWorkout(idx) {
     openConfirmationModal(
         'Excluir Treino',
-        'Tem certeza que deseja excluir este registro de treino? Esta aÃ§Ã£o nÃ£o pode ser desfeita.',
+        'Tem certeza que deseja excluir este registro de treino? Esta ação não pode ser desfeita.',
         () => deleteWorkoutEntry(idx)
     );
 }
@@ -852,8 +912,8 @@ function deleteWorkoutEntry(idx) {
 
 function confirmDeleteMetric(idxInHistory) {
     openConfirmationModal(
-        'Excluir MediÃ§Ã£o',
-        'Tem certeza que deseja excluir este registro de medidas? Isso afetarÃ¡ os grÃ¡ficos e mÃ©dias globais.',
+        'Excluir Medição',
+        'Tem certeza que deseja excluir este registro de medidas? Isso afetará os gráficos e médias globais.',
         () => deleteMetricEntry(idxInHistory)
     );
 }
@@ -880,7 +940,7 @@ function deleteMetricEntry(idx) {
     }
 }
 
-// â”€â”€â”€ Q&A / DÃºvidas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Q&A / Dúvidas ──────────────────────────────────────────────────────────
 
 function openDuvidaModal() {
     const modal = document.getElementById('duvida-modal-overlay');
@@ -901,16 +961,16 @@ function enviarDuvida() {
     const texto = document.getElementById('duvida-texto')?.value.trim();
 
     if (!texto) {
-        alert('Por favor, descreva sua dÃºvida.');
+        alert('Por favor, descreva sua dúvida.');
         return;
     }
 
     const studentName = localStorage.getItem('studentName') || 'Aluno';
     const assuntoLabels = {
-        'exercicio': 'DÃºvida sobre exercÃ­cio',
-        'execucao': 'DÃºvida sobre execuÃ§Ã£o',
-        'substituicao': 'SubstituiÃ§Ã£o de exercÃ­cio',
-        'carga': 'DÃºvida sobre carga',
+        'exercicio': 'Dúvida sobre exercício',
+        'execucao': 'Dúvida sobre execução',
+        'substituicao': 'Substituição de exercício',
+        'carga': 'Dúvida sobre carga',
         'outro': 'Outro'
     };
 
@@ -922,7 +982,7 @@ function enviarDuvida() {
         type: 'duvida',
         studentId: studentId,
         studentName: studentName,
-        title: `ðŸ’¬ DÃºvida de ${studentName}`,
+        title: `💬 Dúvida de ${studentName}`,
         desc: `[${assuntoLabels[assunto]}] ${texto}`,
         time: new Date().toISOString(),
         unread: true
@@ -937,7 +997,7 @@ function enviarDuvida() {
     closeDuvidaModal();
 
     // Feedback
-    alert('âœ… DÃºvida enviada com sucesso! Seu treinador receberÃ¡ a mensagem.');
+    alert('✅ Dúvida enviada com sucesso! Seu treinador receberá a mensagem.');
 }
 
 function getMuscleGroups(exercises) {
@@ -946,8 +1006,8 @@ function getMuscleGroups(exercises) {
         'peito': 'Peito', 'supino': 'Peito', 'crucifixo': 'Peito', 'voador': 'Peito', 'chest': 'Peito',
         'costas': 'Costas', 'puxada': 'Costas', 'remada': 'Costas', 'back': 'Costas', 'pulldown': 'Costas',
         'ombro': 'Ombros', 'desenvolvimento': 'Ombros', 'lateral': 'Ombros', 'shoulder': 'Ombros',
-        'triceps': 'TrÃ­ceps', 'trÃ­ceps': 'TrÃ­ceps', 'extension': 'TrÃ­ceps',
-        'biceps': 'BÃ­ceps', 'bÃ­ceps': 'BÃ­ceps', 'rosca': 'BÃ­ceps', 'curl': 'BÃ­ceps',
+        'triceps': 'Tríceps', 'tríceps': 'Tríceps', 'extension': 'Tríceps',
+        'biceps': 'Bíceps', 'bíceps': 'Bíceps', 'rosca': 'Bíceps', 'curl': 'Bíceps',
         'perna': 'Pernas', 'agachamento': 'Pernas', 'leg': 'Pernas', 'extensora': 'Pernas', 'flexora': 'Pernas', 'panturrilha': 'Pernas',
         'abdomen': 'Abdominais', 'abdominal': 'Abdominais', 'crunch': 'Abdominais', 'prancha': 'Abdominais'
     };
@@ -974,8 +1034,8 @@ function renderStudentDietMain() {
         container.innerHTML = `<div class="empty-state-card" style="margin-top:2rem;">
             <i class="ph-fill ph-hourglass-high"></i>
             <div class="empty-info">
-                <h3>Dieta em anÃ¡lise</h3>
-                <p>Seu plano alimentar ainda nÃ£o foi liberado pelo treinador.</p>
+                <h3>Dieta em análise</h3>
+                <p>Seu plano alimentar ainda não foi liberado pelo treinador.</p>
             </div>
         </div>`;
         return;
@@ -1001,11 +1061,25 @@ function renderStudentDietMain() {
 function handleUnifiedLogin() {
     const code = document.getElementById('global-code').value;
     if (code.length !== 5) {
-        alert('Digite o cÃ³digo de 5 dÃ­gitos.');
+        alert('Digite o código de 5 dígitos.');
         return;
     }
 
-    // 1. Check Trainer (Admin or allTrainers)
+    // 1. Aluno admin fixo
+    if (code === ADMIN_STUDENT_CODE) {
+        ensureAdminStudent();
+        localStorage.setItem('currentStudentId', ADMIN_STUDENT_CODE);
+        localStorage.setItem('studentName', ADMIN_STUDENT_NAME);
+        localStorage.setItem('connectedTrainerCode', '00001');
+
+        hideAllScreens();
+        document.getElementById('app').classList.add('wide');
+        document.getElementById('student-dashboard-screen').classList.add('active');
+        initStudentDashboard();
+        return;
+    }
+
+    // 2. Check Trainer (Admin or allTrainers)
     const trainers = JSON.parse(localStorage.getItem('allTrainers') || '[]');
     const isTrainer = trainers.some(t => t.code === code) || code === '00001';
 
@@ -1017,7 +1091,7 @@ function handleUnifiedLogin() {
         return;
     }
 
-    // 2. Check Student
+    // 3. Check Student
     const allStudents = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
     const student = allStudents.find(s => s.id === code);
 
@@ -1035,7 +1109,7 @@ function handleUnifiedLogin() {
         return;
     }
 
-    alert('CÃ³digo nÃ£o encontrado. Se vocÃª Ã© novo, use as opÃ§Ãµes da tela inicial.');
+    alert('Código não encontrado. Se você é novo, use as opções da tela inicial.');
 }
 
 let pendingTrainerCode = '';
@@ -1043,7 +1117,7 @@ let pendingTrainerCode = '';
 function connectStudent() {
     const code = document.getElementById('trainer-code').value;
     if (code.length !== 5) {
-        alert('O cÃ³digo deve ter exatamente 5 dÃ­gitos.');
+        alert('O código deve ter exatamente 5 dígitos.');
         return;
     }
 
@@ -1062,7 +1136,7 @@ function connectStudent() {
             coachName = t.name;
             consultoriaName = t.consultoriaName || `Consultoria de ${t.name.split(' ')[0]}`;
         } else {
-            alert('CÃ³digo de treinador nÃ£o encontrado.');
+            alert('Código de treinador não encontrado.');
             return;
         }
     }
@@ -1105,7 +1179,11 @@ function submitQuestionnaire() {
     const height = document.getElementById('q_altura')?.value || '175';
     const goal = document.getElementById('q_objetivo')?.value || 'Hipertrofia';
 
-    const id = Math.floor(10000 + Math.random() * 90000).toString();
+    let id = Math.floor(10000 + Math.random() * 90000).toString();
+    const usedIds = new Set((JSON.parse(localStorage.getItem('trainerStudents') || '[]')).map(s => String(s.id)));
+    while (id === ADMIN_STUDENT_CODE || usedIds.has(id)) {
+        id = Math.floor(10000 + Math.random() * 90000).toString();
+    }
     const newStudent = {
         id: id,
         name: nome,
@@ -1128,8 +1206,8 @@ function submitQuestionnaire() {
     let notifs = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
     notifs.unshift({
         type: 'questionnaire',
-        title: 'QuestionÃ¡rio Respondido!',
-        desc: `Um novo aluno acabou de enviar o questionÃ¡rio inicial.`,
+        title: 'Questionário Respondido!',
+        desc: `Um novo aluno acabou de enviar o questionário inicial.`,
         time: 'Agora mesmo',
         unread: true
     });
@@ -1147,14 +1225,14 @@ function submitQuestionnaire() {
     initStudentDashboard();
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Student Dashboard (Real Data) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ Student Dashboard (Real Data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function initStudentDashboard() {
     const studentId = localStorage.getItem('currentStudentId');
     const trainerCode = localStorage.getItem('connectedTrainerCode');
     const studentName = localStorage.getItem('studentName') || 'Aluno';
 
-    document.getElementById('dash-student-name').innerText = `OlÃ¡, ${studentName.split(' ')[0]}`;
+    document.getElementById('dash-student-name').innerText = `Olá, ${studentName.split(' ')[0]}`;
     document.getElementById('dash-student-trainer').innerText = trainerCode || 'Consultoria';
 
     // Sync sidebar name
@@ -1197,8 +1275,8 @@ function renderWorkoutStartOptions(student) {
             <i class="ph-fill ph-play-circle" style="color: var(--primary-color); font-size: 1.5rem;"></i>
             <div style="flex:1; text-align: left;">
                 <span style="display: block; font-weight: 700; color: var(--text-main); font-size: 1rem;">${escHtml(title)}</span>
-                <span style="font-size: 0.75rem; color: var(--primary-color); font-weight: 500;">${muscles.join(' â€¢ ')}</span>
-                <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${block.exercises.length} exercÃ­cios â€¢ Registrar cargas</span>
+                <span style="font-size: 0.75rem; color: var(--primary-color); font-weight: 500;">${muscles.join(' • ')}</span>
+                <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${block.exercises.length} exercícios • Registrar cargas</span>
             </div>
             <i class="ph-bold ph-caret-right" style="color: var(--primary-color); font-size: 1rem;"></i>
         </button>`;
@@ -1256,7 +1334,7 @@ function openStudentWorkout() {
                             ${ex.obs ? `<span class="ex-obs">${escHtml(ex.obs)}</span>` : ''}
                         </div>
                         <div class="ex-stats">
-                            <div class="st-item"><span>SÃ©ries</span><strong>${ex.series}</strong></div>
+                            <div class="st-item"><span>Séries</span><strong>${ex.series}</strong></div>
                             <div class="st-item"><span>Reps</span><strong>${ex.reps}</strong></div>
                             <div class="st-item"><span>Carga</span><strong>${ex.carga}</strong></div>
                             <div class="st-item"><span>Desc.</span><strong>${ex.descanso}</strong></div>
@@ -1313,7 +1391,7 @@ function closeStudentDiet() {
     document.getElementById('student-diet-screen').classList.remove('active');
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Meu Perfil (Student Profile) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ Meu Perfil (Student Profile) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let _perfilModalField = '';
 
 function getStudentData() {
@@ -1334,7 +1412,7 @@ function calcIMC(weight, height) {
 
 function getIMCLabel(imc) {
     if (imc < 18.5) return 'Abaixo do peso';
-    if (imc < 25) return 'Peso saudÃ¡vel';
+    if (imc < 25) return 'Peso saudável';
     if (imc < 30) return 'Sobrepeso';
     return 'Obesidade';
 }
@@ -1345,14 +1423,14 @@ function getPercentDelta(current, previous) {
 }
 
 function formatDate(iso) {
-    if (!iso) return 'â€”';
+    if (!iso) return '—';
     const d = new Date(iso);
     const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 function formatDateShort(iso) {
-    if (!iso) return 'â€”';
+    if (!iso) return '—';
     const d = new Date(iso);
     const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     return `${d.getDate()} ${months[d.getMonth()]}`;
@@ -1404,7 +1482,7 @@ function renderStudentPerfil() {
                 ${weightDelta !== null ? `
                     <div class="metric-delta ${parseFloat(weightDelta) > 0 ? 'up' : parseFloat(weightDelta) < 0 ? 'down' : ''}">
                         <i class="ph-bold ${parseFloat(weightDelta) > 0 ? 'ph-trend-up' : parseFloat(weightDelta) < 0 ? 'ph-trend-down' : 'ph-minus'}"></i>
-                        ${Math.abs(weightDelta)}% desde Ãºltima atualizaÃ§Ã£o
+                        ${Math.abs(weightDelta)}% desde última atualização
                     </div>
                 ` : '<div class="metric-delta neutral">Primeiro registro</div>'}
             </div>
@@ -1413,7 +1491,7 @@ function renderStudentPerfil() {
                 <div class="metric-card-top">
                     <span class="metric-label">IMC</span>
                 </div>
-                <div class="metric-value">${imc}<span class="metric-unit">kg/mÃ‚Â²</span></div>
+                <div class="metric-value">${imc}<span class="metric-unit">kg/m²</span></div>
                 <div class="metric-delta ${imcVal < 25 && imcVal >= 18.5 ? 'healthy' : 'warn'}">
                     <i class="ph-bold ${imcVal < 25 && imcVal >= 18.5 ? 'ph-check-circle' : 'ph-warning'}"></i>
                     ${getIMCLabel(imcVal)}
@@ -1425,11 +1503,11 @@ function renderStudentPerfil() {
                     <span class="metric-label">% Gordura</span>
                     <button class="metric-edit-btn"><i class="ph-bold ph-pencil-simple"></i></button>
                 </div>
-                <div class="metric-value">${bodyFat || 'â€”'}<span class="metric-unit">%</span></div>
+                <div class="metric-value">${bodyFat || '—'}<span class="metric-unit">%</span></div>
                 ${bodyFat > 0 && bfDelta !== null ? `
                     <div class="metric-delta ${parseFloat(bfDelta) < 0 ? 'down' : parseFloat(bfDelta) > 0 ? 'up' : ''}">
                         <i class="ph-bold ${parseFloat(bfDelta) < 0 ? 'ph-trend-down' : parseFloat(bfDelta) > 0 ? 'ph-trend-up' : 'ph-minus'}"></i>
-                        ${Math.abs(bfDelta)}% desde Ãºltima atualizaÃ§Ã£o
+                        ${Math.abs(bfDelta)}% desde última atualização
                     </div>
                 ` : '<div class="metric-delta neutral">Sem dados anteriores</div>'}
             </div>
@@ -1456,28 +1534,28 @@ function renderStudentPerfil() {
                 <i class="ph-bold ph-user"></i>
                 <div>
                     <span class="info-label">Nome</span>
-                    <span class="info-value">${student.name || 'â€”'}</span>
+                    <span class="info-value">${student.name || '—'}</span>
                 </div>
             </div>
             <div class="perfil-info-item">
                 <i class="ph-bold ph-calendar-blank"></i>
                 <div>
                     <span class="info-label">Idade</span>
-                    <span class="info-value">${student.age || 'â€”'} anos</span>
+                    <span class="info-value">${student.age || '—'} anos</span>
                 </div>
             </div>
             <div class="perfil-info-item">
                 <i class="ph-bold ph-gender-intersex"></i>
                 <div>
-                    <span class="info-label">GÃªnero</span>
-                    <span class="info-value">${student.gender === 'M' ? 'Masculino' : student.gender === 'F' ? 'Feminino' : 'â€”'}</span>
+                    <span class="info-label">Gênero</span>
+                    <span class="info-value">${student.gender === 'M' ? 'Masculino' : student.gender === 'F' ? 'Feminino' : '—'}</span>
                 </div>
             </div>
             <div class="perfil-info-item">
                 <i class="ph-bold ph-target"></i>
                 <div>
                     <span class="info-label">Objetivo</span>
-                    <span class="info-value">${student.goal || 'â€”'}</span>
+                    <span class="info-value">${student.goal || '—'}</span>
                 </div>
             </div>
         `;
@@ -1500,7 +1578,7 @@ function renderPerfilHistory(student) {
         list.innerHTML = `
             <div class="perfil-history-empty">
                 <i class="ph-bold ph-note-blank"></i>
-                <p>Nenhuma alteraÃ§Ã£o registrada ainda. Atualize suas mÃ©tricas para comeÃ§ar a acompanhar sua evoluÃ§Ã£o.</p>
+                <p>Nenhuma alteração registrada ainda. Atualize suas métricas para começar a acompanhar sua evolução.</p>
             </div>
         `;
         return;
@@ -1702,7 +1780,7 @@ function openPerfilUpdateModal(field) {
             </div>
             <div class="perfil-modal-current">
                 <span>Valor anterior:</span>
-                <strong>${student.weight || 'â€”'} kg</strong>
+                <strong>${student.weight || '—'} kg</strong>
             </div>
         `;
     } else if (field === 'altura') {
@@ -1722,7 +1800,7 @@ function openPerfilUpdateModal(field) {
             </div>
             <div class="perfil-modal-current">
                 <span>Valor anterior:</span>
-                <strong>${student.bodyFat || 'â€”'}%</strong>
+                <strong>${student.bodyFat || '—'}%</strong>
             </div>
         `;
     } else if (field === 'geral') {
@@ -1822,7 +1900,7 @@ function savePerfilUpdate() {
 
         // Also update dashboard name if changed
         const nameEl = document.getElementById('dash-student-name');
-        if (nameEl) nameEl.innerText = `OlÃ¡, ${(student.name || 'Aluno').split(' ')[0]}`;
+        if (nameEl) nameEl.innerText = `Olá, ${(student.name || 'Aluno').split(' ')[0]}`;
         const sideEl = document.getElementById('side-student-name');
         if (sideEl) sideEl.innerText = (student.name || 'Aluno').split(' ')[0];
     }
@@ -1854,7 +1932,7 @@ function goToTrainerCreate() {
 function connectTrainer() {
     const code = document.getElementById('trainer-login-code').value;
     if (code.length !== 5) {
-        alert('O cÃ³digo deve ter exatamente 5 dÃ­gitos.');
+        alert('O código deve ter exatamente 5 dígitos.');
         return;
     }
 
@@ -1868,7 +1946,7 @@ function connectTrainer() {
             localStorage.setItem('trainerName', t.name.split(' ')[0]);
             localStorage.setItem('currentTrainerCode', t.code);
         } else {
-            alert('CÃ³digo nÃ£o cadastrado.');
+            alert('Código não cadastrado.');
             return;
         }
     }
@@ -1905,7 +1983,7 @@ function createConsultoria() {
     localStorage.setItem('trainerName', firstName);
     localStorage.setItem('currentTrainerCode', newCode);
 
-    document.getElementById('dash-trainer-name').innerText = `OlÃ¡, ${firstName}`;
+    document.getElementById('dash-trainer-name').innerText = firstName;
     document.getElementById('dash-trainer-code').innerText = newCode;
 
     // Go to dashboard
@@ -1935,9 +2013,20 @@ function initTrainerDashboard() {
 
     const trainerName = localStorage.getItem('trainerName') || 'Treinador';
     const trainerCode = localStorage.getItem('currentTrainerCode') || '00000';
+    const canAutoEnterDashboard = !!sessionCode || (!!trainerCode && trainerCode !== '00000');
+
+    if (canAutoEnterDashboard) {
+        const dashboardScreen = document.getElementById('trainer-dashboard-screen');
+        if (dashboardScreen) {
+            hideAllScreens();
+            const app = document.getElementById('app');
+            if (app) app.classList.add('wide');
+            dashboardScreen.classList.add('active');
+        }
+    }
 
     const elDashName = document.getElementById('dash-trainer-name');
-    if (elDashName) elDashName.innerText = `OlÃ¡, ${trainerName}`;
+    if (elDashName) elDashName.innerText = trainerName;
 
     const elDashCode = document.getElementById('dash-trainer-code');
     if (elDashCode) elDashCode.innerText = trainerCode;
@@ -1952,13 +2041,16 @@ function initTrainerDashboard() {
             const clickedTrigger = trigger.contains(evt.target);
             if (!clickedInsideMenu && !clickedTrigger) closeTrainerProfileMenu();
         });
+        document.addEventListener('keydown', (evt) => {
+            if (evt.key === 'Escape') closeTrainerProfileMenu();
+        });
         root.dataset.menuInit = '1';
     }
 
     updateTrainerStats();
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ View switching (Dashboard / Alunos / Duvidas / Exercicios) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€ View switching (Dashboard / Alunos / Duvidas / Exercicios) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function switchDashView(view) {
     const viewDash = document.getElementById('view-dashboard');
     const viewAlunos = document.getElementById('view-alunos');
@@ -1989,7 +2081,7 @@ function switchDashView(view) {
     } else if (view === 'duvidas') {
         if (viewDuvidas) viewDuvidas.style.display = '';
         if (navDuvidas) navDuvidas.classList.add('active');
-        if (pageTitle) pageTitle.textContent = 'DÃºvidas dos Alunos';
+        if (pageTitle) pageTitle.textContent = 'Dúvidas dos Alunos';
 
         // Contextual search
         const globalSearch = document.getElementById('global-search');
@@ -2002,13 +2094,13 @@ function switchDashView(view) {
     } else if (view === 'exercicios') {
         if (viewExercicios) viewExercicios.style.display = '';
         if (navExercicios) navExercicios.classList.add('active');
-        if (pageTitle) pageTitle.textContent = 'CatÃ¡logo de ExercÃ­cios';
+        if (pageTitle) pageTitle.textContent = 'Catálogo de Exercícios';
 
         // Contextual search
         const globalSearch = document.getElementById('global-search');
         if (globalSearch) {
             globalSearch.oninput = (e) => searchExercises(e.target.value);
-            globalSearch.placeholder = "Pesquisar exercÃ­cio...";
+            globalSearch.placeholder = "Pesquisar exercício...";
             globalSearch.value = "";
         }
         renderExerciseCatalog();
@@ -2028,31 +2120,36 @@ function switchDashView(view) {
 }
 
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Helper: build a student row HTML Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€ Helper: build a student row HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function buildStudentRow(s, idx, options = {}) {
     const recentCompact = !!options.recentCompact;
-    const w = parseFloat(s.weight) || 70;
-    const h = parseFloat(s.height) || 175;
-    const a = parseInt(s.age) || 25;
+    const safeName = escHtml(s?.name || ('Aluno ' + (s?.id || '')));
+    const safeGoalText = escHtml(s?.goal || 'Sem objetivo definido');
+    const safeWeight = escHtml(s?.weight || '--');
+    const w = parseFloat(s?.weight) || 70;
+    const h = parseFloat(s?.height) || 175;
+    const a = parseInt(s?.age) || 25;
     let tmb = 10 * w + 6.25 * h - 5 * a + ((s.gender === 'M') ? 5 : -161);
     const kcal = Math.round(tmb * 1.55);
 
-    const joinedAt = new Date(s.joinedAt || new Date());
+    const joinedAt = new Date(s?.joinedAt || new Date());
     const diffDays = Math.floor((new Date() - joinedAt) / (1000 * 60 * 60 * 24));
     let timeDesc = 'Entrou recentemente';
-    if (diffDays > 30) timeDesc = `Entrou hÃ¡ ${Math.floor(diffDays / 30)} meses`;
-    else if (diffDays > 0) timeDesc = `Entrou hÃ¡ ${diffDays} dias`;
+    if (diffDays > 30) timeDesc = `Entrou há ${Math.floor(diffDays / 30)} meses`;
+    else if (diffDays > 0) timeDesc = `Entrou há ${diffDays} dias`;
 
     if (recentCompact) {
         return `
         <div class="student-list-item recent-student-card" onclick="openStudentProfile(${idx})">
             <div class="recent-student-top">
-                <h4>${s.name || 'Aluno ' + s.id}</h4>
+                <h4>${safeName}</h4>
                 <span class="recent-status active">Ativo</span>
             </div>
             <div class="recent-meta-lines">
-                <p><strong>Objetivo:</strong> ${escHtml(s.goal || '--')}</p>
-                <p><strong>Peso:</strong> ${escHtml(s.weight || '--')} kg</p>
+                <div class="recent-meta-row">
+                    <p><strong>Objetivo:</strong> ${safeGoalText}</p>
+                    <p><strong>Peso:</strong> ${safeWeight} kg</p>
+                </div>
                 <p><strong>Consumo:</strong> ${kcal} kcal/dia</p>
             </div>
         </div>`;
@@ -2066,17 +2163,47 @@ function buildStudentRow(s, idx, options = {}) {
         <div class="sli-col ident" data-label="Aluno">
             <div class="sli-avatar"><i class="ph-fill ph-user"></i></div>
             <div class="sli-info">
-                <h4>${s.name || 'Aluno ' + s.id}</h4>
+                <h4>${safeName}</h4>
                 <span class="sli-sub">${timeDesc}</span>
             </div>
         </div>
-        <div class="sli-col font-bold" data-label="Objetivo">${s.goal}</div>
-        <div class="sli-col font-medium" data-label="Peso">${s.weight} kg</div>
+        <div class="sli-col font-bold" data-label="Objetivo">${safeGoalText}</div>
+        <div class="sli-col font-medium" data-label="Peso">${safeWeight} kg</div>
         <div class="sli-col text-primary" data-label="Consumo">${kcal} kcal/dia</div>
         <div class="sli-col actions" data-label="Acoes">
-            <button class="btn-icon-minimal" onclick="event.stopPropagation()"><i class="ph-bold ph-dots-three-vertical"></i></button>
+            <button class="btn-icon-minimal btn-whatsapp-quick" title="Enviar WhatsApp" onclick="openWhatsAppForStudent(${idx}, event)">
+                <i class="ph-fill ph-whatsapp-logo"></i>
+            </button>
+            <button class="btn-icon-minimal" title="Mais ações" onclick="event.stopPropagation()"><i class="ph-bold ph-dots-three-vertical"></i></button>
         </div>
     </div>`;
+}
+
+function openWhatsAppForStudent(studentIdx, event) {
+    if (event) event.stopPropagation();
+    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const s = students[studentIdx];
+    if (!s) return;
+
+    let phoneRaw = String(s.whatsapp || s.phone || s.telefone || '').trim();
+    if (!phoneRaw) {
+        phoneRaw = prompt(`Informe o WhatsApp de ${s.name || 'Aluno'} com DDI (ex: 5511999998888):`) || '';
+        phoneRaw = phoneRaw.trim();
+        if (!phoneRaw) return;
+        students[studentIdx].whatsapp = phoneRaw;
+        localStorage.setItem('trainerStudents', JSON.stringify(students));
+    }
+
+    const phone = phoneRaw.replace(/\D/g, '');
+    if (phone.length < 10) {
+        alert('Número de WhatsApp inválido. Informe com DDD e, de preferência, com DDI.');
+        return;
+    }
+
+    const coachName = localStorage.getItem('trainerName') || 'Treinador';
+    const studentName = s.name || 'aluno';
+    const msg = encodeURIComponent(`Olá ${studentName}, aqui é ${coachName}.`);
+    window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
 }
 
 function backToStudentHomeView() {
@@ -2084,7 +2211,7 @@ function backToStudentHomeView() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Helper: build a pending card HTML Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€ Helper: build a pending card HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function buildPendingCard(s, idx) {
     const reqDate = new Date(s.joinedAt || new Date()).toLocaleDateString('pt-BR');
     return `
@@ -2093,7 +2220,7 @@ function buildPendingCard(s, idx) {
         <div class="pending-card-info">
             <h4>${s.name || 'Aluno ' + s.id}</h4>
             <p class="sli-sub"><i class="ph-fill ph-target" style="color:var(--primary-color)"></i> ${s.goal}</p>
-            <p class="sli-sub">${s.weight} kg Ã‚Â· ${s.height} cm Ã‚Â· ${s.age} anos</p>
+            <p class="sli-sub">${s.weight} kg · ${s.height} cm · ${s.age} anos</p>
             <span class="pending-date"><i class="ph-bold ph-calendar-blank"></i> Solicitado em ${reqDate}</span>
         </div>
         <div class="pending-card-actions">
@@ -2107,14 +2234,14 @@ function buildPendingCard(s, idx) {
     </div>`;
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Main stats + list renderer Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€ Main stats + list renderer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function updateTrainerStats(filterText) {
     let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
     const activeStudents = students.filter(s => s.active && !s.pending);
     const pendingStudents = students.filter(s => s.pending);
     const pendingCount = pendingStudents.length;
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Stats cards Ã¢â€â‚¬Ã¢â€â‚¬
+    // â”€â”€ Stats cards â”€â”€
     const elTotal = document.getElementById('stat-total');
     if (elTotal) elTotal.innerText = activeStudents.length;
     const elAtivos = document.getElementById('stat-ativos');
@@ -2122,58 +2249,77 @@ function updateTrainerStats(filterText) {
     const elPendentes = document.getElementById('stat-pendentes');
     if (elPendentes) elPendentes.innerText = pendingCount;
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Pending nav badge Ã¢â€â‚¬Ã¢â€â‚¬
+    // â”€â”€ Pending nav badge â”€â”€
     const navBadge = document.getElementById('pending-nav-badge');
     if (navBadge) {
         navBadge.style.display = pendingCount > 0 ? 'inline-flex' : 'none';
         navBadge.textContent = pendingCount;
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Pending banner (dashboard view) Ã¢â€â‚¬Ã¢â€â‚¬
+    // â”€â”€ Pending banner (dashboard view) â”€â”€
     const banner = document.getElementById('pending-banner');
     if (banner) {
         banner.style.display = pendingCount > 0 ? 'flex' : 'none';
         const bannerTitle = document.getElementById('pending-banner-title');
-        if (bannerTitle) bannerTitle.textContent = `${pendingCount} nova${pendingCount > 1 ? 's' : ''} solicitaÃ§${pendingCount > 1 ? 'Ãµes' : 'Ã£o'}`;
+        if (bannerTitle) bannerTitle.textContent = `${pendingCount} nova${pendingCount > 1 ? 's' : ''} solicitaç${pendingCount > 1 ? 'ões' : 'ão'}`;
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Dashboard recent list (view-dashboard) Ã¢â€â‚¬Ã¢â€â‚¬
+    // â”€â”€ Dashboard recent list (view-dashboard) â”€â”€
     const recentList = document.getElementById('trainer-student-list');
     if (recentList) {
         const query = (filterText || '').toLowerCase();
+        const matchesStudent = (s) => {
+            const sid = String(s?.id || '').toLowerCase();
+            const sname = String(s?.name || '').toLowerCase();
+            const sgoal = String(s?.goal || '').toLowerCase();
+            return !query || sid.includes(query) || sname.includes(query) || sgoal.includes(query);
+        };
+        const getStudentIndex = (student) => {
+            const byId = students.findIndex(x => String(x?.id || '') === String(student?.id || ''));
+            if (byId >= 0) return byId;
+            return students.indexOf(student);
+        };
         const toShow = activeStudents
-            .filter(s => !query || s.id.includes(query) || s.goal.toLowerCase().includes(query))
+            .filter(matchesStudent)
             .slice(0, 5);
         recentList.innerHTML = toShow.length === 0
             ? `<p style="text-align:center;color:var(--text-muted);padding:3rem 0;">Nenhum aluno ativo ainda.</p>`
-            : toShow.map((s) => buildStudentRow(s, students.indexOf(s), { recentCompact: true })).join('');
+            : toShow.map((s) => buildStudentRow(s, getStudentIndex(s), { recentCompact: true })).join('');
         const paginInfo = document.getElementById('pagination-info');
         if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${activeStudents.length} alunos`;
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Pending requests list (view-alunos) Ã¢â€â‚¬Ã¢â€â‚¬
+    // â”€â”€ Pending requests list (view-alunos) â”€â”€
     const pendingList = document.getElementById('pending-student-list');
     if (pendingList) {
         const badge = document.getElementById('pending-count-badge');
         if (badge) badge.textContent = pendingCount;
         pendingList.innerHTML = pendingCount === 0
-            ? `<p class="empty-pending-msg"><i class="ph-fill ph-check-circle" style="color:var(--text-success,#22c55e)"></i> Nenhuma solicitaÃ§Ã£o pendente.</p>`
+            ? `<p class="empty-pending-msg"><i class="ph-fill ph-check-circle" style="color:var(--text-success,#22c55e)"></i> Nenhuma solicitação pendente.</p>`
             : pendingStudents.map((s) => buildPendingCard(s, students.indexOf(s))).join('');
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Active list (view-alunos) Ã¢â€â‚¬Ã¢â€â‚¬
+    // â”€â”€ Active list (view-alunos) â”€â”€
     const activeList = document.getElementById('alunos-active-list');
     if (activeList) {
         const query = (filterText || '').toLowerCase();
-        const toShow = activeStudents.filter(s => !query || s.id.includes(query) || s.goal.toLowerCase().includes(query));
+        const toShow = activeStudents.filter((s) => {
+            const sid = String(s?.id || '').toLowerCase();
+            const sname = String(s?.name || '').toLowerCase();
+            const sgoal = String(s?.goal || '').toLowerCase();
+            return !query || sid.includes(query) || sname.includes(query) || sgoal.includes(query);
+        });
         activeList.innerHTML = toShow.length === 0
             ? `<p style="text-align:center;color:var(--text-muted);padding:3rem 0;">Nenhum aluno ativo ainda.</p>`
-            : toShow.map((s) => buildStudentRow(s, students.indexOf(s))).join('');
+            : toShow.map((s) => {
+                const idx = students.findIndex(x => String(x?.id || '') === String(s?.id || ''));
+                return buildStudentRow(s, idx >= 0 ? idx : students.indexOf(s));
+            }).join('');
         const paginInfo = document.getElementById('alunos-pagination-info');
         if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${activeStudents.length} alunos`;
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Duvidas nav badge Ã¢â€â‚¬Ã¢â€â‚¬
+    // â”€â”€ Duvidas nav badge â”€â”€
     const notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
     const unreadDuvidas = notifications.filter(n => n.type === 'duvida' && n.unread).length;
     const duvidasBadge = document.getElementById('duvidas-nav-badge');
@@ -2182,7 +2328,7 @@ function updateTrainerStats(filterText) {
         duvidasBadge.textContent = unreadDuvidas;
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Chat sidebar total unread Ã¢â€â‚¬Ã¢â€â‚¬
+    // â”€â”€ Chat sidebar total unread â”€â”€
     const chatTotalBadge = document.getElementById('chat-total-unread');
     if (chatTotalBadge) {
         chatTotalBadge.style.display = unreadDuvidas > 0 ? 'flex' : 'none';
@@ -2202,7 +2348,7 @@ function renderDuvidas(filterText) {
     const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
     const duvidas = notifications.filter(n => n.type === 'duvida');
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ 1. Group by Student Ã¢â€â‚¬Ã¢â€â‚¬
+    // â”€â”€ 1. Group by Student â”€â”€
     const chatsMap = {};
     duvidas.forEach(d => {
         const sId = d.studentId || 'unknown';
@@ -2213,7 +2359,7 @@ function renderDuvidas(filterText) {
                 const s = students.find(x => x.id === sId);
                 if (s) sName = s.name;
             } else {
-                sName = d.title.replace('ðŸ’¬ DÃºvida de ', '');
+                sName = d.title.replace('💬 Dúvida de ', '');
             }
 
             chatsMap[sId] = {
@@ -2236,7 +2382,7 @@ function renderDuvidas(filterText) {
     // Convert to array and sort by last message time
     const chatList = Object.values(chatsMap).sort((a, b) => new Date(b.lastTime) - new Date(a.lastTime));
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ 2. Render Sidebar Ã¢â€â‚¬Ã¢â€â‚¬
+    // â”€â”€ 2. Render Sidebar â”€â”€
     const listContainer = document.getElementById('chat-list');
     if (listContainer) {
         const query = (filterText || '').toLowerCase();
@@ -2274,7 +2420,7 @@ function renderDuvidas(filterText) {
         }
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ 3. Render Active Window Ã¢â€â‚¬Ã¢â€â‚¬
+    // â”€â”€ 3. Render Active Window â”€â”€
     const welcomeView = document.getElementById('chat-welcome');
     const activeView = document.getElementById('chat-active-view');
 
@@ -2567,13 +2713,13 @@ function sendTrainerChat() {
         const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
         const matchedStudent = students.find(s => s.id === activeChatStudentId);
         const fallbackNotif = notifs.find(n => isFromActiveStudent(n));
-        const fallbackName = fallbackNotif?.studentName || (fallbackNotif?.title ? String(fallbackNotif.title).replace('ðŸ’¬ DÃºvida de ', '') : 'Aluno');
+        const fallbackName = fallbackNotif?.studentName || (fallbackNotif?.title ? String(fallbackNotif.title).replace('💬 Dúvida de ', '') : 'Aluno');
 
         notifs.unshift({
             type: 'duvida',
             studentId: activeChatStudentId === 'unknown' ? null : activeChatStudentId,
             studentName: matchedStudent?.name || fallbackName,
-            title: `ðŸ’¬ DÃºvida de ${matchedStudent?.name || fallbackName}`,
+            title: `💬 Dúvida de ${matchedStudent?.name || fallbackName}`,
             desc: '',
             fromTrainerOnly: true,
             reply: finalReplyText,
@@ -2610,7 +2756,7 @@ function openVideoPiPFromButton(buttonEl) {
     const video = wrap?.querySelector('video');
     if (!video) return;
     if (!document.pictureInPictureEnabled) {
-        alert('Picture-in-Picture nÃ£o disponÃ­vel neste navegador.');
+        alert('Picture-in-Picture não disponível neste navegador.');
         return;
     }
     video.requestPictureInPicture().catch(() => { });
@@ -2620,7 +2766,7 @@ async function startTrainerHoldRecord(event) {
     event?.preventDefault?.();
     if (trainerRecordingActive) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert('GravaÃ§Ã£o de Ã¡udio nÃ£o suportada neste dispositivo.');
+        alert('Gravação de áudio não suportada neste dispositivo.');
         return;
     }
 
@@ -2650,8 +2796,8 @@ async function startTrainerHoldRecord(event) {
         const micBtn = document.querySelector('.btn-mic-chat');
         if (micBtn) micBtn.classList.add('recording');
     } catch (e) {
-        console.error('Falha ao iniciar gravaÃ§Ã£o', e);
-        alert('NÃ£o foi possÃ­vel acessar o microfone.');
+        console.error('Falha ao iniciar gravação', e);
+        alert('Não foi possível acessar o microfone.');
     }
 }
 
@@ -2722,11 +2868,11 @@ function renderStudentWorkoutContentMain() {
             <div class="routine-header">
                 <div class="routine-title-row">
                     <h3>${escHtml(block.title || `Treino ${String.fromCharCode(65 + activeRoutineIdx)}`)}</h3>
-                    ${lastPerformed ? `<span class="routine-last-performed">ÃƒÅ¡ltima vez: ${lastPerformed}</span>` : ''}
+                    ${lastPerformed ? `<span class="routine-last-performed">Última vez: ${lastPerformed}</span>` : ''}
                 </div>
                 <div class="routine-summary">
-                    <span><i class="ph-bold ph-lightning"></i> ${escHtml(muscles.join(' â€¢ '))}</span>
-                    <span><i class="ph-bold ph-list-numbers"></i> ${block.exercises.length} exercÃ­cios</span>
+                    <span><i class="ph-bold ph-lightning"></i> ${escHtml(muscles.join(' • '))}</span>
+                    <span><i class="ph-bold ph-list-numbers"></i> ${block.exercises.length} exercícios</span>
                     <span><i class="ph-bold ph-clock"></i> ~${estTime} min</span>
                 </div>
             </div>
@@ -2753,18 +2899,18 @@ function renderRoutineExItem(ex, idx) {
             <button class="ex-top-trigger" onclick="toggleExDetails(${idx})">
                 <div class="ex-name-box">
                     <strong>${escHtml(ex.nome)}</strong>
-                    <span>${ex.series} sÃ©ries Â· ${ex.descanso} descanso</span>
+                    <span>${ex.series} séries · ${ex.descanso} descanso</span>
                 </div>
                 <i class="ph-bold ph-caret-down ex-chevron"></i>
             </button>
             <div class="ex-details-collapsible" id="ex-details-${idx}">
                 <div class="ex-details-inner">
                     <div class="ex-detail-point">
-                        <label>SÃ©ries</label>
+                        <label>Séries</label>
                         <strong>${ex.series}</strong>
                     </div>
                     <div class="ex-detail-point">
-                        <label>RepetiÃ§Ãµes</label>
+                        <label>Repetições</label>
                         <strong>${ex.reps}</strong>
                     </div>
                     <div class="ex-detail-point">
@@ -2777,7 +2923,7 @@ function renderRoutineExItem(ex, idx) {
                     </div>
                     ${ex.obs ? `
                     <div class="ex-detail-point" style="grid-column: span 4; margin-top: 0.5rem;">
-                        <label>ObservaÃ§Ãµes</label>
+                        <label>Observações</label>
                         <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">${escHtml(ex.obs)}</p>
                     </div>` : ''}
                 </div>
@@ -2829,7 +2975,7 @@ function getMuscleGroups(exercises) {
         'peito': ['supino', 'peitoral', 'chest'],
         'costas': ['puxada', 'remada', 'costas', 'back'],
         'pernas': ['agachamento', 'legpress', 'extensora', 'flexora', 'afundo', 'perna', 'legs'],
-        'braÃ§os': ['bÃ­ceps', 'trÃ­ceps', 'rosca', 'pulley'],
+        'braços': ['bíceps', 'tríceps', 'rosca', 'pulley'],
         'ombros': ['desenvolvimento', 'lateral', 'frontal', 'ombro', 'shoulder']
     };
 
@@ -2895,11 +3041,11 @@ function responderDuvida(idx) {
 
         updateTrainerStats();
         renderDuvidas();
-        alert('Ã¢Å“â€¦ Resposta enviada ao aluno!');
+        alert('✅ Resposta enviada ao aluno!');
     }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Accept a pending student Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€ Accept a pending student â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function acceptStudent(idx) {
     let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
     if (!students[idx]) return;
@@ -2921,9 +3067,9 @@ function acceptStudent(idx) {
     }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Reject / remove a pending student Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€ Reject / remove a pending student â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function rejectStudent(idx) {
-    if (!confirm('Tem certeza que deseja recusar esta solicitaÃ§Ã£o?')) return;
+    if (!confirm('Tem certeza que deseja recusar esta solicitação?')) return;
     let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
     students.splice(idx, 1);
     localStorage.setItem('trainerStudents', JSON.stringify(students));
@@ -2933,7 +3079,7 @@ function rejectStudent(idx) {
     updateTrainerStats();
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬ Filter helper Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€ Filter helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function filterStudents(query) {
     updateTrainerStats(query);
 }
@@ -2960,7 +3106,7 @@ function markNotifRead(index, btnElement) {
     }
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Profile open / close / tab switch Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ Profile open / close / tab switch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let currentStudentIdx = null; // tracks which student is being edited
 let workoutBlocks = [];        // local state for workout blocks
 let mealBlocks = [];           // local state for meal blocks
@@ -3013,8 +3159,9 @@ function openStudentProfile(studentIndex) {
     document.getElementById('prof-id-name').innerHTML =
         `${s.name || s.id} <span class="badge ${s.active ? '' : 'inactive'}">${s.active ? 'Ativo' : 'Inativo'}</span>`;
     let gIcon = 'ph-barbell', gColor = 'var(--primary-color)';
-    if (s.goal.toLowerCase().includes('perder') || s.goal.toLowerCase().includes('emagrec')) { gIcon = 'ph-fire'; gColor = '#ef4444'; }
-    document.getElementById('prof-goal').innerHTML = `<i class="ph-fill ${gIcon}" style="color:${gColor}"></i> ${s.goal}`;
+    const safeGoal = String(s.goal || 'Sem objetivo definido');
+    if (safeGoal.toLowerCase().includes('perder') || safeGoal.toLowerCase().includes('emagrec')) { gIcon = 'ph-fire'; gColor = '#ef4444'; }
+    document.getElementById('prof-goal').innerHTML = `<i class="ph-fill ${gIcon}" style="color:${gColor}"></i> ${safeGoal}`;
 
     // Perfil tab stats
     document.getElementById('prof-idade').innerText = `${s.age} anos`;
@@ -3056,7 +3203,7 @@ function switchProfileTab(tabName) {
     document.getElementById(`p-nav-${tabName}`).classList.add('active');
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Workout Blocks Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ Workout Blocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function renderWorkoutBlocks() {
     const container = document.getElementById('workout-blocks-container');
@@ -3085,12 +3232,12 @@ function renderWorkoutBlocks() {
         <div class="wb-header">
             <div class="wb-header-left">
                 <i class="ph-fill ph-calendar-blank" style="color:var(--primary-color)"></i>
-                <input class="wb-name-input" value="${escHtml(block.name)}" placeholder="Ex: Treino A: Peito e TrÃ­ceps"
+                <input class="wb-name-input" value="${escHtml(block.name)}" placeholder="Ex: Treino A: Peito e Tríceps"
                     oninput="workoutBlocks[${bIdx}].name = this.value">
             </div>
             <div class="wb-header-right">
                 <button class="btn-add-ex" onclick="openExModal(${bIdx})">
-                    <i class="ph-bold ph-plus"></i> Adicionar ExercÃ­cio
+                    <i class="ph-bold ph-plus"></i> Adicionar Exercício
                 </button>
                 <button class="btn-icon-minimal" onclick="deleteWorkoutBlock(${bIdx})" title="Remover bloco">
                     <i class="ph-bold ph-trash" style="color:#ef4444"></i>
@@ -3099,7 +3246,7 @@ function renderWorkoutBlocks() {
         </div>
 
         ${block.exercises.length === 0
-            ? `<div class="ex-empty-block">Nenhum exercÃ­cio ainda. Clique em "Adicionar ExercÃ­cio".</div>`
+            ? `<div class="ex-empty-block">Nenhum exercício ainda. Clique em "Adicionar Exercício".</div>`
             : block.exercises.map((ex, eIdx) => `
         <div class="ex-row" id="ex-${bIdx}-${eIdx}">
             <div class="ex-info">
@@ -3113,13 +3260,13 @@ function renderWorkoutBlocks() {
                     <label class="ex-superset-toggle ${eIdx === block.exercises.length - 1 ? 'disabled' : ''}">
                         <input type="checkbox" ${ex.supersetWithNext ? 'checked' : ''} ${eIdx === block.exercises.length - 1 ? 'disabled' : ''}
                             onchange="toggleSupersetWithNext(${bIdx}, ${eIdx}, this.checked)">
-                        Super sÃ©rie com prÃ³ximo
+                        Super série com próximo
                     </label>
                 </div>
             </div>
             <div class="ex-stats">
                 <div class="ex-stat">
-                    <span class="ex-stat-label">SÃ‰RIES</span>
+                    <span class="ex-stat-label">SÉRIES</span>
                     <input type="number" class="ex-stat-input" value="${ex.series || ''}"
                         oninput="workoutBlocks[${bIdx}].exercises[${eIdx}].series=this.value;updateSummaryBar()" placeholder="4">
                 </div>
@@ -3200,7 +3347,7 @@ function updateSummaryBar() {
     el('summary-intensidade', intensity);
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Exercise Modal Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ Exercise Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function openExModal(blockIdx) {
     pendingBlockIdx = blockIdx;
@@ -3237,7 +3384,7 @@ function searchExerciseLibrary(query) {
         results.innerHTML = `
             <div class="ex-library-empty">
                 <i class="ph-bold ph-magnifying-glass"></i>
-                <p>Nenhum exercÃ­cio encontrado.</p>
+                <p>Nenhum exercício encontrado.</p>
             </div>`;
         return;
     }
@@ -3249,7 +3396,7 @@ function searchExerciseLibrary(query) {
             <div class="ex-hevy-thumb"><i class="ph-bold ${ex.icon || 'ph-barbell'}"></i></div>
             <div class="ex-hevy-info">
                 <strong>${escapeHTML(ex.name)}</strong>
-                <span>${escapeHTML(GROUP_DISPLAY[ex.group] || ex.group)} Ã‚Â· ${escapeHTML(EQUIPMENT_DISPLAY[ex.equipment] || ex.equipment)}</span>
+                <span>${escapeHTML(GROUP_DISPLAY[ex.group] || ex.group)} · ${escapeHTML(EQUIPMENT_DISPLAY[ex.equipment] || ex.equipment)}</span>
             </div>
             <i class="ph-bold ${active ? 'ph-check-circle' : 'ph-trend-up'}"></i>
         </button>`;
@@ -3266,7 +3413,7 @@ function selectExerciseFromLibrary(name) {
 function updateExerciseFilterButtons() {
     const muscleBtn = document.getElementById('ex-muscle-filter-btn');
     const equipBtn = document.getElementById('ex-equipment-filter-btn');
-    if (muscleBtn) muscleBtn.textContent = MUSCLE_FILTER_OPTIONS.find(o => o.value === activeExerciseFilter)?.label || 'Todos os MÃºsculos';
+    if (muscleBtn) muscleBtn.textContent = MUSCLE_FILTER_OPTIONS.find(o => o.value === activeExerciseFilter)?.label || 'Todos os Músculos';
     if (equipBtn) equipBtn.textContent = EQUIPMENT_FILTER_OPTIONS.find(o => o.value === activeEquipmentFilter)?.label || 'Todo o Equipamento';
 }
 
@@ -3334,14 +3481,14 @@ function confirmAddExercise() {
     renderWorkoutBlocks();
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Diet / Meals Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ Diet / Meals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function renderMeals() {
     const container = document.getElementById('meal-blocks-container');
     if (!container) return;
 
     if (mealBlocks.length === 0) {
-        container.innerHTML = `<div class="workout-empty"><p>Nenhuma refeiÃ§Ã£o configurada.</p><button class="btn-add-block" onclick="addMeal()"><i class="ph-bold ph-plus"></i> Criar Primeira RefeiÃ§Ã£o</button></div>`;
+        container.innerHTML = `<div class="workout-empty"><p>Nenhuma refeição configurada.</p><button class="btn-add-block" onclick="addMeal()"><i class="ph-bold ph-plus"></i> Criar Primeira Refeição</button></div>`;
         return;
     }
 
@@ -3350,7 +3497,7 @@ function renderMeals() {
         <div class="wb-header">
             <div class="wb-header-left">
                 <i class="ph-fill ph-fork-knife" style="color:var(--primary-color)"></i>
-                <input class="wb-name-input" value="${escHtml(meal.name)}" placeholder="Ex: CafÃ© da manhÃ£"
+                <input class="wb-name-input" value="${escHtml(meal.name)}" placeholder="Ex: Café da manhã"
                     oninput="mealBlocks[${mIdx}].name = this.value">
             </div>
             <div class="wb-header-right">
@@ -3385,14 +3532,14 @@ function renderMeals() {
 }
 
 function addMeal() {
-    const names = ['CafÃ© da manhÃ£', 'Lanche 1', 'AlmoÃ§o', 'Lanche 2', 'Jantar', 'Ceia'];
-    mealBlocks.push({ name: names[mealBlocks.length] || `RefeiÃ§Ã£o ${mealBlocks.length + 1}`, items: [] });
+    const names = ['Café da manhã', 'Lanche 1', 'Almoço', 'Lanche 2', 'Jantar', 'Ceia'];
+    mealBlocks.push({ name: names[mealBlocks.length] || `Refeição ${mealBlocks.length + 1}`, items: [] });
     renderMeals();
     switchProfileTab('nutricao');
 }
 
 function deleteMeal(mIdx) {
-    if (!confirm('Remover esta refeiÃ§Ã£o?')) return;
+    if (!confirm('Remover esta refeição?')) return;
     mealBlocks.splice(mIdx, 1);
     renderMeals();
 }
@@ -3515,7 +3662,7 @@ function confirmAddFood() {
     closeFoodModal();
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Save plan Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ Save plan â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function saveStudentPlan() {
     if (currentStudentIdx === null) return;
@@ -3538,7 +3685,7 @@ function saveStudentPlan() {
         btn.innerHTML = '<i class="ph-bold ph-check"></i> Salvo!';
         btn.style.background = '#22c55e';
         setTimeout(() => {
-            btn.innerHTML = '<i class="ph-bold ph-floppy-disk"></i> Salvar AlteraÃ§Ãµes';
+            btn.innerHTML = '<i class="ph-bold ph-floppy-disk"></i> Salvar Alterações';
             btn.style.background = '';
         }, 2000);
     }
@@ -3578,14 +3725,14 @@ function confirmRemoveStudent() {
     updateTrainerStats();
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ UTILITY Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ UTILITY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function escHtml(str) {
     return String(str || '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ HEVY STYLE WORKOUT LOG LOGIC Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ HEVY STYLE WORKOUT LOG LOGIC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let workoutState = null;
 let workoutTimerInterval = null;
 let restTimerInterval = null;
@@ -3654,7 +3801,7 @@ function startWorkoutSession(blockIdx = 0) {
     const student = students.find(s => s.id === studentId);
 
     if (!student || !student.workoutBlocks || !student.workoutBlocks[blockIdx]) {
-        alert('Plano de treino nÃ£o encontrado.');
+        alert('Plano de treino não encontrado.');
         return;
     }
 
@@ -3725,7 +3872,7 @@ function renderWorkoutLog() {
                 <div class="log-ex-head-main">
                     <h3 class="clickable-ex-title" onclick="openExerciseProgressModalEncoded('${encodeURIComponent(ex.nome)}')">${escHtml(ex.nome)}</h3>
                     <div class="log-ex-meta">
-                        <span class="meta-pill"><i class="ph-bold ph-check-circle"></i> ${completed}/${total} sÃ©ries</span>
+                        <span class="meta-pill"><i class="ph-bold ph-check-circle"></i> ${completed}/${total} séries</span>
                         <span class="meta-pill muted"><i class="ph-bold ph-chart-line-up"></i> registrar carga</span>
                         ${ex.supersetGroup ? `<span class="meta-pill"><i class="ph-bold ph-lightning"></i> bi-set ${ex.supersetGroup}</span>` : ''}
                     </div>
@@ -3750,14 +3897,14 @@ function renderWorkoutLog() {
             ` : ''}
 
             <input type="text" class="exercise-notes-input" 
-                placeholder="Notas do exercÃ­cio..." 
+                placeholder="Notas do exercício..." 
                 value="${escHtml(ex.notes || '')}"
                 oninput="updateExerciseNotes(${exIdx}, this.value)">
             
             <div class="log-set-table">
                 <div class="log-set-header">
-                    <span>SÃ©rie</span>
-                    <span class="col-prev">ÃƒÅ¡ltimo</span>
+                    <span>Série</span>
+                    <span class="col-prev">Último</span>
                     <span>Kg</span>
                     <span>Reps</span>
                     <span>Intensidade</span>
@@ -3799,7 +3946,7 @@ function renderWorkoutLog() {
             
             <div class="log-ex-footer">
                 <button class="btn-add-set" onclick="addSetToExercise(${exIdx})">
-                    <i class="ph-bold ph-plus"></i> Adicionar SÃ©rie
+                    <i class="ph-bold ph-plus"></i> Adicionar Série
                 </button>
             </div>
         </div>
@@ -3992,7 +4139,7 @@ function chooseQuickSetEffort(level) {
     closeSetEffortQuickModal();
     toggleSetCompletion(exIdx, setIdx);
 }
-// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ REST TIMER LOGIC Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+// â”€â”€â”€ REST TIMER LOGIC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function startRestTimer(seconds) {
     restTimeLeft = seconds;
     totalRestTime = seconds;
@@ -4113,7 +4260,7 @@ function addSetToExercise(exIdx) {
 }
 
 function removeExerciseFromLog(exIdx) {
-    if (!workoutState || !confirm('Remover exercÃ­cio do log?')) return;
+    if (!workoutState || !confirm('Remover exercício do log?')) return;
     workoutState.exercises.splice(exIdx, 1);
     saveWorkoutBackup();
     renderWorkoutLog();
@@ -4147,7 +4294,7 @@ function handleFinishWorkout() {
     const completedSets = workoutState.exercises.reduce((acc, ex) => acc + ex.sets.filter(s => s.completed).length, 0);
 
     if (completedSets === 0) {
-        if (!confirm('Nenhuma sÃ©rie foi marcada como concluÃ­da. Deseja realmente finalizar?')) return;
+        if (!confirm('Nenhuma série foi marcada como concluída. Deseja realmente finalizar?')) return;
     }
 
     openWorkoutFeedbackModal();
@@ -4316,7 +4463,7 @@ function showWorkoutSummary(archive) {
         <div class="summary-stat-card">
             <i class="ph-bold ph-timer"></i>
             <span class="summary-stat-value">${durStr}</span>
-            <span class="summary-stat-label">DuraÃ§Ã£o</span>
+            <span class="summary-stat-label">Duração</span>
         </div>
         <div class="summary-stat-card">
             <i class="ph-bold ph-lightning"></i>
@@ -4346,7 +4493,7 @@ function showWorkoutSummary(archive) {
         const hasPR = s.brokenPRs && (s.brokenPRs.weight || s.brokenPRs.volume);
         return `
                         <div class="summary-set-pill ${hasPR ? 'has-pr' : ''}">
-                            <span>${idx + 1}Ã‚Âª: <strong>${s.peso}kg</strong> x ${s.reps}</span>
+                            <span>${idx + 1}ª: <strong>${s.peso}kg</strong> x ${s.reps}</span>
                             ${hasPR ? '<i class="ph-fill ph-trophy" style="font-size: 0.8rem;"></i>' : ''}
                         </div>
                     `;
@@ -4384,9 +4531,9 @@ function escHtml(str) {
         .replace(/'/g, "&#039;");
 }
 
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // EXERCISE CATALOG (Trainer > Exercicios view)
-// Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 const EXERCISE_CATALOG_DATA = [
     { name: "Puxada Alta na Polia", group: "Dorsais", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
@@ -4394,18 +4541,18 @@ const EXERCISE_CATALOG_DATA = [
     { name: "Supino (Barra)", group: "Peito", equipment: "Barra", icon: "ph-barbell", hasHistory: true },
     { name: "Supino Inclinado (Halter)", group: "Peito", equipment: "Haltere", icon: "ph-barbell", hasHistory: false },
     { name: "Crucifixo no Voador", group: "Peito", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
-    { name: "Rosca Scott (MÃ¡quina)", group: "Biceps", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
+    { name: "Rosca Scott (Máquina)", group: "Biceps", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
     { name: "Rosca Direta (Barra W)", group: "Biceps", equipment: "Barra", icon: "ph-barbell", hasHistory: true },
-    { name: "TrÃ­ceps na Polia com Corda", group: "Triceps", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
+    { name: "Tríceps na Polia com Corda", group: "Triceps", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
     { name: "Desenvolvimento (Halteres)", group: "Ombros", equipment: "Haltere", icon: "ph-barbell", hasHistory: false },
-    { name: "ElevaÃ§Ã£o Lateral", group: "Ombros", equipment: "Haltere", icon: "ph-barbell", hasHistory: false },
+    { name: "Elevação Lateral", group: "Ombros", equipment: "Haltere", icon: "ph-barbell", hasHistory: false },
     { name: "Agachamento Livre", group: "Pernas", equipment: "Barra", icon: "ph-person-simple-walk", hasHistory: true },
     { name: "Leg Press 45", group: "Pernas", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: true },
     { name: "Cadeira Extensora", group: "Quadriceps", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: true },
     { name: "Mesa Flexora", group: "Posteriores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
     { name: "Stiff com Halteres", group: "Posteriores", equipment: "Haltere", icon: "ph-person-simple-walk", hasHistory: false },
-    { name: "AbduÃ§Ã£o de Quadril", group: "Abdutores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
-    { name: "AduÃ§Ã£o de Quadril", group: "Adutores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
+    { name: "Abdução de Quadril", group: "Abdutores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
+    { name: "Adução de Quadril", group: "Adutores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
     { name: "Prancha", group: "Abdominais", equipment: "Nenhum", icon: "ph-person-simple", hasHistory: false },
     { name: "Abdominal Infra", group: "Abdominais", equipment: "Nenhum", icon: "ph-person-simple", hasHistory: true },
     { name: "Corrida Esteira", group: "Cardio", equipment: "Maquina", icon: "ph-heartbeat", hasHistory: false },
@@ -4415,11 +4562,11 @@ const EXERCISE_CATALOG_DATA = [
 
 // Display-friendly labels
 const GROUP_DISPLAY = {
-    "todos": "Todos os MÃºsculos",
+    "todos": "Todos os Músculos",
     "Abdominais": "Abdominais",
     "Abdutores": "Abdutores",
     "Adutores": "Adutores",
-    "Biceps": "BÃ­ceps",
+    "Biceps": "Bíceps",
     "Cardio": "Cardio",
     "CorpoInteiro": "Corpo Inteiro",
     "CostasSuperiores": "Costas Superiores",
@@ -4428,28 +4575,28 @@ const GROUP_DISPLAY = {
     "Peito": "Peito",
     "Pernas": "Pernas",
     "Posteriores": "Posteriores",
-    "Quadriceps": "QuadrÃ­ceps",
-    "Triceps": "TrÃ­ceps"
+    "Quadriceps": "Quadríceps",
+    "Triceps": "Tríceps"
 };
 
 const EQUIPMENT_DISPLAY = {
     "todos": "Todo o Equipamento",
     "Nenhum": "Nenhum",
-    "Banda": "Banda de ResistÃªncia",
+    "Banda": "Banda de Resistência",
     "Barra": "Barra",
     "Disco": "Disco de Peso",
     "Haltere": "Haltere",
     "Kettlebell": "Kettlebell",
-    "Maquina": "MÃ¡quina",
+    "Maquina": "Máquina",
     "Outro": "Outro"
 };
 
 const MUSCLE_FILTER_OPTIONS = [
-    { value: 'todos', label: 'Todos os MÃºsculos', icon: 'ph-squares-four' },
+    { value: 'todos', label: 'Todos os Músculos', icon: 'ph-squares-four' },
     { value: 'Abdominais', label: 'Abdominais', icon: 'ph-person-simple' },
     { value: 'Abdutores', label: 'Abdutores', icon: 'ph-person-simple-walk' },
     { value: 'Adutores', label: 'Adutores', icon: 'ph-person-simple-walk' },
-    { value: 'Biceps', label: 'BÃ­ceps', icon: 'ph-barbell' },
+    { value: 'Biceps', label: 'Bíceps', icon: 'ph-barbell' },
     { value: 'Cardio', label: 'Cardio', icon: 'ph-heartbeat' },
     { value: 'CorpoInteiro', label: 'Corpo Inteiro', icon: 'ph-person-simple' },
     { value: 'CostasSuperiores', label: 'Costas Superiores', icon: 'ph-arrows-in-line-vertical' },
@@ -4458,19 +4605,19 @@ const MUSCLE_FILTER_OPTIONS = [
     { value: 'Peito', label: 'Peito', icon: 'ph-barbell' },
     { value: 'Pernas', label: 'Pernas', icon: 'ph-person-simple-walk' },
     { value: 'Posteriores', label: 'Posteriores', icon: 'ph-person-simple-walk' },
-    { value: 'Quadriceps', label: 'QuadrÃ­ceps', icon: 'ph-person-simple-walk' },
-    { value: 'Triceps', label: 'TrÃ­ceps', icon: 'ph-barbell' }
+    { value: 'Quadriceps', label: 'Quadríceps', icon: 'ph-person-simple-walk' },
+    { value: 'Triceps', label: 'Tríceps', icon: 'ph-barbell' }
 ];
 
 const EQUIPMENT_FILTER_OPTIONS = [
     { value: 'todos', label: 'Todo o Equipamento', icon: 'ph-squares-four' },
     { value: 'Nenhum', label: 'Nenhum', icon: 'ph-person-simple' },
-    { value: 'Banda', label: 'Banda de ResistÃªncia', icon: 'ph-wave-sine' },
+    { value: 'Banda', label: 'Banda de Resistência', icon: 'ph-wave-sine' },
     { value: 'Barra', label: 'Barra', icon: 'ph-barbell' },
     { value: 'Disco', label: 'Disco de Peso', icon: 'ph-circle' },
     { value: 'Haltere', label: 'Haltere', icon: 'ph-barbell' },
     { value: 'Kettlebell', label: 'Kettlebell', icon: 'ph-barbell' },
-    { value: 'Maquina', label: 'MÃ¡quina', icon: 'ph-desktop' },
+    { value: 'Maquina', label: 'Máquina', icon: 'ph-desktop' },
     { value: 'Outro', label: 'Outro', icon: 'ph-dots-three' }
 ];
 
@@ -4597,5 +4744,6 @@ function setSetIntensity(exIdx, setIdx, level) {
     saveWorkoutBackup();
     renderWorkoutLog();
 }
+
 
 

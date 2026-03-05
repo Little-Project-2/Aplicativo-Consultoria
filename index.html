@@ -176,7 +176,7 @@
             </div>
 
             <div class="role-selection">
-                <p class="section-title">QUEM Ã‰ VOCÃŠ?</p>
+                <p class="section-title">QUEM É VOCÊ?</p>
 
                 <button class="role-card" onclick="openTrainerArea()">
                     <div class="card-icon active-icon">
@@ -195,7 +195,7 @@
                     </div>
                     <div class="card-content">
                         <h3>Sou Aluno</h3>
-                        <p>Acessar meus treinos, dieta e evoluÃ§Ã£o</p>
+                        <p>Acessar meus treinos, dieta e evolução</p>
                     </div>
                     <i class="ph-bold ph-caret-right arrow-icon"></i>
                 </button>
@@ -236,28 +236,28 @@
                     </div>
                     <div class="input-group">
                         <label for="login-pass">SENHA</label>
-                        <input type="password" id="login-pass" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required>
+                        <input type="password" id="login-pass" placeholder="••••••••" required>
                     </div>
                     <button type="submit" class="btn-primary">Entrar</button>
                 </form>
 
-                <div class="divider"><span>OU SEU CÃ“DIGO</span></div>
+                <div class="divider"><span>OU SEU CÓDIGO</span></div>
 
                 <form class="login-form" onsubmit="event.preventDefault(); handleUnifiedLogin();"
                     style="margin-top: 0;">
                     <button type="button" class="btn-secondary-outline" onclick="toggleElement('unified-code-input')">
-                        <i class="ph-bold ph-hash"></i> Entrar com CÃ³digo de 5 DÃ­gitos
+                        <i class="ph-bold ph-hash"></i> Entrar com Código de 5 Dígitos
                     </button>
                     <div id="unified-code-input" style="display: none; margin-top: 1rem;">
                         <input type="tel" id="global-code" placeholder="00000" maxlength="5" autocomplete="off"
                             inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'').substring(0,5)"
                             style="letter-spacing:0.4rem; font-size:1.5rem; text-align:center; font-family:monospace; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 12px; padding: 1rem; width: 100%; color: #fff;">
-                        <button type="submit" class="btn-primary" style="margin-top: 0.5rem;">Validar CÃ³digo</button>
+                        <button type="submit" class="btn-primary" style="margin-top: 0.5rem;">Validar Código</button>
                     </div>
                 </form>
 
                 <p style="font-size: 0.85rem; color: var(--text-muted); text-align: center; margin-top: 2rem;">
-                    NÃ£o tem uma conta? <a href="#" onclick="goToProfileCreate()"
+                    Não tem uma conta? <a href="#" onclick="goToProfileCreate()"
                         style="color: var(--primary-color); font-weight: 600;">Criar Perfil</a>
                 </p>
             </div>
@@ -326,7 +326,7 @@
 
                 <p
                     style="font-size: 0.75rem; color: var(--text-muted); text-align: center; margin-top: 1.5rem; line-height: 1.4;">
-                    Ao criar uma conta, vocÃª concorda com nossos <br> <a href="#">Termos de Uso</a> e <a
+                    Ao criar uma conta, você concorda com nossos <br> <a href="#">Termos de Uso</a> e <a
                         href="#">Privacidade</a>.
                 </p>
             </div>
@@ -341,12 +341,12 @@
                 <div class="logo-icon inactive-icon lg">
                     <i class="ph-bold ph-barbell"></i>
                 </div>
-                <h2>ÃƒÂrea do Aluno</h2>
-                <p class="subtitle">Insira o cÃ³digo enviado pelo seu treinador</p>
+                <h2>Área do Aluno</h2>
+                <p class="subtitle">Insira o código enviado pelo seu treinador</p>
 
                 <form class="login-form" onsubmit="event.preventDefault(); connectStudent();">
                     <div class="input-group">
-                        <label for="trainer-code">CÃ“DIGO DO TREINADOR</label>
+                        <label for="trainer-code">CÓDIGO DO TREINADOR</label>
                         <input type="tel" id="trainer-code" placeholder="00000" maxlength="5" autocomplete="off"
                             inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'').substring(0,5)"
                             style="letter-spacing:0.4rem; font-size:1.5rem; text-align:center; font-family:monospace;">
@@ -362,7 +362,7 @@
                     style="width: 56px; height: 56px; font-size: 28px; border-radius: 12px; margin-bottom: 2rem;">
                     <i class="ph-bold ph-clipboard-text"></i>
                 </div>
-                <p class="subtitle" style="margin-bottom: 0.5rem; font-size: 0.8rem;">VocÃª estÃ¡ se conectando Ã 
+                <p class="subtitle" style="margin-bottom: 0.5rem; font-size: 0.8rem;">Você está se conectando à
                     consultoria de</p>
                 <h2 id="confirm-trainer-name" style="margin-bottom: 0.5rem; font-size: 1.5rem; font-weight: 700;">Coach
                     2323</h2>
@@ -371,8 +371,8 @@
                     Treinamento</p>
 
                 <button class="btn-primary" onclick="confirmConnection()" style="margin-bottom: 1.5rem;">Confirmar
-                    Ã¢Å“â€œ</button>
-                <button class="btn-link" onclick="goToStudentArea()">NÃ£o Ã© meu treinador</button>
+                    ✓</button>
+                <button class="btn-link" onclick="goToStudentArea()">Não é meu treinador</button>
             </div>
         </div>
 
@@ -380,11 +380,11 @@
             <div class="q-tabs-container">
                 <button class="q-tab active" onclick="switchQTab('saude')" id="btn-tab-saude">
                     <i class="ph-bold ph-heart"></i>
-                    <span>SaÃºde</span>
+                    <span>Saúde</span>
                 </button>
                 <button class="q-tab" onclick="switchQTab('nutricao')" id="btn-tab-nutricao">
                     <i class="ph-bold ph-apple-logo"></i>
-                    <span>NutriÃ§Ã£o</span>
+                    <span>Nutrição</span>
                 </button>
                 <button class="q-tab" onclick="switchQTab('rotina')" id="btn-tab-rotina">
                     <i class="ph-bold ph-moon"></i>
@@ -403,16 +403,16 @@
             <div class="q-content-container">
                 <form id="questionnaire-form" onsubmit="event.preventDefault(); submitQuestionnaire();">
 
-                    <!-- TAB: SAÃƒÅ¡DE -->
+                    <!-- TAB: SAÚDE -->
                     <div id="q-tab-saude" class="q-tab-content active">
                         <div class="q-header-title">
                             <i class="ph-fill ph-heartbeat"></i>
-                            <h3>SaÃºde & Perfil Basal</h3>
+                            <h3>Saúde & Perfil Basal</h3>
                         </div>
 
                         <div class="q-field">
                             <label>NOME COMPLETO</label>
-                            <input type="text" id="q_nome" class="q-input" placeholder="Ex: JoÃ£o Silva"
+                            <input type="text" id="q_nome" class="q-input" placeholder="Ex: João Silva"
                                 autocomplete="off" required style="text-transform: capitalize;">
                         </div>
 
@@ -423,7 +423,7 @@
                                     autocomplete="off" required>
                             </div>
                             <div class="q-field" style="margin-bottom: 0;">
-                                <label>GÃƒÅ NERO</label>
+                                <label>GÊNERO</label>
                                 <select id="q_genero" class="q-input" required>
                                     <option value="" disabled selected>Selecione</option>
                                     <option value="M">Masculino</option>
@@ -444,44 +444,44 @@
 
 
                         <div class="q-field">
-                            <label>DOR EM ARTICULAÃ‡Ã•ES AO FAZER ESFORÃ‡O?</label>
+                            <label>DOR EM ARTICULAÇÕES AO FAZER ESFORÇO?</label>
                             <div class="segmented-control">
                                 <label class="segment-opt"><input type="radio" name="q_dor" value="sim"
                                         onchange="toggleConditional('cond-dor', true)"><span>Sim</span></label>
                                 <label class="segment-opt"><input type="radio" name="q_dor" value="nao" checked
-                                        onchange="toggleConditional('cond-dor', false)"><span>NÃ£o</span></label>
+                                        onchange="toggleConditional('cond-dor', false)"><span>Não</span></label>
                             </div>
                             <div class="conditional-input" id="cond-dor">
                                 <input type="text" class="q-input"
-                                    placeholder="Quais articulaÃ§Ãµes? (joelho, ombro, coluna...)" autocomplete="off">
+                                    placeholder="Quais articulações? (joelho, ombro, coluna...)" autocomplete="off">
                             </div>
                         </div>
 
                         <div class="q-field">
-                            <label>CONDIÃ‡Ã•ES MÃ‰DICAS</label>
+                            <label>CONDIÇÕES MÉDICAS</label>
                             <div class="pill-group">
                                 <label class="pill"><input type="checkbox" name="q_cond"
                                         value="diabetes"><span>Diabetes</span></label>
                                 <label class="pill"><input type="checkbox" name="q_cond"
-                                        value="hipertensao"><span>HipertensÃ£o</span></label>
+                                        value="hipertensao"><span>Hipertensão</span></label>
                                 <label class="pill"><input type="checkbox" name="q_cond" value="sopro"><span>Sopro
-                                        cardÃ­aco</span></label>
+                                        cardíaco</span></label>
                                 <label class="pill"><input type="checkbox" name="q_cond"
                                         value="asma"><span>Asma</span></label>
                                 <label class="pill"><input type="checkbox" name="q_cond"
                                         value="artrite"><span>Artrite</span></label>
-                                <label class="pill"><input type="checkbox" name="q_cond" value="hernia"><span>HÃ©rnia de
+                                <label class="pill"><input type="checkbox" name="q_cond" value="hernia"><span>Hérnia de
                                         disco</span></label>
                             </div>
                         </div>
 
                         <div class="q-field">
-                            <label>USO DE MEDICAMENTOS CONTÃƒÂNUOS?</label>
+                            <label>USO DE MEDICAMENTOS CONTÍNUOS?</label>
                             <div class="segmented-control">
                                 <label class="segment-opt"><input type="radio" name="q_med" value="sim"
                                         onchange="toggleConditional('cond-med', true)"><span>Sim</span></label>
                                 <label class="segment-opt"><input type="radio" name="q_med" value="nao" checked
-                                        onchange="toggleConditional('cond-med', false)"><span>NÃ£o</span></label>
+                                        onchange="toggleConditional('cond-med', false)"><span>Não</span></label>
                             </div>
                             <div class="conditional-input" id="cond-med">
                                 <input type="text" class="q-input" placeholder="Quais medicamentos?" autocomplete="off">
@@ -489,39 +489,39 @@
                         </div>
 
                         <div class="q-field">
-                            <label>JÃƒÂ PASSOU POR CIRURGIA?</label>
+                            <label>JÁ PASSOU POR CIRURGIA?</label>
                             <div class="segmented-control">
                                 <label class="segment-opt"><input type="radio" name="q_cirurgia" value="sim"
                                         onchange="toggleConditional('cond-cirurgia', true)"><span>Sim</span></label>
                                 <label class="segment-opt"><input type="radio" name="q_cirurgia" value="nao" checked
-                                        onchange="toggleConditional('cond-cirurgia', false)"><span>NÃ£o</span></label>
+                                        onchange="toggleConditional('cond-cirurgia', false)"><span>Não</span></label>
                             </div>
                             <div class="conditional-input" id="cond-cirurgia">
-                                <input type="text" class="q-input" placeholder="Qual cirurgia e hÃ¡ quanto tempo?"
+                                <input type="text" class="q-input" placeholder="Qual cirurgia e há quanto tempo?"
                                     autocomplete="off">
                             </div>
                         </div>
 
                         <div class="q-actions right">
                             <button type="button" class="btn-primary q-btn-next"
-                                onclick="switchQTab('nutricao')">PrÃ³ximo <i class="ph-bold ph-caret-right"></i></button>
+                                onclick="switchQTab('nutricao')">Próximo <i class="ph-bold ph-caret-right"></i></button>
                         </div>
                     </div>
 
-                    <!-- TAB: NUTRIÃ‡ÃƒO -->
+                    <!-- TAB: NUTRIÇÃO -->
                     <div id="q-tab-nutricao" class="q-tab-content">
                         <div class="q-header-title">
                             <i class="ph-fill ph-apple-logo"></i>
-                            <h3>NutriÃ§Ã£o</h3>
+                            <h3>Nutrição</h3>
                         </div>
 
                         <div class="q-field">
-                            <label>RESTRIÃ‡Ã•ES ALIMENTARES</label>
+                            <label>RESTRIÇÕES ALIMENTARES</label>
                             <div class="pill-group">
                                 <label class="pill"><input type="checkbox" name="q_restr"
                                         value="lactose"><span>Lactose</span></label>
                                 <label class="pill"><input type="checkbox" name="q_restr"
-                                        value="gluten"><span>GlÃºten</span></label>
+                                        value="gluten"><span>Glúten</span></label>
                                 <label class="pill"><input type="checkbox" name="q_restr"
                                         value="amendoim"><span>Amendoim</span></label>
                                 <label class="pill"><input type="checkbox" name="q_restr"
@@ -534,8 +534,8 @@
                         </div>
 
                         <div class="q-field">
-                            <label>ALIMENTOS QUE NÃƒÆ’O COME DE JEITO NENHUM</label>
-                            <input type="text" class="q-input" placeholder="Ex: brÃ³colis, fÃ­gado..." autocomplete="off">
+                            <label>ALIMENTOS QUE NÃO COME DE JEITO NENHUM</label>
+                            <input type="text" class="q-input" placeholder="Ex: brócolis, fígado..." autocomplete="off">
                         </div>
 
                         <div class="q-field">
@@ -544,12 +544,12 @@
                                 <label class="segment-opt"><input type="radio" name="q_intestino" value="sim"
                                         checked><span>Sim</span></label>
                                 <label class="segment-opt"><input type="radio" name="q_intestino"
-                                        value="nao"><span>NÃ£o</span></label>
+                                        value="nao"><span>Não</span></label>
                             </div>
                         </div>
 
                         <div class="q-field">
-                            <label>QUANTAS REFEIÃ‡Ã•ES POR DIA (REALISTA)?</label>
+                            <label>QUANTAS REFEIÇÕES POR DIA (REALISTA)?</label>
                             <div class="pill-group">
                                 <label class="pill circle"><input type="radio" name="q_refeicoes"
                                         value="2"><span>2</span></label>
@@ -567,7 +567,7 @@
                         <div class="q-actions between">
                             <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('saude')"><i
                                     class="ph-bold ph-caret-left"></i> Anterior</button>
-                            <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('rotina')">PrÃ³ximo
+                            <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('rotina')">Próximo
                                 <i class="ph-bold ph-caret-right"></i></button>
                         </div>
                     </div>
@@ -594,12 +594,12 @@
                                 <label class="segment-opt"><input type="radio" name="q_descansado" value="sim"
                                         checked><span>Sim</span></label>
                                 <label class="segment-opt"><input type="radio" name="q_descansado"
-                                        value="nao"><span>NÃ£o</span></label>
+                                        value="nao"><span>Não</span></label>
                             </div>
                         </div>
 
                         <div class="q-field">
-                            <label>NÃƒÂVEL DE ESTRESSE (1-10)</label>
+                            <label>NÍVEL DE ESTRESSE (1-10)</label>
                             <div class="slider-container">
                                 <input type="range" class="q-slider" min="1" max="10" value="5"
                                     oninput="document.getElementById('val-estresse').innerText = this.value">
@@ -611,23 +611,23 @@
                             <label>TABAGISMO</label>
                             <div class="segmented-control">
                                 <label class="segment-opt"><input type="radio" name="q_fumo" value="nao"
-                                        checked><span>NÃ£o fuma</span></label>
+                                        checked><span>Não fuma</span></label>
                                 <label class="segment-opt"><input type="radio" name="q_fumo"
                                         value="ocasional"><span>Ocasional</span></label>
                                 <label class="segment-opt"><input type="radio" name="q_fumo"
-                                        value="diario"><span>DiÃ¡rio</span></label>
+                                        value="diario"><span>Diário</span></label>
                             </div>
                         </div>
 
                         <div class="q-field">
-                            <label>CONSUMO DE ÃƒÂLCOOL</label>
+                            <label>CONSUMO DE ÁLCOOL</label>
                             <div class="segmented-control">
                                 <label class="segment-opt"><input type="radio" name="q_alcool" value="nao"
-                                        checked><span>NÃ£o bebe</span></label>
+                                        checked><span>Não bebe</span></label>
                                 <label class="segment-opt"><input type="radio" name="q_alcool" value="fds"><span>Fim de
                                         semana</span></label>
                                 <label class="segment-opt"><input type="radio" name="q_alcool"
-                                        value="diario"><span>DiÃ¡rio</span></label>
+                                        value="diario"><span>Diário</span></label>
                             </div>
                         </div>
 
@@ -637,7 +637,7 @@
                                 <label class="segment-opt"><input type="radio" name="q_trab" value="sentado"
                                         checked><span>ðŸ§ Sentado</span></label>
                                 <label class="segment-opt"><input type="radio" name="q_trab" value="em_pe"><span>ðŸ§ Em
-                                        pÃ©</span></label>
+                                        pé</span></label>
                                 <label class="segment-opt"><input type="radio" name="q_trab" value="movimento"><span>ðŸš¶
                                         Movimento</span></label>
                             </div>
@@ -646,7 +646,7 @@
                         <div class="q-actions between">
                             <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('nutricao')"><i
                                     class="ph-bold ph-caret-left"></i> Anterior</button>
-                            <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('treino')">PrÃ³ximo
+                            <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('treino')">Próximo
                                 <i class="ph-bold ph-caret-right"></i></button>
                         </div>
                     </div>
@@ -659,30 +659,30 @@
                         </div>
 
                         <div class="q-field">
-                            <label>TEMPO DE PRÃTICA DE MUSCULAÃ‡ÃƒO</label>
+                            <label>TEMPO DE PRÁTICA DE MUSCULAÇÃO</label>
                             <input type="text" class="q-input" placeholder="Ex: 2 anos, 6 meses, iniciante..."
                                 autocomplete="off">
                         </div>
 
                         <div class="q-field">
-                            <label>EXERCÃƒÂCIOS QUE AMA FAZER</label>
+                            <label>EXERCÍCIOS QUE AMA FAZER</label>
                             <input type="text" class="q-input" placeholder="Ex: Supino, Agachamento..."
                                 autocomplete="off">
                         </div>
 
                         <div class="q-field">
-                            <label>EXERCÃƒÂCIOS QUE DETESTA</label>
+                            <label>EXERCÍCIOS QUE DETESTA</label>
                             <input type="text" class="q-input" placeholder="Ex: Leg Press, Abdominal..."
                                 autocomplete="off">
                         </div>
 
                         <div class="q-field">
-                            <label>DIAS DISPONÃƒÂVEIS PARA TREINAR</label>
+                            <label>DIAS DISPONÍVEIS PARA TREINAR</label>
                             <div class="pill-group">
                                 <label class="pill"><input type="checkbox" name="q_dias" value="seg"
                                         checked><span>Segunda</span></label>
                                 <label class="pill"><input type="checkbox" name="q_dias"
-                                        value="ter"><span>TerÃ§a</span></label>
+                                        value="ter"><span>Terça</span></label>
                                 <label class="pill"><input type="checkbox" name="q_dias" value="qua"
                                         checked><span>Quarta</span></label>
                                 <label class="pill"><input type="checkbox" name="q_dias"
@@ -690,14 +690,14 @@
                                 <label class="pill"><input type="checkbox" name="q_dias" value="sex"
                                         checked><span>Sexta</span></label>
                                 <label class="pill"><input type="checkbox" name="q_dias"
-                                        value="sab"><span>SÃ¡bado</span></label>
+                                        value="sab"><span>Sábado</span></label>
                                 <label class="pill"><input type="checkbox" name="q_dias"
                                         value="dom"><span>Domingo</span></label>
                             </div>
                         </div>
 
                         <div class="q-field">
-                            <label>DURAÃ‡ÃƒO DA SESSÃƒO (MINUTOS)</label>
+                            <label>DURAÇÃO DA SESSÃO (MINUTOS)</label>
                             <div class="segmented-control">
                                 <label class="segment-opt"><input type="radio" name="q_duracao"
                                         value="30"><span>30'</span></label>
@@ -715,7 +715,7 @@
                         <div class="q-actions between">
                             <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('rotina')"><i
                                     class="ph-bold ph-caret-left"></i> Anterior</button>
-                            <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('metas')">PrÃ³ximo
+                            <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('metas')">Próximo
                                 <i class="ph-bold ph-caret-right"></i></button>
                         </div>
                     </div>
@@ -730,7 +730,7 @@
                         <div class="q-field">
                             <label>O QUE MAIS TE INCOMODA NO CORPO HOJE?</label>
                             <textarea class="q-input" rows="2"
-                                placeholder="Ex: barriga, braÃ§os finos, postura..."></textarea>
+                                placeholder="Ex: barriga, braços finos, postura..."></textarea>
                         </div>
 
                         <div class="q-field">
@@ -740,7 +740,7 @@
                         </div>
 
                         <div class="q-field">
-                            <label>JÃƒÂ FEZ CONSULTORIA ANTES? O QUE GOSTOU/ODIOU?</label>
+                            <label>JÁ FEZ CONSULTORIA ANTES? O QUE GOSTOU/ODIOU?</label>
                             <textarea class="q-input" rows="2"
                                 placeholder="Ex: Sim, mas o treinador nunca mudava o treino..."></textarea>
                         </div>
@@ -804,12 +804,12 @@
                     <div id="view-student-home" class="view-section">
                         <div class="dashboard-header">
                             <div class="user-info">
-                                <h2 id="dash-student-name">OlÃ¡, Aluno</h2>
+                                <h2 id="dash-student-name">Olá, Aluno</h2>
                                 <p class="subtitle" style="display: flex; flex-direction: column; gap: 0.2rem;">
                                     <span>Treinador: <span id="dash-student-trainer"
                                             class="highlight-code">Carregando...</span></span>
                                     <span style="display: flex; align-items: center; gap: 0.4rem;">
-                                        CÃ³d:
+                                        Cód:
                                         <div class="code-copy-wrapper"
                                             onclick="copyAccessCode('student-code-ref', 'btn-copy-student-code')"
                                             title="Clique para copiar">
@@ -844,8 +844,8 @@
                         <div id="student-actions-waiting" class="empty-state-card active">
                             <i class="ph-fill ph-hourglass-high"></i>
                             <div class="empty-info">
-                                <h3>Em anÃ¡lise</h3>
-                                <p>O treinador estÃ¡ montando seu protocolo com base no questionÃ¡rio.</p>
+                                <h3>Em análise</h3>
+                                <p>O treinador está montando seu protocolo com base no questionário.</p>
                             </div>
                         </div>
 
@@ -863,7 +863,7 @@
                                 <div style="flex:1; text-align: left;">
                                     <span style="display: block; font-weight: 600;">Plano de Treino</span>
                                     <span style="font-size: 0.75rem; color: var(--text-muted);">Visualizar fichas e
-                                        exercÃ­cios</span>
+                                        exercícios</span>
                                 </div>
                                 <i class="ph-bold ph-caret-right"
                                     style="color: var(--text-muted); font-size: 1rem;"></i>
@@ -900,8 +900,8 @@
                                     </div>
                                     <div class="treino-option-info">
                                         <h3>Analisar Meu Treino</h3>
-                                        <p>Veja os exercÃ­cios e detalhes do treino montado pelo seu treinador. Tire
-                                            dÃºvidas diretamente.</p>
+                                        <p>Veja os exercícios e detalhes do treino montado pelo seu treinador. Tire
+                                            dúvidas diretamente.</p>
                                     </div>
                                     <i class="ph-bold ph-caret-right treino-option-arrow"></i>
                                 </button>
@@ -911,18 +911,18 @@
                                         <i class="ph-bold ph-clock-counter-clockwise"></i>
                                     </div>
                                     <div class="treino-option-info">
-                                        <h3>HistÃ³rico de Treinos</h3>
-                                        <p>Acompanhe seus treinos anteriores, veja a evoluÃ§Ã£o de cargas e volume ao
+                                        <h3>Histórico de Treinos</h3>
+                                        <p>Acompanhe seus treinos anteriores, veja a evolução de cargas e volume ao
                                             longo do tempo.</p>
                                     </div>
                                     <i class="ph-bold ph-caret-right treino-option-arrow"></i>
                                 </button>
                             </div>
 
-                            <!-- New: Mentoria / DÃºvidas Section -->
+                            <!-- New: Mentoria / Dúvidas Section -->
                             <div class="student-duvidas-section" style="margin-top: 2rem;">
                                 <h3 class="section-title" style="margin-bottom: 1rem; color: var(--text-main);">Minhas
-                                    DÃºvidas</h3>
+                                    Dúvidas</h3>
                                 <div id="student-duvidas-list" class="student-duvidas-list">
                                     <!-- Injetado via JS -->
                                 </div>
@@ -955,7 +955,7 @@
                             </div>
                         </div>
 
-                        <!-- Sub-view: HistÃ³rico -->
+                        <!-- Sub-view: Histórico -->
                         <div id="treino-historico" style="display:none;">
                             <button class="btn-treino-back" onclick="switchTreinoSubview('landing')">
                                 <i class="ph-bold ph-arrow-left"></i> Voltar
@@ -964,8 +964,8 @@
                             <div class="dashboard-header" style="margin-top:0.5rem;">
                                 <div class="user-info">
                                     <h2><i class="ph-bold ph-clock-counter-clockwise"
-                                            style="color:var(--primary-color);"></i> HistÃ³rico de Treinos</h2>
-                                    <p class="subtitle">Acompanhe sua evoluÃ§Ã£o</p>
+                                            style="color:var(--primary-color);"></i> Histórico de Treinos</h2>
+                                    <p class="subtitle">Acompanhe sua evolução</p>
                                 </div>
                             </div>
 
@@ -980,12 +980,12 @@
                             </div>
                         </div>
 
-                        <!-- Modal: DÃºvida -->
+                        <!-- Modal: Dúvida -->
                         <div id="duvida-modal-overlay" class="perfil-modal-overlay" style="display:none;">
                             <div class="perfil-modal">
                                 <div class="perfil-modal-header">
                                     <h3><i class="ph-bold ph-question" style="color:var(--primary-color);"></i> Enviar
-                                        DÃºvida ao Treinador</h3>
+                                        Dúvida ao Treinador</h3>
                                     <button class="btn-icon" onclick="closeDuvidaModal()">
                                         <i class="ph-bold ph-x"></i>
                                     </button>
@@ -994,17 +994,17 @@
                                     <div class="perfil-modal-field">
                                         <label>ASSUNTO</label>
                                         <select id="duvida-assunto" class="q-input">
-                                            <option value="exercicio">DÃºvida sobre exercÃ­cio</option>
-                                            <option value="execucao">DÃºvida sobre execuÃ§Ã£o</option>
-                                            <option value="substituicao">SubstituiÃ§Ã£o de exercÃ­cio</option>
-                                            <option value="carga">DÃºvida sobre carga</option>
+                                            <option value="exercicio">Dúvida sobre exercício</option>
+                                            <option value="execucao">Dúvida sobre execução</option>
+                                            <option value="substituicao">Substituição de exercício</option>
+                                            <option value="carga">Dúvida sobre carga</option>
                                             <option value="outro">Outro</option>
                                         </select>
                                     </div>
                                     <div class="perfil-modal-field">
-                                        <label>SUA DÃƒÅ¡VIDA</label>
+                                        <label>SUA DÚVIDA</label>
                                         <textarea id="duvida-texto" class="q-input" rows="4"
-                                            placeholder="Descreva sua dÃºvida com detalhes..."></textarea>
+                                            placeholder="Descreva sua dúvida com detalhes..."></textarea>
                                     </div>
                                 </div>
                                 <div class="perfil-modal-footer">
@@ -1034,11 +1034,11 @@
                             </div>
                         </div>
 
-                        <!-- Modal: ConfirmaÃ§Ã£o Universal -->
+                        <!-- Modal: Confirmação Universal -->
                         <div id="confirmation-modal-overlay" class="perfil-modal-overlay" style="display:none;">
                             <div class="perfil-modal" style="max-width:400px;">
                                 <div class="perfil-modal-header">
-                                    <h3 id="confirmation-modal-title">Confirmar AÃ§Ã£o</h3>
+                                    <h3 id="confirmation-modal-title">Confirmar Ação</h3>
                                     <button class="btn-icon" onclick="closeConfirmationModal()">
                                         <i class="ph-bold ph-x"></i>
                                     </button>
@@ -1070,7 +1070,7 @@
                         <div class="dashboard-header">
                             <div class="user-info">
                                 <h2>Minha Dieta</h2>
-                                <p class="subtitle">Cada refeiÃ§Ã£o conta</p>
+                                <p class="subtitle">Cada refeição conta</p>
                             </div>
                         </div>
                         <div id="student-diet-content-main" class="protocol-content-list">
@@ -1110,7 +1110,7 @@
                         <!-- Physical Metrics Section -->
                         <div class="perfil-section-title">
                             <i class="ph-fill ph-chart-line-up"></i>
-                            <h3>MÃ©tricas FÃ­sicas</h3>
+                            <h3>Métricas Físicas</h3>
                         </div>
                         <div class="perfil-metrics-grid" id="perfil-metrics-grid">
                             <!-- Generated by JS -->
@@ -1121,8 +1121,8 @@
                             <i class="ph-fill ph-chart-line"></i>
                             <h3>Progresso de Peso</h3>
                             <select id="perfil-chart-range" class="perfil-range-select" onchange="renderPerfilChart()">
-                                <option value="6">ÃƒÅ¡ltimos 6 registros</option>
-                                <option value="12">ÃƒÅ¡ltimos 12 registros</option>
+                                <option value="6">Últimos 6 registros</option>
+                                <option value="12">Últimos 12 registros</option>
                                 <option value="all">Todos</option>
                             </select>
                         </div>
@@ -1130,14 +1130,14 @@
                             <canvas id="perfil-weight-chart" width="600" height="220"></canvas>
                             <div id="perfil-chart-empty" class="perfil-chart-empty" style="display:none;">
                                 <i class="ph-bold ph-chart-line-up"></i>
-                                <p>Atualize seu peso para ver o grÃ¡fico de progresso</p>
+                                <p>Atualize seu peso para ver o gráfico de progresso</p>
                             </div>
                         </div>
 
-                        <!-- InformaÃ§Ãµes Pessoais -->
+                        <!-- Informações Pessoais -->
                         <div class="perfil-section-title" style="margin-top: 2rem;">
                             <i class="ph-fill ph-identification-card"></i>
-                            <h3>InformaÃ§Ãµes Pessoais</h3>
+                            <h3>Informações Pessoais</h3>
                         </div>
                         <div class="perfil-info-grid" id="perfil-info-grid">
                             <!-- Generated by JS -->
@@ -1146,18 +1146,18 @@
                         <!-- Recent Update History -->
                         <div class="perfil-section-title" style="margin-top: 2rem;">
                             <i class="ph-fill ph-clock-counter-clockwise"></i>
-                            <h3>HistÃ³rico de AlteraÃ§Ãµes</h3>
+                            <h3>Histórico de Alterações</h3>
                         </div>
                         <div class="perfil-history-list" id="perfil-history-list">
                             <!-- Generated by JS -->
                         </div>
                     </div>
 
-                    <!-- Modal de AtualizaÃ§Ã£o -->
+                    <!-- Modal de Atualização -->
                     <div id="perfil-update-modal" class="perfil-modal-overlay" style="display:none;">
                         <div class="perfil-modal">
                             <div class="perfil-modal-header">
-                                <h3 id="perfil-modal-title">Atualizar MÃ©trica</h3>
+                                <h3 id="perfil-modal-title">Atualizar Métrica</h3>
                                 <button class="btn-icon" onclick="closePerfilUpdateModal()">
                                     <i class="ph-bold ph-x"></i>
                                 </button>
@@ -1226,7 +1226,7 @@
                                 </div>
                                 <div class="perfil-modal-body">
                                     <div class="seqm-options">
-                                        <button type="button" class="seqm-btn leve" onclick="chooseQuickSetEffort(1)">âšª Leve</button>
+                                        <button type="button" class="seqm-btn leve" onclick="chooseQuickSetEffort(1)">⚪ Leve</button>
                                         <button type="button" class="seqm-btn ponto" onclick="chooseQuickSetEffort(3)">ðŸŸ¡ No Ponto</button>
                                         <button type="button" class="seqm-btn falha" onclick="chooseQuickSetEffort(5)">ðŸ”´ Falhei</button>
                                     </div>
@@ -1260,11 +1260,11 @@
                                     <div class="perfil-modal-field">
                                         <label>QUALIDADE GERAL</label>
                                         <div class="wfb-rating-row">
-                                            <button type="button" class="wfb-emoji-btn" data-rating="1" onclick="setWorkoutFeedbackRating(1)">â˜…</button>
-                                            <button type="button" class="wfb-emoji-btn" data-rating="2" onclick="setWorkoutFeedbackRating(2)">â˜…</button>
-                                            <button type="button" class="wfb-emoji-btn" data-rating="3" onclick="setWorkoutFeedbackRating(3)">â˜…</button>
-                                            <button type="button" class="wfb-emoji-btn" data-rating="4" onclick="setWorkoutFeedbackRating(4)">â˜…</button>
-                                            <button type="button" class="wfb-emoji-btn" data-rating="5" onclick="setWorkoutFeedbackRating(5)">â˜…</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="1" onclick="setWorkoutFeedbackRating(1)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="2" onclick="setWorkoutFeedbackRating(2)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="3" onclick="setWorkoutFeedbackRating(3)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="4" onclick="setWorkoutFeedbackRating(4)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="5" onclick="setWorkoutFeedbackRating(5)">★</button>
                                         </div>
                                     </div>
 
@@ -1295,14 +1295,14 @@
                         </div>
                     </div>
 
-                    <!-- Ã¢â€â‚¬Ã¢â€â‚¬ Student Workout Summary Ã¢â€â‚¬Ã¢â€â‚¬ -->
+                    <!-- â”€â”€ Student Workout Summary â”€â”€ -->
                     <div id="view-student-workout-summary" class="view-section" style="display: none; padding: 1.5rem;">
                         <div class="summary-header"
                             style="text-align: center; margin-bottom: 2rem; animation: slideUp 0.6s ease;">
                             <div class="summary-icon-celebration" style="font-size: 3rem; margin-bottom: 1rem;">ðŸŽ‰</div>
                             <h1
                                 style="font-size: 2rem; background: linear-gradient(135deg, #fff 0%, var(--primary-color) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-                                Treino ConcluÃ­do!</h1>
+                                Treino Concluído!</h1>
                             <p style="color: var(--text-muted); margin-top: 0.5rem;">Excelente trabalho hoje.</p>
                         </div>
 
@@ -1315,7 +1315,7 @@
 
                         <h3
                             style="margin-bottom: 1rem; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.1rem;">
-                            Resumo dos ExercÃ­cios</h3>
+                            Resumo dos Exercícios</h3>
                         <div id="summary-exercise-list" class="summary-exercise-list">
                             <!-- Exercise Cards -->
                         </div>
@@ -1323,7 +1323,7 @@
                         <div class="summary-actions" style="margin-top: 3rem; text-align: center;">
                             <button class="btn-primary" onclick="closeWorkoutSummary()"
                                 style="padding: 1rem 3rem; font-size: 1rem;">
-                                Voltar ao InÃ­cio
+                                Voltar ao Início
                             </button>
                         </div>
                     </div>
@@ -1331,12 +1331,12 @@
             </div>
         </div>
 
-        <!-- Ã¢â€â‚¬Ã¢â€â‚¬ Student Workout Detail Ã¢â€â‚¬Ã¢â€â‚¬ -->
+        <!-- â”€â”€ Student Workout Detail â”€â”€ -->
         <div id="student-workout-screen" class="screen">
             <div class="dashboard-header">
                 <div class="user-info">
                     <h2>Meu Treino</h2>
-                    <p class="subtitle">Siga as orientaÃ§Ãµes do seu treinador</p>
+                    <p class="subtitle">Siga as orientações do seu treinador</p>
                 </div>
                 <button class="btn-icon" onclick="closeStudentWorkout()">
                     <i class="ph-bold ph-x"></i>
@@ -1347,12 +1347,12 @@
             </div>
         </div>
 
-        <!-- Ã¢â€â‚¬Ã¢â€â‚¬ Student Diet Detail Ã¢â€â‚¬Ã¢â€â‚¬ -->
+        <!-- â”€â”€ Student Diet Detail â”€â”€ -->
         <div id="student-diet-screen" class="screen">
             <div class="dashboard-header">
                 <div class="user-info">
                     <h2>Minha Dieta</h2>
-                    <p class="subtitle">ConsistÃªncia Ã© a chave</p>
+                    <p class="subtitle">Consistência é a chave</p>
                 </div>
                 <button class="btn-icon" onclick="closeStudentDiet()">
                     <i class="ph-bold ph-x"></i>
@@ -1368,5 +1368,6 @@
 </body>
 
 </html>
+
 
 
