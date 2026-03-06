@@ -8,6 +8,7 @@
 const ADMIN_STUDENT_CODE = '12345';
 const ADMIN_STUDENT_NAME = 'Nicolas';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const STUDENT_AUTH_TOKEN_KEY = 'student_access_token_v1';
 
 const DEMO_WORKOUT_BLOCKS = [
     {
@@ -64,6 +65,61 @@ function readStorageJSON(key, fallback = []) {
         console.warn(`Falha ao ler localStorage["${key}"]`, err);
         return fallback;
     }
+}
+
+function readStudentAuthToken() {
+    return readStorageJSON(STUDENT_AUTH_TOKEN_KEY, null);
+}
+
+function saveStudentAuthToken(student) {
+    if (!student || !student.id) return;
+    const payload = {
+        studentId: String(student.id),
+        trainerCode: String(student.trainerCode || localStorage.getItem('connectedTrainerCode') || ''),
+        name: String(student.name || localStorage.getItem('studentName') || 'Aluno'),
+        issuedAt: new Date().toISOString()
+    };
+    localStorage.setItem(STUDENT_AUTH_TOKEN_KEY, JSON.stringify(payload));
+}
+
+function clearStudentAuthToken() {
+    localStorage.removeItem(STUDENT_AUTH_TOKEN_KEY);
+}
+
+function openStudentDashboardSession(student, opts = {}) {
+    if (!student || !student.id) return false;
+    const studentDashboardScreen = document.getElementById('student-dashboard-screen');
+    if (!studentDashboardScreen) return false;
+
+    localStorage.setItem('currentStudentId', String(student.id));
+    localStorage.setItem('studentName', String(student.name || 'Aluno'));
+    localStorage.setItem('connectedTrainerCode', String(student.trainerCode || '00001'));
+
+    if (opts.persistToken !== false) {
+        saveStudentAuthToken(student);
+    }
+
+    hideAllScreens();
+    const app = document.getElementById('app');
+    if (app) app.classList.add('wide');
+    studentDashboardScreen.classList.add('active');
+    initStudentDashboard();
+    switchStudentView('home');
+    return true;
+}
+
+function tryAutoStudentLogin() {
+    const token = readStudentAuthToken();
+    if (!token || !token.studentId) return false;
+
+    const students = readStorageJSON('trainerStudents', []);
+    const student = students.find(s => String(s.id) === String(token.studentId));
+    if (!student) {
+        clearStudentAuthToken();
+        return false;
+    }
+
+    return openStudentDashboardSession(student, { persistToken: true });
 }
 
 function sanitizeUserInput(value, options = {}) {
@@ -126,6 +182,62 @@ function sanitizeFormFields(form) {
 
         field.value = sanitizeUserInput(field.value, { maxLen: 180 });
     });
+}
+
+function optimizeMediaElements(root = document) {
+    if (!root || !root.querySelectorAll) return;
+
+    root.querySelectorAll('img').forEach((img) => {
+        if (!img.getAttribute('loading')) img.setAttribute('loading', 'lazy');
+        if (!img.getAttribute('decoding')) img.setAttribute('decoding', 'async');
+        if (!img.getAttribute('fetchpriority')) img.setAttribute('fetchpriority', 'low');
+        if (!img.getAttribute('width')) img.setAttribute('width', '320');
+        if (!img.getAttribute('height')) img.setAttribute('height', '180');
+
+        const srcAttr = String(img.getAttribute('src') || '').trim();
+        if (srcAttr && !srcAttr.startsWith('data:') && /\.(png|jpe?g)(\?|$)/i.test(srcAttr)) {
+            const webpSrc = toWebpCandidate(srcAttr);
+            if (webpSrc && webpSrc !== srcAttr) {
+                img.dataset.fallbackSrc = srcAttr;
+                if (!img.dataset.webpUpgradeApplied) {
+                    img.dataset.webpUpgradeApplied = '1';
+                    img.addEventListener('error', () => {
+                        const fallback = img.dataset.fallbackSrc;
+                        if (!fallback || img.dataset.webpFallbackUsed === '1') return;
+                        img.dataset.webpFallbackUsed = '1';
+                        img.src = fallback;
+                    });
+                }
+                img.setAttribute('src', webpSrc);
+            }
+        }
+    });
+
+    root.querySelectorAll('video').forEach((video) => {
+        if (!video.getAttribute('preload')) video.setAttribute('preload', 'metadata');
+        if (!video.getAttribute('playsinline')) video.setAttribute('playsinline', '');
+    });
+}
+
+function uiSvgIcon(name, className = '') {
+    const icons = {
+        'check-circle': '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M8 12.5l2.4 2.4L16 9.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
+        'chart-line-up': '<path d="M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M6 14l3.3-3.3L12 13l6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
+        'lightning': '<path d="M13 2L5 13h5l-1 9 8-11h-5l1-9z" fill="currentColor"></path>',
+        'arrows-clockwise': '<path d="M20 8a8 8 0 0 0-13.7-4.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M7 3H4v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4 16a8 8 0 0 0 13.7 4.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M17 21h3v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
+        'trash': '<path d="M4 7h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M9 7V5h6v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
+        'check': '<path d="M6.8 12.5l3.1 3.1L17.4 8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>',
+        'circle': '<circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"></circle>',
+        'plus': '<path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"></path>',
+        'trophy': '<path d="M8 4h8v2a4 4 0 0 1-4 4 4 4 0 0 1-4-4V4z" fill="none" stroke="currentColor" stroke-width="2"></path><path d="M8 6H5a2 2 0 0 0 2 3M16 6h3a2 2 0 0 1-2 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M12 10v4M9 18h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
+        'timer': '<circle cx="12" cy="13" r="7.5" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M12 13V9m0 4 2.6 1.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M9 3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
+        'x': '<path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"></path>',
+        'star': '<path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3z" fill="currentColor"></path>',
+        'arrow-up-right': '<path d="M7 17L17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>'
+    };
+    const inner = icons[name];
+    if (!inner) return '';
+    return `<svg class="ui-svg-icon ${className}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${inner}</svg>`;
 }
 
 function validateFormFields(form) {
@@ -199,6 +311,7 @@ function ensureAdminStudent() {
         progressLogs: [{ date: new Date().toISOString().slice(0, 10), weight: 78, notes: 'Perfil demo Beta inicial.' }],
         personalRecords: {}
     };
+    demoStudent.tmbBase = Math.round(calcTMBMifflin(demoStudent.weight, demoStudent.height, demoStudent.age, demoStudent.gender));
 
     const idx = students.findIndex(s => s.id === ADMIN_STUDENT_CODE);
     if (idx === -1) {
@@ -223,9 +336,10 @@ function ensureAdminStudent() {
 }
 
 function goToHome() {
-    // Clear student session if they go back to selection (optional, but safer for logout)
+    // Keep remember-me token, clear only active session data.
     localStorage.removeItem('currentStudentId');
     localStorage.removeItem('connectedTrainerCode');
+    localStorage.removeItem('studentName');
     hideAllScreens();
     const home = document.getElementById('home-screen');
     if (home) home.classList.add('active');
@@ -236,6 +350,7 @@ function logout() {
         localStorage.removeItem('currentStudentId');
         localStorage.removeItem('connectedTrainerCode');
         localStorage.removeItem('studentName');
+        clearStudentAuthToken();
         location.reload(); // Hard refresh to clear state
     }
 }
@@ -296,20 +411,28 @@ document.addEventListener('DOMContentLoaded', () => {
         link.dataset.preventInit = '1';
     });
 
-    // Check if student is already "logged in"
+    optimizeMediaElements(document);
+
+    // Fast path: remember-me token (auto-login instantâneo)
+    if (tryAutoStudentLogin()) return;
+
+    // Legacy fallback for sessions without token
     const studentId = localStorage.getItem('currentStudentId');
-    const studentDashboardScreen = document.getElementById('student-dashboard-screen');
-    if (studentId && studentDashboardScreen) {
-        hideAllScreens();
-        const app = document.getElementById('app');
-        if (app) app.classList.add('wide');
-        studentDashboardScreen.classList.add('active');
-        initStudentDashboard();
-        return;
+    if (studentId) {
+        const students = readStorageJSON('trainerStudents', []);
+        const legacyStudent = students.find(s => String(s.id) === String(studentId));
+        if (legacyStudent) {
+            if (openStudentDashboardSession(legacyStudent, { persistToken: true })) {
+                return;
+            }
+        }
+        localStorage.removeItem('currentStudentId');
+        localStorage.removeItem('connectedTrainerCode');
+        localStorage.removeItem('studentName');
     }
 
     const home = document.getElementById('home-screen');
-    if (home && !studentId) {
+    if (home) {
         hideAllScreens();
         home.classList.add('active');
     }
@@ -444,9 +567,7 @@ function goToStudentArea() {
 }
 
 function goToGlobalLogin() {
-    hideAllScreens();
-    const globalLoginScreen = document.getElementById('global-login-screen');
-    if (globalLoginScreen) globalLoginScreen.classList.add('active');
+    goToStudentArea();
 }
 
 function goToProfileCreate() {
@@ -550,7 +671,9 @@ function handleGoogleLogin() {
     mockWin.document.write(`
         <body style="background:#f8f9fa; font-family: sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; margin:0;">
             <div style="background:#fff; padding:2rem; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1); text-align:center;">
-                <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" width="48" style="margin-bottom:1rem;">
+                <svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true" style="margin-bottom:1rem;">
+                    <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.2-1.4 3.5-5.4 3.5-3.2 0-5.9-2.7-5.9-6s2.7-6 5.9-6c1.8 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3 14.6 2 12 2 6.9 2 2.8 6.1 2.8 11.2S6.9 20.4 12 20.4c6.8 0 9-4.7 9-7.1 0-.5 0-.8-.1-1.2H12z"/>
+                </svg>
                 <h2 style="margin:0 0 0.5rem 0;">Fazer login com Google</h2>
                 <p style="color:#5f6368; margin-bottom:2rem;">Use sua Conta do Google para continuar</p>
                 <button onclick="window.opener.postMessage('google_success', '*'); window.close();" style="background:#1a73e8; color:white; border:none; padding:10px 24px; border-radius:4px; font-weight:500; cursor:pointer;">Continuar como Usuário</button>
@@ -606,6 +729,7 @@ window.addEventListener('blur', () => {
 
 document.addEventListener('visibilitychange', () => {
     if (document.hidden && trainerRecordingActive) stopTrainerHoldRecord();
+    if (!document.hidden && restEndAt) updateRestTimerUI();
 });
 
 function switchStudentView(view) {
@@ -626,7 +750,39 @@ function switchStudentView(view) {
     if (view === 'perfil') renderStudentPerfil();
 }
 
-function renderStudentWorkoutMain() {
+let workoutAnalysisRenderNonce = 0;
+
+function renderWorkoutAnalysisSkeleton() {
+    const tabsNav = document.getElementById('workout-tabs-nav');
+    const mainContent = document.getElementById('student-workout-content-main');
+    if (!tabsNav || !mainContent) return;
+
+    tabsNav.innerHTML = `
+        <div class="tab-btn skeleton-box" style="width:88px;height:36px;"></div>
+        <div class="tab-btn skeleton-box" style="width:88px;height:36px;"></div>
+    `;
+
+    mainContent.innerHTML = `
+        <div class="routine-card">
+            <div class="analysis-overview-grid">
+                <div class="analysis-stat-card skeleton-box" style="height:72px;"></div>
+                <div class="analysis-stat-card skeleton-box" style="height:72px;"></div>
+                <div class="analysis-stat-card skeleton-box" style="height:72px;"></div>
+                <div class="analysis-stat-card skeleton-box" style="height:72px;"></div>
+            </div>
+            <div class="routine-exercise-list">
+                <div class="routine-ex-item skeleton-box" style="height:84px;"></div>
+                <div class="routine-ex-item skeleton-box" style="height:84px;"></div>
+                <div class="routine-ex-item skeleton-box" style="height:84px;"></div>
+            </div>
+        </div>
+    `;
+}
+
+function renderStudentWorkoutMain(options = {}) {
+    const withSkeleton = !!options.withSkeleton;
+    const delayMs = Number.isFinite(options.delayMs) ? options.delayMs : 240;
+
     const studentId = localStorage.getItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
@@ -634,6 +790,18 @@ function renderStudentWorkoutMain() {
     const tabsNav = document.getElementById('workout-tabs-nav');
     const mainContent = document.getElementById('student-workout-content-main');
     if (!tabsNav || !mainContent) return;
+
+    if (withSkeleton) {
+        const renderNonce = ++workoutAnalysisRenderNonce;
+        renderWorkoutAnalysisSkeleton();
+        setTimeout(() => {
+            if (renderNonce !== workoutAnalysisRenderNonce) return;
+            renderStudentWorkoutMain({ withSkeleton: false });
+        }, Math.max(120, delayMs));
+        return;
+    }
+
+    workoutAnalysisRenderNonce += 1;
 
     if (!student || !student.active || !student.workoutBlocks || student.workoutBlocks.length === 0) {
         tabsNav.innerHTML = '';
@@ -754,7 +922,7 @@ function renderStudentWorkoutMain() {
 
 function switchWorkoutTab(idx) {
     currentWorkoutTab = idx;
-    renderStudentWorkoutMain();
+    renderStudentWorkoutMain({ withSkeleton: true, delayMs: 160 });
 }
 
 // â”€â”€â”€ Treino Subview System â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -773,7 +941,7 @@ function switchTreinoSubview(view) {
     }
     if (view === 'analise') {
         currentWorkoutTab = 0;
-        renderStudentWorkoutMain();
+        renderStudentWorkoutMain({ withSkeleton: true, delayMs: 240 });
     }
     if (view === 'historico') {
         renderWorkoutHistory();
@@ -781,9 +949,66 @@ function switchTreinoSubview(view) {
 }
 
 let studentChatUploadTimer = null;
+let studentAudioRecorder = null;
+let studentAudioChunks = [];
+let studentAudioStream = null;
+let studentAudioRecording = false;
+let studentAudioContext = null;
+let studentAudioAnalyser = null;
+let studentAudioWaveData = null;
+let studentAudioWaveFrame = 0;
+let studentAudioAutoStopTimer = null;
 
 function getStudentChatStorageKey(studentId) {
     return `student_chat_beta_${studentId || 'anon'}`;
+}
+
+function formatSecondsMMSS(totalSeconds) {
+    const safe = Math.max(0, Math.floor(totalSeconds || 0));
+    const mins = Math.floor(safe / 60).toString().padStart(2, '0');
+    const secs = (safe % 60).toString().padStart(2, '0');
+    return `${mins}:${secs}`;
+}
+
+function scrollStudentChatToBottom() {
+    const thread = document.getElementById('student-chat-thread');
+    if (thread) thread.scrollTop = thread.scrollHeight;
+}
+
+function pushStudentMessageToTrainer(studentId, studentName, payload = {}) {
+    if (!studentId) return;
+
+    const safeName = sanitizeUserInput(studentName || 'Aluno', { maxLen: 90 }) || 'Aluno';
+    let safeText = sanitizeUserInput(payload.text || '', { allowNewlines: true, maxLen: 1200 });
+    const rawDataUrl = String(payload?.media?.dataUrl || '');
+    const boundedDataUrl = rawDataUrl.length > 1_100_000 ? '' : rawDataUrl;
+    const media = payload.media && boundedDataUrl ? {
+        type: payload.media.type || 'audio',
+        name: sanitizeUserInput(payload.media.name || 'arquivo', { maxLen: 120 }) || 'arquivo',
+        dataUrl: boundedDataUrl
+    } : null;
+
+    if (!media && rawDataUrl.length > 1_100_000 && !safeText) {
+        safeText = '[Mídia enviada: prévia indisponível no modo beta]';
+    }
+
+    if (!safeText && !media) return;
+
+    const nowIso = payload.time || new Date().toISOString();
+    const notifications = readStorageJSON('trainerNotifications', []);
+    notifications.unshift({
+        type: 'duvida',
+        studentId,
+        studentName: safeName,
+        title: `💬 Dúvida de ${safeName}`,
+        desc: safeText || '[Mídia enviada]',
+        media,
+        time: nowIso,
+        unread: true
+    });
+
+    localStorage.setItem('trainerNotifications', JSON.stringify(notifications));
+    syncChannel.postMessage({ type: 'NEW_DOUBT', payload: { studentId } });
 }
 
 function buildStudentChatFromNotifications(studentId, studentName) {
@@ -796,11 +1021,13 @@ function buildStudentChatFromNotifications(studentId, studentName) {
     related.forEach((item, idx) => {
         const baseId = `${item.studentId || studentId || 'unknown'}-${item.time || idx}`;
         if (!item.fromTrainerOnly && item.desc) {
+            const mediaType = item.media?.type;
             mapped.push({
                 id: `n-${baseId}-q`,
                 sender: 'student',
-                type: 'text',
+                type: mediaType === 'video' ? 'video' : mediaType === 'audio' ? 'audio' : 'text',
                 text: item.desc,
+                mediaDataUrl: item.media?.dataUrl || '',
                 time: item.time || new Date().toISOString()
             });
         }
@@ -810,6 +1037,7 @@ function buildStudentChatFromNotifications(studentId, studentName) {
                 sender: 'trainer',
                 type: item.replyMedia?.type === 'video' ? 'video' : item.replyMedia?.type === 'audio' ? 'audio' : 'text',
                 text: item.reply,
+                mediaDataUrl: item.replyMedia?.dataUrl || '',
                 time: item.repliedAt || item.time || new Date().toISOString()
             });
         } else if (item.fromTrainerOnly && item.desc) {
@@ -849,7 +1077,21 @@ function renderStudentChatBubble(msg) {
     const senderClass = msg.sender === 'trainer' ? 'from-trainer' : 'from-student';
     let contentHtml = '';
 
-    if (msg.type === 'audio') {
+    if (msg.type === 'audio' && msg.mediaDataUrl) {
+        contentHtml = `
+            <div class="sc-media-real">
+                <audio controls src="${msg.mediaDataUrl}"></audio>
+            </div>
+            ${msg.text ? `<p>${formatChatMessageText(msg.text)}</p>` : ''}
+        `;
+    } else if (msg.type === 'video' && msg.mediaDataUrl) {
+        contentHtml = `
+            <div class="sc-media-real">
+                <video controls src="${msg.mediaDataUrl}" class="sc-video-real"></video>
+            </div>
+            ${msg.text ? `<p>${formatChatMessageText(msg.text)}</p>` : ''}
+        `;
+    } else if (msg.type === 'audio') {
         contentHtml = `
             <div class="sc-media-fake audio">
                 <i class="ph-fill ph-waveform"></i>
@@ -878,6 +1120,7 @@ function renderStudentChatBubble(msg) {
                 ${contentHtml}
                 <div class="sc-meta">
                     <span class="sc-time">${formatChatTime(msg.time)}</span>
+                    ${msg.sender === 'student' ? '<span class="sc-delivered"><i class="ph-bold ph-checks"></i></span>' : ''}
                 </div>
             </div>
         </div>
@@ -894,19 +1137,202 @@ function sendStudentQuickMessage() {
     if (!text) return;
 
     const messages = loadStudentChatMessages(studentId, studentName);
+    const nowIso = new Date().toISOString();
+    const localId = `n-${studentId}-${nowIso}-q`;
     messages.push({
-        id: `m-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        id: localId,
         sender: 'student',
         type: 'text',
         text,
-        time: new Date().toISOString()
+        time: nowIso,
+        delivered: true
     });
     saveStudentChatMessages(studentId, messages);
+    pushStudentMessageToTrainer(studentId, studentName, { text, time: nowIso });
     input.value = '';
     renderStudentDuvidas();
 }
 
-function simulateStudentMediaUpload(kind = 'audio') {
+function startStudentWaveform(stream) {
+    stopStudentWaveform();
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        studentAudioContext = new AudioCtx();
+        const source = studentAudioContext.createMediaStreamSource(stream);
+        studentAudioAnalyser = studentAudioContext.createAnalyser();
+        studentAudioAnalyser.fftSize = 64;
+        studentAudioWaveData = new Uint8Array(studentAudioAnalyser.frequencyBinCount);
+        source.connect(studentAudioAnalyser);
+
+        const tick = () => {
+            if (!studentAudioAnalyser || !studentAudioWaveData) return;
+            studentAudioAnalyser.getByteFrequencyData(studentAudioWaveData);
+            const bars = document.querySelectorAll('#student-chat-recording-wave span');
+            if (bars.length > 0) {
+                const chunk = Math.max(1, Math.floor(studentAudioWaveData.length / bars.length));
+                bars.forEach((bar, idx) => {
+                    let sum = 0;
+                    const start = idx * chunk;
+                    const end = Math.min(studentAudioWaveData.length, start + chunk);
+                    for (let i = start; i < end; i++) sum += studentAudioWaveData[i];
+                    const avg = sum / Math.max(1, end - start);
+                    const scale = 0.35 + (avg / 255) * 1.15;
+                    bar.style.transform = `scaleY(${Math.min(1.7, scale).toFixed(3)})`;
+                });
+            }
+            studentAudioWaveFrame = requestAnimationFrame(tick);
+        };
+
+        studentAudioWaveFrame = requestAnimationFrame(tick);
+    } catch (_) {
+        // fallback: CSS animation only
+    }
+}
+
+function stopStudentWaveform() {
+    if (studentAudioWaveFrame) {
+        cancelAnimationFrame(studentAudioWaveFrame);
+        studentAudioWaveFrame = 0;
+    }
+    if (studentAudioContext) {
+        studentAudioContext.close().catch(() => { });
+        studentAudioContext = null;
+    }
+    studentAudioAnalyser = null;
+    studentAudioWaveData = null;
+
+    const bars = document.querySelectorAll('#student-chat-recording-wave span');
+    bars.forEach((bar) => {
+        bar.style.transform = '';
+    });
+}
+
+function releaseStudentAudioStream() {
+    if (studentAudioStream) {
+        studentAudioStream.getTracks().forEach((track) => track.stop());
+        studentAudioStream = null;
+    }
+    stopStudentWaveform();
+    if (studentAudioAutoStopTimer) {
+        clearTimeout(studentAudioAutoStopTimer);
+        studentAudioAutoStopTimer = null;
+    }
+}
+
+function updateStudentRecordingUI() {
+    const btn = document.getElementById('btn-student-record-audio');
+    const wave = document.getElementById('student-chat-recording-wave');
+    if (btn) {
+        btn.classList.toggle('recording', studentAudioRecording);
+        btn.innerHTML = studentAudioRecording
+            ? '<i class="ph-bold ph-stop-circle"></i> Parar gravação'
+            : '<i class="ph-bold ph-microphone"></i> Gravar áudio real';
+    }
+    if (wave) wave.style.display = studentAudioRecording ? 'flex' : 'none';
+}
+
+async function startStudentAudioRecording() {
+    if (studentAudioRecording) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('Gravação de áudio não suportada neste dispositivo.');
+        return;
+    }
+    if (typeof MediaRecorder === 'undefined') {
+        alert('Seu navegador não suporta gravação de áudio nesta versão.');
+        return;
+    }
+
+    try {
+        studentAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        studentAudioChunks = [];
+
+        let recorderOptions = undefined;
+        const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+        for (const type of preferredTypes) {
+            if (typeof MediaRecorder.isTypeSupported === 'function' && MediaRecorder.isTypeSupported(type)) {
+                recorderOptions = { mimeType: type };
+                break;
+            }
+        }
+
+        studentAudioRecorder = recorderOptions
+            ? new MediaRecorder(studentAudioStream, recorderOptions)
+            : new MediaRecorder(studentAudioStream);
+
+        const recordingStart = Date.now();
+        startStudentWaveform(studentAudioStream);
+
+        studentAudioRecorder.ondataavailable = (evt) => {
+            if (evt.data && evt.data.size > 0) studentAudioChunks.push(evt.data);
+        };
+
+        studentAudioRecorder.onstop = async () => {
+            try {
+                const blobType = studentAudioRecorder?.mimeType || 'audio/webm';
+                const blob = new Blob(studentAudioChunks, { type: blobType });
+                const durationSec = Math.max(1, Math.round((Date.now() - recordingStart) / 1000));
+                const dataUrl = await fileToDataUrl(blob);
+                const safeDataUrl = dataUrl.length > 1_100_000 ? '' : dataUrl;
+                simulateStudentMediaUpload('audio', {
+                    text: safeDataUrl ? '[Áudio gravado no app]' : '[Áudio enviado: prévia indisponível]',
+                    mediaDataUrl: safeDataUrl,
+                    mediaDuration: formatSecondsMMSS(durationSec)
+                });
+            } catch (err) {
+                console.error('Falha ao processar áudio gravado', err);
+                alert('Não foi possível processar o áudio.');
+            } finally {
+                releaseStudentAudioStream();
+                studentAudioRecorder = null;
+                studentAudioChunks = [];
+            }
+        };
+
+        studentAudioRecorder.start();
+        studentAudioRecording = true;
+        updateStudentRecordingUI();
+
+        // Auto stop to avoid oversized payload in localStorage demo.
+        studentAudioAutoStopTimer = setTimeout(() => {
+            if (studentAudioRecording) stopStudentAudioRecording();
+        }, 20 * 1000);
+    } catch (err) {
+        console.error('Falha ao iniciar gravacao do aluno', err);
+        alert('Não foi possível acessar o microfone.');
+        releaseStudentAudioStream();
+    }
+}
+
+function stopStudentAudioRecording() {
+    if (!studentAudioRecording) return;
+    studentAudioRecording = false;
+    updateStudentRecordingUI();
+    if (studentAudioAutoStopTimer) {
+        clearTimeout(studentAudioAutoStopTimer);
+        studentAudioAutoStopTimer = null;
+    }
+
+    if (studentAudioRecorder && studentAudioRecorder.state !== 'inactive') {
+        studentAudioRecorder.stop();
+    } else {
+        releaseStudentAudioStream();
+    }
+}
+
+function toggleStudentAudioRecording() {
+    if (studentAudioRecording) {
+        stopStudentAudioRecording();
+    } else {
+        startStudentAudioRecording();
+    }
+}
+
+window.addEventListener('blur', () => {
+    if (studentAudioRecording) stopStudentAudioRecording();
+});
+
+function simulateStudentMediaUpload(kind = 'audio', options = {}) {
     const studentId = localStorage.getItem('currentStudentId');
     const studentName = localStorage.getItem('studentName') || 'Aluno';
     if (!studentId) return;
@@ -916,7 +1342,7 @@ function simulateStudentMediaUpload(kind = 'audio') {
     const label = document.getElementById('student-chat-upload-label');
     if (!uploadBox || !bar || !label) return;
 
-    const mediaLabel = kind === 'video' ? 'vídeo' : 'áudio';
+    const mediaLabel = kind === 'video' ? 'video' : 'audio';
     let progress = 0;
     uploadBox.style.display = 'flex';
     bar.style.width = '0%';
@@ -933,14 +1359,30 @@ function simulateStudentMediaUpload(kind = 'audio') {
             studentChatUploadTimer = null;
 
             const messages = loadStudentChatMessages(studentId, studentName);
+            const messageType = kind === 'video' ? 'video' : 'audio';
+            const messageText = options.text || (kind === 'video' ? '[Vídeo simulado enviado]' : '[Áudio simulado enviado]');
+            const nowIso = new Date().toISOString();
+            const localId = `n-${studentId}-${nowIso}-q`;
             messages.push({
-                id: `m-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+                id: localId,
                 sender: 'student',
-                type: kind === 'video' ? 'video' : 'audio',
-                text: kind === 'video' ? '[Video simulado enviado]' : '[Audio simulado enviado]',
-                time: new Date().toISOString()
+                type: messageType,
+                text: messageText,
+                mediaDataUrl: options.mediaDataUrl || '',
+                mediaDuration: options.mediaDuration || '',
+                time: nowIso,
+                delivered: true
             });
             saveStudentChatMessages(studentId, messages);
+            pushStudentMessageToTrainer(studentId, studentName, {
+                text: messageText,
+                time: nowIso,
+                media: {
+                    type: messageType,
+                    name: messageType === 'video' ? 'video-enviado.mp4' : 'audio-enviado.webm',
+                    dataUrl: options.mediaDataUrl || ''
+                }
+            });
 
             setTimeout(() => {
                 uploadBox.style.display = 'none';
@@ -982,7 +1424,14 @@ function renderStudentDuvidas() {
                 <textarea id="student-chat-input" class="q-input" rows="2" maxlength="900"
                     placeholder="Digite sua dúvida aqui..."
                     onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendStudentQuickMessage();}"></textarea>
+                <div id="student-chat-recording-wave" class="student-chat-recording-wave" style="display:none;">
+                    <span></span><span></span><span></span><span></span><span></span>
+                    <small>Gravando áudio...</small>
+                </div>
                 <div class="student-chat-actions">
+                    <button type="button" class="btn-secondary-outline" id="btn-student-record-audio" onclick="toggleStudentAudioRecording()">
+                        <i class="ph-bold ph-microphone"></i> Gravar áudio real
+                    </button>
                     <button type="button" class="btn-secondary-outline" onclick="simulateStudentMediaUpload('audio')">
                         <i class="ph-bold ph-waveform"></i> Simular Áudio
                     </button>
@@ -997,8 +1446,9 @@ function renderStudentDuvidas() {
         </div>
     `;
 
-    const thread = document.getElementById('student-chat-thread');
-    if (thread) thread.scrollTop = thread.scrollHeight;
+    scrollStudentChatToBottom();
+    optimizeMediaElements(listEl);
+    updateStudentRecordingUI();
 }
 
 function renderWorkoutHistory() {
@@ -1469,14 +1919,11 @@ function handleUnifiedLogin() {
         ensureAdminStudent();
         const students = readStorageJSON('trainerStudents', []);
         const adminStudent = students.find(s => s.id === ADMIN_STUDENT_CODE);
-        localStorage.setItem('currentStudentId', ADMIN_STUDENT_CODE);
-        localStorage.setItem('studentName', adminStudent?.name || ADMIN_STUDENT_NAME);
-        localStorage.setItem('connectedTrainerCode', adminStudent?.trainerCode || '00001');
-
-        hideAllScreens();
-        document.getElementById('app').classList.add('wide');
-        document.getElementById('student-dashboard-screen').classList.add('active');
-        initStudentDashboard();
+        openStudentDashboardSession(adminStudent || {
+            id: ADMIN_STUDENT_CODE,
+            name: ADMIN_STUDENT_NAME,
+            trainerCode: '00001'
+        });
         return;
     }
 
@@ -1497,16 +1944,7 @@ function handleUnifiedLogin() {
     const student = allStudents.find(s => s.id === code);
 
     if (student) {
-        localStorage.setItem('currentStudentId', student.id);
-        localStorage.setItem('studentName', student.name);
-        // We might not have the trainer code easily if it's a re-login, 
-        // but we can store it in the student object during registration
-        localStorage.setItem('connectedTrainerCode', student.trainerCode || 'Consultoria');
-
-        hideAllScreens();
-        document.getElementById('app').classList.add('wide');
-        document.getElementById('student-dashboard-screen').classList.add('active');
-        initStudentDashboard();
+        openStudentDashboardSession(student);
         return;
     }
 
@@ -1529,15 +1967,11 @@ function connectStudent() {
         ensureAdminStudent();
         const students = readStorageJSON('trainerStudents', []);
         const adminStudent = students.find(s => s.id === ADMIN_STUDENT_CODE);
-        localStorage.setItem('currentStudentId', ADMIN_STUDENT_CODE);
-        localStorage.setItem('studentName', adminStudent?.name || ADMIN_STUDENT_NAME);
-        localStorage.setItem('connectedTrainerCode', adminStudent?.trainerCode || '00001');
-
-        hideAllScreens();
-        document.getElementById('app').classList.add('wide');
-        document.getElementById('student-dashboard-screen').classList.add('active');
-        initStudentDashboard();
-        switchStudentView('home');
+        openStudentDashboardSession(adminStudent || {
+            id: ADMIN_STUDENT_CODE,
+            name: ADMIN_STUDENT_NAME,
+            trainerCode: '00001'
+        });
         return;
     }
 
@@ -1557,6 +1991,20 @@ function connectStudent() {
             consultoriaName = t.consultoriaName || `Consultoria de ${t.name.split(' ')[0]}`;
         } else {
             alert('Código de treinador não encontrado.');
+            return;
+        }
+    }
+
+    // If this device already has a remembered student for this trainer, login instantly.
+    const remembered = readStudentAuthToken();
+    if (remembered && remembered.studentId) {
+        const students = readStorageJSON('trainerStudents', []);
+        const rememberedStudent = students.find(s =>
+            String(s.id) === String(remembered.studentId) &&
+            String(s.trainerCode || '') === String(code)
+        );
+        if (rememberedStudent) {
+            openStudentDashboardSession(rememberedStudent);
             return;
         }
     }
@@ -1637,6 +2085,7 @@ function submitQuestionnaire() {
         }],
         personalRecords: {} // Initialize PRs
     };
+    newStudent.tmbBase = Math.round(calcTMBMifflin(newStudent.weight, newStudent.height, newStudent.age, newStudent.gender));
 
     let students = readStorageJSON('trainerStudents', []);
     students.push(newStudent);
@@ -1652,16 +2101,8 @@ function submitQuestionnaire() {
     });
     localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
 
-    // Save current session info
-    localStorage.setItem('currentStudentId', id);
-    localStorage.setItem('studentName', nome);
-    localStorage.setItem('connectedTrainerCode', pendingTrainerCode);
-
-    hideAllScreens();
-    document.getElementById('app').classList.add('wide');
-    document.getElementById('student-dashboard-screen').classList.add('active');
-
-    initStudentDashboard();
+    // Save current session info + remember-me token
+    openStudentDashboardSession(newStudent);
 }
 
 // â”€â”€â”€ Student Dashboard (Real Data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1683,12 +2124,25 @@ function initStudentDashboard() {
     if (scRef) scRef.innerText = studentId;
 
     if (!studentId) {
+        renderStudentBaseCalories(null);
         setProtocolStatus(false);
         return;
     }
 
     const students = readStorageJSON('trainerStudents', []);
-    const student = students.find(s => s.id === studentId);
+    const studentIdx = students.findIndex(s => s.id === studentId);
+    const student = studentIdx >= 0 ? students[studentIdx] : null;
+
+    if (student) {
+        const prevTmb = parseIntegerSafe(student.tmbBase);
+        const nextTmb = syncStudentTmbData(student);
+        if (nextTmb !== prevTmb) {
+            students[studentIdx] = student;
+            saveStudentData(students);
+        }
+    }
+
+    renderStudentBaseCalories(student || null);
 
     if (student && student.active) {
         setProtocolStatus(true);
@@ -1847,6 +2301,60 @@ function calcIMC(weight, height) {
     if (!weight || !height) return 0;
     const h = parseFloat(height) / 100;
     return (parseFloat(weight) / (h * h)).toFixed(1);
+}
+
+function parseDecimalSafe(value) {
+    const parsed = parseFloat(String(value ?? '').replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseIntegerSafe(value) {
+    const parsed = parseInt(String(value ?? ''), 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function calcTMBMifflin(weightKg, heightCm, ageYears, gender) {
+    const peso = parseDecimalSafe(weightKg);
+    const altura = parseDecimalSafe(heightCm);
+    const idade = parseIntegerSafe(ageYears);
+    if (peso <= 0 || altura <= 0 || idade <= 0) return 0;
+
+    const genero = normalizeText(gender);
+    const ajusteGenero = (genero === 'f' || genero.startsWith('fem')) ? -161 : 5;
+    return (10 * peso) + (6.25 * altura) - (5 * idade) + ajusteGenero;
+}
+
+function syncStudentTmbData(student) {
+    if (!student || typeof student !== 'object') return 0;
+    const tmb = Math.round(calcTMBMifflin(student.weight, student.height, student.age, student.gender));
+    if (!Number.isFinite(tmb) || tmb <= 0) {
+        student.tmbBase = null;
+        return 0;
+    }
+    student.tmbBase = tmb;
+    return tmb;
+}
+
+function renderStudentBaseCalories(student) {
+    const valueEl = document.getElementById('status-gasto-base');
+    const hintEl = document.getElementById('status-gasto-base-hint');
+    if (!valueEl) return;
+
+    if (!student) {
+        valueEl.innerText = '--';
+        if (hintEl) hintEl.innerText = 'Meta Calórica Diária';
+        return;
+    }
+
+    const tmb = syncStudentTmbData(student);
+    if (!tmb) {
+        valueEl.innerText = '--';
+        if (hintEl) hintEl.innerText = 'Meta Calórica Diária';
+        return;
+    }
+
+    valueEl.innerText = `${tmb} kcal`;
+    if (hintEl) hintEl.innerText = 'Meta Calórica Diária';
 }
 
 function getIMCLabel(imc) {
@@ -2330,6 +2838,8 @@ function savePerfilUpdate() {
     }
 
     if (changed) {
+        syncStudentTmbData(student);
+
         // Update the students array
         const idx = students.findIndex(s => s.id === studentId);
         if (idx !== -1) students[idx] = student;
@@ -2343,6 +2853,7 @@ function savePerfilUpdate() {
         if (nameEl) nameEl.innerText = `Olá, ${(student.name || 'Aluno').split(' ')[0]}`;
         const sideEl = document.getElementById('side-student-name');
         if (sideEl) sideEl.innerText = (student.name || 'Aluno').split(' ')[0];
+        renderStudentBaseCalories(student);
     }
 }
 
@@ -2931,6 +3442,8 @@ function renderDuvidas(filterText) {
         // Scroll to bottom
         msgContainer.scrollTop = msgContainer.scrollHeight;
     }
+
+    optimizeMediaElements(activeView || document);
 }
 
 function selectChat(studentId) {
@@ -2983,7 +3496,7 @@ function filterChats(query) {
 function renderChatMedia(media, sender) {
     if (!media || !media.type || !media.dataUrl) return '';
     if (media.type === 'image') {
-        return `<div class="chat-media-wrap ${sender}"><img src="${media.dataUrl}" alt="${escHtml(media.name || 'imagem')}" class="chat-media-image"></div>`;
+        return `<div class="chat-media-wrap ${sender}"><img src="${media.dataUrl}" alt="${escHtml(media.name || 'imagem')}" class="chat-media-image" loading="lazy" decoding="async" width="320" height="220"></div>`;
     }
     if (media.type === 'video') {
         return `<div class="chat-media-wrap ${sender}">
@@ -3089,7 +3602,7 @@ function renderTrainerAttachmentPreview() {
 
     if (trainerPendingAttachment.type === 'image') {
         content.innerHTML = `
-            <img src="${trainerPendingAttachment.dataUrl}" class="chat-preview-image" alt="${escHtml(trainerPendingAttachment.name)}">
+            <img src="${trainerPendingAttachment.dataUrl}" class="chat-preview-image" alt="${escHtml(trainerPendingAttachment.name)}" loading="lazy" decoding="async" width="280" height="180">
             <div class="chat-preview-meta"><i class="ph-bold ph-image"></i> ${escHtml(trainerPendingAttachment.name)}</div>
         `;
     } else if (trainerPendingAttachment.type === 'video') {
@@ -3105,6 +3618,7 @@ function renderTrainerAttachmentPreview() {
     }
 
     box.style.display = 'flex';
+    optimizeMediaElements(box);
 }
 
 function fileToDataUrl(file) {
@@ -3131,7 +3645,17 @@ function compressImageToDataUrl(file, maxSize = 1280, quality = 0.82) {
                 canvas.height = h;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, w, h);
-                resolve(canvas.toDataURL('image/jpeg', quality));
+                // Prefer WebP thumbnails for smaller payload in chat previews.
+                let encoded = '';
+                try {
+                    encoded = canvas.toDataURL('image/webp', quality);
+                } catch (_) {
+                    encoded = '';
+                }
+                if (!encoded || !encoded.startsWith('data:image/webp')) {
+                    encoded = canvas.toDataURL('image/jpeg', quality);
+                }
+                resolve(encoded);
             };
             img.onerror = reject;
             img.src = reader.result;
@@ -3288,148 +3812,6 @@ function stopTrainerHoldRecord(event) {
     }
 }
 
-let activeRoutineIdx = 0;
-
-function switchTreinoSubview(subview) {
-    const views = ['landing', 'analise', 'historico'];
-    views.forEach(v => {
-        const el = document.getElementById(`treino-${v}`);
-        if (el) el.style.display = (v === subview) ? 'block' : 'none';
-    });
-
-    if (subview === 'analise') {
-        activeRoutineIdx = 0;
-        renderStudentWorkoutContentMain();
-    } else if (subview === 'historico') {
-        renderWorkoutHistoryTable();
-    }
-}
-
-function renderStudentWorkoutContentMain() {
-    const studentId = localStorage.getItem('currentStudentId');
-    const students = readStorageJSON('trainerStudents', []);
-    const student = students.find(s => s.id === studentId);
-    if (!student || !student.workoutBlocks) return;
-
-    const tabsNav = document.getElementById('workout-tabs-nav');
-    const contentArea = document.getElementById('student-workout-content-main');
-    if (!tabsNav || !contentArea) return;
-
-    // 1. Render Tabs
-    tabsNav.innerHTML = student.workoutBlocks.map((block, idx) => {
-        const title = block.title || `Treino ${String.fromCharCode(65 + idx)}`;
-        const isActive = idx === activeRoutineIdx;
-        return `
-            <button class="workout-tab ${isActive ? 'active' : ''}" onclick="selectRoutineTab(${idx})">
-                <i class="ph-bold ph-barbell"></i>
-                <span>${escHtml(title)}</span>
-            </button>
-        `;
-    }).join('');
-
-    // 2. Render Active Routine Card
-    const block = student.workoutBlocks[activeRoutineIdx];
-    if (!block) return;
-
-    const muscles = getMuscleGroups(block.exercises);
-    const lastPerformed = getLatestPerformanceDate(student.id, block.title);
-
-    // Estimate time (simple: 8 min per exercise average)
-    const estTime = block.exercises.length * 8;
-
-    contentArea.innerHTML = `
-        <div class="routine-card">
-            <div class="routine-header">
-                <div class="routine-title-row">
-                    <h3>${escHtml(block.title || `Treino ${String.fromCharCode(65 + activeRoutineIdx)}`)}</h3>
-                    ${lastPerformed ? `<span class="routine-last-performed">Última vez: ${lastPerformed}</span>` : ''}
-                </div>
-                <div class="routine-summary">
-                    <span><i class="ph-bold ph-lightning"></i> ${escHtml(muscles.join(' • '))}</span>
-                    <span><i class="ph-bold ph-list-numbers"></i> ${block.exercises.length} exercícios</span>
-                    <span><i class="ph-bold ph-clock"></i> ~${estTime} min</span>
-                </div>
-            </div>
-
-            <div class="routine-ex-list">
-                ${block.exercises.map((ex, exIdx) => renderRoutineExItem(ex, exIdx)).join('')}
-            </div>
-
-            <button class="btn-start-routine" onclick="startWorkoutSession(${activeRoutineIdx})">
-                <i class="ph-fill ph-play"></i> INICIAR ESTE TREINO
-            </button>
-        </div>
-    `;
-}
-
-function selectRoutineTab(idx) {
-    activeRoutineIdx = idx;
-    renderStudentWorkoutContentMain();
-}
-
-function renderRoutineExItem(ex, idx) {
-    return `
-        <div class="routine-ex-item" id="routine-ex-${idx}">
-            <button class="ex-top-trigger" onclick="toggleExDetails(${idx})">
-                <div class="ex-name-box">
-                    <strong>${escHtml(ex.nome)}</strong>
-                    <span>${ex.series} séries · ${ex.descanso} descanso</span>
-                </div>
-                <i class="ph-bold ph-caret-down ex-chevron"></i>
-            </button>
-            <div class="ex-details-collapsible" id="ex-details-${idx}">
-                <div class="ex-details-inner">
-                    <div class="ex-detail-point">
-                        <label>Séries</label>
-                        <strong>${ex.series}</strong>
-                    </div>
-                    <div class="ex-detail-point">
-                        <label>Repetições</label>
-                        <strong>${ex.reps}</strong>
-                    </div>
-                    <div class="ex-detail-point">
-                        <label>Carga</label>
-                        <strong>${ex.carga}</strong>
-                    </div>
-                    <div class="ex-detail-point">
-                        <label>Descanso</label>
-                        <strong>${ex.descanso}</strong>
-                    </div>
-                    ${ex.obs ? `
-                    <div class="ex-detail-point" style="grid-column: span 4; margin-top: 0.5rem;">
-                        <label>Observações</label>
-                        <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">${escHtml(ex.obs)}</p>
-                    </div>` : ''}
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-function toggleExDetails(idx) {
-    const item = document.getElementById(`routine-ex-${idx}`);
-    const details = document.getElementById(`ex-details-${idx}`);
-    if (!item || !details) return;
-
-    const isExpanded = item.classList.contains('expanded');
-
-    // Close others
-    document.querySelectorAll('.routine-ex-item.expanded').forEach(el => {
-        if (el !== item) {
-            el.classList.remove('expanded');
-            el.querySelector('.ex-details-collapsible').style.maxHeight = '0px';
-        }
-    });
-
-    if (isExpanded) {
-        item.classList.remove('expanded');
-        details.style.maxHeight = '0px';
-    } else {
-        item.classList.add('expanded');
-        details.style.maxHeight = details.scrollHeight + 'px';
-    }
-}
-
 function getLatestPerformanceDate(studentId, routineTitle) {
     const history = readStorageJSON('workoutHistory', []);
     const lastSession = [...history].reverse().find(h =>
@@ -3441,27 +3823,6 @@ function getLatestPerformanceDate(studentId, routineTitle) {
         return d.toLocaleDateString('pt-BR');
     }
     return null;
-}
-
-function getMuscleGroups(exercises) {
-    // This is a simplified version. In a real app, this would be in the exercise database.
-    const map = {
-        'peito': ['supino', 'peitoral', 'chest'],
-        'costas': ['puxada', 'remada', 'costas', 'back'],
-        'pernas': ['agachamento', 'legpress', 'extensora', 'flexora', 'afundo', 'perna', 'legs'],
-        'braços': ['bíceps', 'tríceps', 'rosca', 'pulley'],
-        'ombros': ['desenvolvimento', 'lateral', 'frontal', 'ombro', 'shoulder']
-    };
-
-    const detected = new Set();
-    exercises.forEach(ex => {
-        const name = ex.nome.toLowerCase();
-        for (const [group, keywords] of Object.entries(map)) {
-            if (keywords.some(k => name.includes(k))) detected.add(group);
-        }
-    });
-
-    return detected.size > 0 ? Array.from(detected) : ['Geral'];
 }
 
 function formatChatTime(dateIso) {
@@ -3622,12 +3983,9 @@ function openStudentProfile(studentIndex) {
     workoutBlocks = s.workoutBlocks ? JSON.parse(JSON.stringify(s.workoutBlocks)) : [];
     mealBlocks = s.mealBlocks ? JSON.parse(JSON.stringify(s.mealBlocks)) : [];
 
-    // Calculate TMB
-    const w = parseFloat(s.weight) || 70;
-    const h = parseFloat(s.height) || 175;
-    const a = parseInt(s.age) || 25;
-    let tmbCalc = 10 * w + 6.25 * h - 5 * a + (s.gender === 'M' ? 5 : -161);
-    const kcalCalc = Math.round(tmbCalc * 1.55);
+    // Calculate TMB (Mifflin-St Jeor)
+    const tmbCalc = calcTMBMifflin(s.weight, s.height, s.age, s.gender);
+    const kcalCalc = tmbCalc > 0 ? Math.round(tmbCalc * 1.55) : 0;
 
     // Header
     document.getElementById('prof-id-name').innerHTML =
@@ -3642,8 +4000,8 @@ function openStudentProfile(studentIndex) {
     document.getElementById('prof-peso').innerText = `${s.weight} kg`;
     document.getElementById('prof-altura').innerText = `${s.height} cm`;
     document.getElementById('prof-genero').innerText = s.gender === 'M' ? 'Masculino' : (s.gender === 'F' ? 'Feminino' : 'N/A');
-    document.getElementById('prof-tmb').innerText = `${Math.round(tmbCalc)} kcal`;
-    document.getElementById('prof-gasto').innerText = `${kcalCalc} kcal`;
+    document.getElementById('prof-tmb').innerText = tmbCalc > 0 ? `${Math.round(tmbCalc)} kcal` : '--';
+    document.getElementById('prof-gasto').innerText = kcalCalc > 0 ? `${kcalCalc} kcal` : '--';
     document.getElementById('prof-atividade').innerText = 'Moderatamente Ativo';
 
     // Diet meta
@@ -3693,7 +4051,7 @@ function renderWorkoutBlocks() {
     if (workoutBlocks.length === 0) {
         container.innerHTML = `
         <div class="workout-empty">
-            <i class="ph-light ph-barbell" style="font-size:2.5rem;color:var(--text-muted)"></i>
+            <i class="ph-bold ph-barbell" style="font-size:2.5rem;color:var(--text-muted)"></i>
             <p>Nenhum bloco de treino criado.</p>
             <button class="btn-add-block" onclick="addWorkoutBlock()"><i class="ph-bold ph-plus"></i> Criar Primeiro Bloco</button>
         </div>`;
@@ -4212,6 +4570,8 @@ let workoutTimerInterval = null;
 let restTimerInterval = null;
 let restTimeLeft = 0;
 let totalRestTime = 0;
+let restStartedAt = 0;
+let restEndAt = 0;
 let workoutFeedbackRating = 0;
 let workoutFeedbackIntensity = 'moderado';
 let pendingSetCompletion = null;
@@ -4267,6 +4627,56 @@ function getPreviousSessionData(studentId, exerciseName) {
         }
     }
     return '-';
+}
+
+function parsePreviousSetMetrics(prevText) {
+    const raw = String(prevText || '').trim().toLowerCase();
+    if (!raw || raw === '-' || raw === '--') {
+        return { weight: null, reps: null };
+    }
+
+    const match = raw.match(/([\d.,]+)\s*kg\s*x\s*(\d+)/i);
+    if (!match) return { weight: null, reps: null };
+
+    const weight = parseFloat(String(match[1] || '').replace(',', '.'));
+    const reps = parseInt(match[2], 10);
+
+    return {
+        weight: Number.isFinite(weight) ? weight : null,
+        reps: Number.isFinite(reps) ? reps : null
+    };
+}
+
+function formatMetricNumber(value) {
+    if (!Number.isFinite(value)) return '--';
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function toWebpCandidate(src) {
+    const raw = String(src || '').trim();
+    if (!raw || raw.startsWith('data:')) return raw;
+    if (/\.webp(\?|$)/i.test(raw)) return raw;
+    return raw.replace(/\.(png|jpe?g)(\?|$)/i, '.webp$2');
+}
+
+function renderExerciseThumb(exercise) {
+    const originalSrc = String(exercise?.image || exercise?.thumb || '').trim();
+    if (!originalSrc) return '';
+    const webpSrc = toWebpCandidate(originalSrc);
+    return `
+        <div class="log-ex-thumb">
+            <img
+                src="${escHtml(webpSrc)}"
+                data-fallback-src="${escHtml(originalSrc)}"
+                alt="Miniatura do exercício ${escHtml(exercise?.nome || '')}"
+                loading="lazy"
+                decoding="async"
+                width="88"
+                height="58"
+                onerror="if(this.dataset.fallbackSrc){const fb=this.dataset.fallbackSrc;this.dataset.fallbackSrc='';this.src=fb;}"
+            >
+        </div>
+    `;
 }
 
 function appendCompletedSetLog(entry) {
@@ -4356,19 +4766,21 @@ function renderWorkoutLog() {
                 <div class="log-ex-head-main">
                     <h3 class="clickable-ex-title" onclick="openExerciseProgressModalEncoded('${encodeURIComponent(ex.nome)}')">${escHtml(ex.nome)}</h3>
                     <div class="log-ex-meta">
-                        <span class="meta-pill"><i class="ph-bold ph-check-circle"></i> ${completed}/${total} séries</span>
-                        <span class="meta-pill muted"><i class="ph-bold ph-chart-line-up"></i> registrar carga</span>
-                        ${ex.supersetGroup ? `<span class="meta-pill"><i class="ph-bold ph-lightning"></i> bi-set ${ex.supersetGroup}</span>` : ''}
+                        <span class="meta-pill">${uiSvgIcon('check-circle')} ${completed}/${total} séries</span>
+                        <span class="meta-pill muted">${uiSvgIcon('chart-line-up')} registrar carga</span>
+                        ${ex.supersetGroup ? `<span class="meta-pill">${uiSvgIcon('lightning')} bi-set ${ex.supersetGroup}</span>` : ''}
                     </div>
                 </div>
                 <div class="log-ex-top-actions">
                     ${ex.substitutes && ex.substitutes.length > 0 ? `
                     <button class="btn-icon-tiny" onclick="toggleLogSubstitutes(${exIdx})" title="Trocar exercicio">
-                        <i class="ph-bold ph-arrows-clockwise"></i>
+                        ${uiSvgIcon('arrows-clockwise')}
                     </button>` : ''}
-                <button class="btn-icon-tiny" onclick="removeExerciseFromLog(${exIdx})"><i class="ph-bold ph-trash"></i></button>
+                <button class="btn-icon-tiny" onclick="removeExerciseFromLog(${exIdx})">${uiSvgIcon('trash')}</button>
                 </div>
             </div>
+
+            ${renderExerciseThumb(ex)}
 
             ${ex.showSubstitutes ? `
                 <div class="log-substitute-box">
@@ -4388,29 +4800,46 @@ function renderWorkoutLog() {
             <div class="log-set-table">
                 <div class="log-set-header">
                     <span>Série</span>
-                    <span class="col-prev">Último</span>
                     <span>Kg</span>
                     <span>Reps</span>
-                    <span>Intensidade</span>
+                    <span>Intens.</span>
                     <span>OK</span>
                 </div>
-                ${ex.sets.map((set, setIdx) => `
+                ${ex.sets.map((set, setIdx) => {
+                    const prevMetrics = parsePreviousSetMetrics(set.prev);
+                    const currentWeight = parseFloat(String(set.weight || '').replace(',', '.'));
+                    const currentReps = parseInt(set.reps, 10);
+                    const weightUp = Number.isFinite(currentWeight) && prevMetrics.weight !== null && currentWeight > prevMetrics.weight;
+                    const repsUp = Number.isFinite(currentReps) && prevMetrics.reps !== null && currentReps > prevMetrics.reps;
+                    const lastWeightLabel = prevMetrics.weight === null ? '--' : `${formatMetricNumber(prevMetrics.weight)}kg`;
+                    const lastRepsLabel = prevMetrics.reps === null ? '--' : `${prevMetrics.reps} reps`;
+
+                    return `
                     <div class="log-set-row ${set.completed ? 'completed' : ''}" id="row-${exIdx}-${setIdx}">
                         <div class="set-number">${setIdx + 1}</div>
-                        <button class="set-prev col-prev" onclick="fillFromPreviousSet(${exIdx}, ${setIdx})">${escHtml(set.prev)}</button>
 
-                        <div class="set-input-wrap">
-                            <input type="number" inputmode="decimal" min="0" step="0.5" class="set-input log-input-tactile" value="${set.weight}" 
-                                placeholder="--" oninput="updateSetData(${exIdx}, ${setIdx}, 'weight', this.value)"
-                                ${set.completed ? 'disabled' : ''}>
-                            <button class="mini-adjust" onclick="adjustSetWeight(${exIdx}, ${setIdx}, 2.5)">+2.5</button>
+                        <div class="set-value-stack">
+                            <div class="set-input-row">
+                                <input type="number" inputmode="decimal" pattern="[0-9]*" min="0" step="0.5" class="set-input log-input-tactile compact-value" value="${set.weight}" 
+                                    placeholder="KG" oninput="updateSetData(${exIdx}, ${setIdx}, 'weight', this.value)"
+                                    ${set.completed ? 'disabled' : ''}>
+                                <span class="set-progress-flag ${weightUp ? 'up' : ''}" aria-hidden="true">
+                                    ${weightUp ? uiSvgIcon('lightning') : ''}
+                                </span>
+                            </div>
+                            <div class="set-prev-line">Última: ${lastWeightLabel}</div>
                         </div>
 
-                        <div class="set-input-wrap">
-                            <input type="number" inputmode="numeric" min="0" step="1" class="set-input log-input-tactile" value="${set.reps}" 
-                                placeholder="--" oninput="updateSetData(${exIdx}, ${setIdx}, 'reps', this.value)"
-                                ${set.completed ? 'disabled' : ''}>
-                            <button class="mini-adjust" onclick="adjustSetReps(${exIdx}, ${setIdx}, 1)">+1</button>
+                        <div class="set-value-stack">
+                            <div class="set-input-row">
+                                <input type="number" inputmode="decimal" pattern="[0-9]*" min="0" step="1" class="set-input log-input-tactile compact-value" value="${set.reps}" 
+                                    placeholder="REPS" oninput="updateSetData(${exIdx}, ${setIdx}, 'reps', this.value)"
+                                    ${set.completed ? 'disabled' : ''}>
+                                <span class="set-progress-flag ${repsUp ? 'up' : ''}" aria-hidden="true">
+                                    ${repsUp ? uiSvgIcon('arrow-up-right') : ''}
+                                </span>
+                            </div>
+                            <div class="set-prev-line">Última: ${lastRepsLabel}</div>
                         </div>
 
                         <div class="set-intensity-visual" title="${getIntensityLabel(set.intensityLevel)}">
@@ -4420,22 +4849,25 @@ function renderWorkoutLog() {
                         <div class="set-check-wrap">
                             <button class="btn-check-set ${set.completed ? 'active' : ''}" 
                                 onclick="toggleSetCompletion(${exIdx}, ${setIdx})">
-                                <i class="ph-bold ${set.completed ? 'ph-check' : 'ph-circle'}"></i>
+                                ${set.completed ? uiSvgIcon('check') : uiSvgIcon('circle')}
                             </button>
                             ${renderPRTrophy(set)}
                         </div>
                     </div>
-                `).join('')}
+                `;
+                }).join('')}
             </div>
             
             <div class="log-ex-footer">
                 <button class="btn-add-set" onclick="addSetToExercise(${exIdx})">
-                    <i class="ph-bold ph-plus"></i> Adicionar Série
+                    ${uiSvgIcon('plus')} Adicionar Série
                 </button>
             </div>
         </div>
     `;
     }).join('');
+
+    optimizeMediaElements(container);
 }
 
 function updateExerciseNotes(exIdx, notes) {
@@ -4457,7 +4889,7 @@ function renderPRTrophy(set) {
 
     return `
         <div class="pr-trophy-container">
-            <i class="ph-fill ph-trophy pr-trophy" title="${tooltip}"></i>
+            <span class="pr-trophy" title="${tooltip}">${uiSvgIcon('trophy')}</span>
         </div>
     `;
 }
@@ -4477,49 +4909,6 @@ function updateSetData(exIdx, setIdx, field, value) {
         updateExercisePRs(exIdx);
         saveWorkoutBackup();
     }
-}
-
-
-function fillFromPreviousSet(exIdx, setIdx) {
-    if (!workoutState) return;
-    const ex = workoutState.exercises[exIdx];
-    if (!ex || !ex.sets[setIdx]) return;
-
-    const prevSet = ex.sets[setIdx - 1];
-    if (!prevSet) return;
-
-    ex.sets[setIdx].weight = prevSet.weight || ex.sets[setIdx].weight;
-    ex.sets[setIdx].reps = prevSet.reps || ex.sets[setIdx].reps;
-    updateExercisePRs(exIdx);
-    saveWorkoutBackup();
-    renderWorkoutLog();
-}
-
-function adjustSetWeight(exIdx, setIdx, delta) {
-    if (!workoutState) return;
-    const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
-    if (!set || set.completed) return;
-
-    const current = parseFloat(set.weight) || 0;
-    const next = Math.max(0, current + delta);
-    set.weight = Number.isInteger(next) ? String(next) : next.toFixed(1);
-
-    updateExercisePRs(exIdx);
-    saveWorkoutBackup();
-    renderWorkoutLog();
-}
-
-function adjustSetReps(exIdx, setIdx, delta) {
-    if (!workoutState) return;
-    const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
-    if (!set || set.completed) return;
-
-    const current = parseInt(set.reps) || 0;
-    set.reps = String(Math.max(0, current + delta));
-
-    updateExercisePRs(exIdx);
-    saveWorkoutBackup();
-    renderWorkoutLog();
 }
 
 function updateExercisePRs(exIdx) {
@@ -4652,8 +5041,12 @@ function chooseQuickSetEffort(level) {
 }
 // â”€â”€â”€ REST TIMER LOGIC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function startRestTimer(seconds) {
-    restTimeLeft = seconds;
-    totalRestTime = seconds;
+    const safeSeconds = Math.max(1, parseInt(seconds, 10) || 60);
+    const now = Date.now();
+    restStartedAt = now;
+    restEndAt = now + (safeSeconds * 1000);
+    restTimeLeft = safeSeconds;
+    totalRestTime = safeSeconds;
 
     const overlay = document.getElementById('rest-timer-overlay');
     if (overlay) {
@@ -4665,19 +5058,29 @@ function startRestTimer(seconds) {
 
     if (restTimerInterval) clearInterval(restTimerInterval);
     restTimerInterval = setInterval(() => {
-        restTimeLeft--;
-        if (restTimeLeft <= 0) {
-            restTimeLeft = 0;
-            updateRestTimerUI();
+        if (!restEndAt) {
             clearInterval(restTimerInterval);
-            onRestTimerEnd();
-        } else {
-            updateRestTimerUI();
+            return;
         }
-    }, 1000);
+        const remainingMs = restEndAt - Date.now();
+        restTimeLeft = Math.max(0, Math.ceil(remainingMs / 1000));
+        updateRestTimerUI();
+
+        if (remainingMs <= 0) {
+            clearInterval(restTimerInterval);
+            restTimerInterval = null;
+            onRestTimerEnd();
+        }
+    }, 250);
 }
 
 function updateRestTimerUI() {
+    if (restEndAt && restStartedAt) {
+        const remainingMs = restEndAt - Date.now();
+        restTimeLeft = Math.max(0, Math.ceil(remainingMs / 1000));
+        totalRestTime = Math.max(1, Math.ceil((restEndAt - restStartedAt) / 1000));
+    }
+
     const mins = Math.floor(restTimeLeft / 60).toString().padStart(2, '0');
     const secs = (restTimeLeft % 60).toString().padStart(2, '0');
     const countdownEl = document.getElementById('rest-countdown');
@@ -4685,7 +5088,7 @@ function updateRestTimerUI() {
 
     const progressFill = document.getElementById('rest-progress-fill');
     if (progressFill && totalRestTime > 0) {
-        const percentage = (restTimeLeft / totalRestTime) * 100;
+        const percentage = Math.max(0, Math.min(100, (restTimeLeft / totalRestTime) * 100));
         progressFill.style.width = `${percentage}%`;
         const overlay = document.getElementById('rest-timer-overlay');
         if (overlay) overlay.style.setProperty('--rest-progress', `${percentage}%`);
@@ -4755,18 +5158,32 @@ function playRestEndBeep() {
 
 function skipRestTimer() {
     clearInterval(restTimerInterval);
+    restTimerInterval = null;
     hideRestTimer();
 }
 
 function adjustRestTimer(seconds) {
-    restTimeLeft += seconds;
-    totalRestTime += seconds;
+    const delta = parseInt(seconds, 10) || 0;
+    if (!restEndAt || !restStartedAt) return;
+    restEndAt += (delta * 1000);
+    if (restEndAt < Date.now()) restEndAt = Date.now();
     updateRestTimerUI();
 
     const overlay = document.getElementById('rest-timer-overlay');
     if (overlay && overlay.classList.contains('timer-ended') && restTimeLeft > 0) {
         overlay.classList.remove('timer-ended');
-        startRestTimer(restTimeLeft);
+        if (!restTimerInterval) {
+            restTimerInterval = setInterval(() => {
+                const remainingMs = restEndAt - Date.now();
+                restTimeLeft = Math.max(0, Math.ceil(remainingMs / 1000));
+                updateRestTimerUI();
+                if (remainingMs <= 0) {
+                    clearInterval(restTimerInterval);
+                    restTimerInterval = null;
+                    onRestTimerEnd();
+                }
+            }, 250);
+        }
     }
 }
 
@@ -4777,6 +5194,11 @@ function hideRestTimer() {
         overlay.classList.remove('timer-ended');
     }
     if (restTimerInterval) clearInterval(restTimerInterval);
+    restTimerInterval = null;
+    restStartedAt = 0;
+    restEndAt = 0;
+    restTimeLeft = 0;
+    totalRestTime = 0;
 }
 
 function addSetToExercise(exIdx) {

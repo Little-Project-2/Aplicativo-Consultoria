@@ -26,13 +26,15 @@
         content="Acompanhamento próximo do treinador, execução inteligente de treino e evolução real da sua performance.">
     <meta name="twitter:image" content="https://aplicativo-consultoria.vercel.app/assets/icons/icon-512.png">
     <title>Aplicativo Consultoria</title>
-    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+    <link rel="preload" href="assets/vendor/phosphor/bold/Phosphor-Bold.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="assets/vendor/phosphor/fill/Phosphor-Fill.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="assets/vendor/phosphor/phosphor-local.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <style>
         /* Improved Delete Button for History Items */
         .btn-delete-history {
@@ -190,7 +192,7 @@
                 <h1 class="main-title hero-title">Sua Melhor Versão Começa Aqui. Treino e Dieta na Palma da Mão.</h1>
                 <p class="subtitle hero-subtitle">Acompanhamento próximo do treinador, ajustes inteligentes e foco total
                     em performance no seu dia a dia.</p>
-                <button class="btn-primary hero-cta" onclick="goToGlobalLogin()">
+                <button class="btn-primary hero-cta" onclick="goToStudentArea()">
                     <i class="ph-bold ph-rocket-launch"></i> Iniciar Meu Protocolo
                 </button>
             </section>
@@ -796,16 +798,37 @@
 
                     <nav class="sidebar-nav">
                         <a href="#" class="nav-item active" id="snav-home" onclick="switchStudentView('home')">
-                            <i class="ph-bold ph-squares-four"></i> Dashboard
+                            <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <rect x="4" y="4" width="7" height="7" rx="1.5" fill="currentColor"></rect>
+                                <rect x="13" y="4" width="7" height="7" rx="1.5" fill="currentColor"></rect>
+                                <rect x="4" y="13" width="7" height="7" rx="1.5" fill="currentColor"></rect>
+                                <rect x="13" y="13" width="7" height="7" rx="1.5" fill="currentColor"></rect>
+                            </svg>
+                            Dashboard
                         </a>
                         <a href="#" class="nav-item" id="snav-treino" onclick="switchStudentView('treino')">
-                            <i class="ph-bold ph-barbell"></i> Meu Treino
+                            <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M3 9v6M6 7v10M18 7v10M21 9v6M6 12h12" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round"></path>
+                            </svg>
+                            Meu Treino
                         </a>
                         <a href="#" class="nav-item" id="snav-dieta" onclick="switchStudentView('dieta')">
-                            <i class="ph-bold ph-apple-logo"></i> Minha Dieta
+                            <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path
+                                    d="M12 8c-2.8 0-5 2.2-5 5 0 4.2 3.1 7 5 7s5-2.8 5-7c0-2.8-2.2-5-5-5zm0 0c.8-2.1 2.2-3.3 4.2-3.7"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round"></path>
+                            </svg>
+                            Minha Dieta
                         </a>
                         <a href="#" class="nav-item" id="snav-perfil" onclick="switchStudentView('perfil')">
-                            <i class="ph-bold ph-user"></i> Meu Perfil
+                            <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2"></circle>
+                                <path d="M5 19c1.4-2.8 3.7-4.2 7-4.2 3.3 0 5.6 1.4 7 4.2" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                            </svg>
+                            Meu Perfil
                         </a>
                     </nav>
 
@@ -843,17 +866,40 @@
 
                         <div class="dashboard-stats">
                             <div class="stat-card">
-                                <div class="stat-icon"><i class="ph-bold ph-barbell"></i></div>
+                                <div class="stat-icon">
+                                    <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                        <path d="M3 9v6M6 7v10M18 7v10M21 9v6M6 12h12" fill="none" stroke="currentColor"
+                                            stroke-width="2" stroke-linecap="round"></path>
+                                    </svg>
+                                </div>
                                 <div class="stat-info">
                                     <h3 id="status-treino" class="text-warning">Pendente</h3>
                                     <p>Treino</p>
                                 </div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-icon"><i class="ph-bold ph-apple-logo"></i></div>
+                                <div class="stat-icon">
+                                    <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                        <path
+                                            d="M12 8c-2.8 0-5 2.2-5 5 0 4.2 3.1 7 5 7s5-2.8 5-7c0-2.8-2.2-5-5-5zm0 0c.8-2.1 2.2-3.3 4.2-3.7"
+                                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round"></path>
+                                    </svg>
+                                </div>
                                 <div class="stat-info">
                                     <h3 id="status-dieta" class="text-warning">Pendente</h3>
                                     <p>Dieta</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                        <path d="M13 2L5 13h5l-1 9 8-11h-5l1-9z" fill="currentColor"></path>
+                                    </svg>
+                                </div>
+                                <div class="stat-info">
+                                    <h3 id="status-gasto-base">--</h3>
+                                    <p id="status-gasto-base-hint">Meta Calórica Diária</p>
                                 </div>
                             </div>
                         </div>
@@ -1195,12 +1241,17 @@
 
                     <!-- VIEW: LOG WORKOUT (HEVY STYLE) -->
                     <div id="view-student-log-workout" class="view-section" style="display: none;">
-                        <div class="dashboard-header">
+                        <div class="dashboard-header log-workout-sticky-header">
                             <div class="user-info">
                                 <h2 id="log-workout-title">Treino em Andamento</h2>
                                 <div
                                     style="display: flex; align-items: center; gap: 0.5rem; color: var(--primary-color); font-weight: 700;">
-                                    <i class="ph-fill ph-timer"></i>
+                                    <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                        <circle cx="12" cy="13" r="7.5" fill="none" stroke="currentColor" stroke-width="2"></circle>
+                                        <path d="M12 13V9m0 4 2.6 1.6" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round"></path>
+                                        <path d="M9 3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                                    </svg>
                                     <span id="log-workout-timer">00:00</span>
                                 </div>
                             </div>
@@ -1227,7 +1278,7 @@
                                 </div>
                                 <div class="rest-actions">
                                     <button class="btn-rest-skip" onclick="skipRestTimer()">Pular</button>
-                                    <button class="btn-rest-add" onclick="adjustRestTimer(15)">+15s</button>
+                                    <button class="btn-rest-add" onclick="adjustRestTimer(30)">+30s</button>
                                 </div>
                             </div>
                         </div>
@@ -1238,14 +1289,17 @@
                                 <div class="perfil-modal-header">
                                     <h3>Como foi esta serie?</h3>
                                     <button class="btn-icon" onclick="closeSetEffortQuickModal()">
-                                        <i class="ph-bold ph-x"></i>
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2"
+                                                stroke-linecap="round"></path>
+                                        </svg>
                                     </button>
                                 </div>
                                 <div class="perfil-modal-body">
                                     <div class="seqm-options">
                                         <button type="button" class="seqm-btn leve" onclick="chooseQuickSetEffort(1)">⚪ Leve</button>
-                                        <button type="button" class="seqm-btn ponto" onclick="chooseQuickSetEffort(3)">ðŸŸ¡ No Ponto</button>
-                                        <button type="button" class="seqm-btn falha" onclick="chooseQuickSetEffort(5)">ðŸ”´ Falhei</button>
+                                        <button type="button" class="seqm-btn ponto" onclick="chooseQuickSetEffort(3)">🟡 No ponto</button>
+                                        <button type="button" class="seqm-btn falha" onclick="chooseQuickSetEffort(5)">🔴 Falhei</button>
                                     </div>
                                 </div>
                             </div>
@@ -1256,7 +1310,10 @@
                                 <div class="perfil-modal-header">
                                     <h3 id="exercise-progress-title">Historico de Carga</h3>
                                     <button class="btn-icon" onclick="closeExerciseProgressModal()">
-                                        <i class="ph-bold ph-x"></i>
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2"
+                                                stroke-linecap="round"></path>
+                                        </svg>
                                     </button>
                                 </div>
                                 <div class="perfil-modal-body" id="exercise-progress-body" style="max-height:70vh;overflow-y:auto;">
@@ -1268,9 +1325,19 @@
                         <div id="workout-feedback-modal-overlay" class="perfil-modal-overlay" style="display:none;">
                             <div class="perfil-modal workout-feedback-modal">
                                 <div class="perfil-modal-header">
-                                    <h3><i class="ph-bold ph-star" style="color:var(--primary-color);"></i> Avaliar treino</h3>
+                                    <h3>
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
+                                            style="color:var(--primary-color);">
+                                            <path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3z"
+                                                fill="currentColor"></path>
+                                        </svg>
+                                        Avaliar treino
+                                    </h3>
                                     <button class="btn-icon" onclick="closeWorkoutFeedbackModal()">
-                                        <i class="ph-bold ph-x"></i>
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2"
+                                                stroke-linecap="round"></path>
+                                        </svg>
                                     </button>
                                 </div>
                                 <div class="perfil-modal-body">

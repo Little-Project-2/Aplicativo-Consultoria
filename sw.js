@@ -1,6 +1,6 @@
-const CACHE_VERSION = "consultoria-fallback-v3";
-const RUNTIME_CACHE = "consultoria-runtime-fallback-v3";
-const APP_REVISION = "2026-03-06";
+const PRECACHE_CACHE = "consultoria-precache-v5";
+const RUNTIME_CACHE = "consultoria-runtime-v5";
+const OFFLINE_URL = "./offline.html";
 
 const PRECACHE_URLS = [
   "./",
@@ -8,15 +8,20 @@ const PRECACHE_URLS = [
   "./trainer.html",
   "./style.css",
   "./script.js",
-  "./manifest.webmanifest",
-  "./offline.html",
   "./pwa-register.js",
+  "./service-worker.js",
+  "./manifest.json",
+  "./manifest.webmanifest",
+  OFFLINE_URL,
+  "./assets/vendor/phosphor/phosphor-local.css",
+  "./assets/vendor/phosphor/bold/style.css",
+  "./assets/vendor/phosphor/bold/Phosphor-Bold.woff2",
+  "./assets/vendor/phosphor/fill/style.css",
+  "./assets/vendor/phosphor/fill/Phosphor-Fill.woff2",
   "./assets/icons/icon-192.png",
   "./assets/icons/icon-512.png",
   "./assets/icons/apple-touch-icon.png"
 ];
-
-let workboxEnabled = false;
 
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
@@ -24,163 +29,102 @@ self.addEventListener("message", (event) => {
   }
 });
 
-try {
-  importScripts("https://storage.googleapis.com/workbox-cdn/releases/7.1.0/workbox-sw.js");
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(PRECACHE_CACHE);
+      await cache.addAll(PRECACHE_URLS);
+    })()
+  );
+  self.skipWaiting();
+});
 
-  if (self.workbox) {
-    workboxEnabled = true;
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    (async () => {
+      const cacheKeys = await caches.keys();
+      await Promise.all(
+        cacheKeys
+          .filter((key) => key !== PRECACHE_CACHE && key !== RUNTIME_CACHE)
+          .map((key) => caches.delete(key))
+      );
+      await self.clients.claim();
+    })()
+  );
+});
 
-    const { core, routing, strategies, precaching, expiration, cacheableResponse } = self.workbox;
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
 
-    core.setCacheNameDetails({
-      prefix: "consultoria",
-      suffix: "v3"
-    });
-
-    core.skipWaiting();
-    core.clientsClaim();
-
-    precaching.precacheAndRoute(
-      PRECACHE_URLS.map((url) => ({ url, revision: APP_REVISION })),
-      { cleanURLs: false }
-    );
-
-    routing.registerRoute(
-      ({ request }) => request.mode === "navigate",
-      new strategies.NetworkFirst({
-        cacheName: "pages",
-        networkTimeoutSeconds: 4,
-        plugins: [
-          new expiration.ExpirationPlugin({
-            maxEntries: 40,
-            maxAgeSeconds: 7 * 24 * 60 * 60
-          })
-        ]
-      })
-    );
-
-    routing.registerRoute(
-      ({ request, url }) =>
-        url.origin === self.location.origin &&
-        ["style", "script", "manifest", "worker"].includes(request.destination),
-      new strategies.StaleWhileRevalidate({
-        cacheName: "assets",
-        plugins: [
-          new expiration.ExpirationPlugin({
-            maxEntries: 80,
-            maxAgeSeconds: 30 * 24 * 60 * 60
-          })
-        ]
-      })
-    );
-
-    routing.registerRoute(
-      ({ request, url }) => url.origin === self.location.origin && request.destination === "image",
-      new strategies.CacheFirst({
-        cacheName: "images",
-        plugins: [
-          new cacheableResponse.CacheableResponsePlugin({ statuses: [0, 200] }),
-          new expiration.ExpirationPlugin({
-            maxEntries: 120,
-            maxAgeSeconds: 30 * 24 * 60 * 60
-          })
-        ]
-      })
-    );
-
-    routing.registerRoute(
-      ({ url }) =>
-        url.origin === "https://fonts.googleapis.com" ||
-        url.origin === "https://fonts.gstatic.com",
-      new strategies.StaleWhileRevalidate({
-        cacheName: "google-fonts",
-        plugins: [
-          new expiration.ExpirationPlugin({
-            maxEntries: 20,
-            maxAgeSeconds: 60 * 24 * 60 * 60
-          })
-        ]
-      })
-    );
-
-    routing.setCatchHandler(async ({ event }) => {
-      if (event.request.mode === "navigate") {
-        const offlinePage = await precaching.matchPrecache("./offline.html");
-        if (offlinePage) return offlinePage;
-      }
-      return Response.error();
-    });
+  const response = await fetch(request);
+  if (response && response.ok) {
+    const cache = await caches.open(RUNTIME_CACHE);
+    cache.put(request, response.clone());
   }
-} catch (err) {
-  // If Workbox CDN is blocked, fallback SW below keeps app usable.
+  return response;
 }
 
-if (!workboxEnabled) {
-  self.addEventListener("install", (event) => {
-    event.waitUntil(
-      caches.open(CACHE_VERSION).then((cache) => cache.addAll(PRECACHE_URLS))
-    );
-    self.skipWaiting();
-  });
+async function staleWhileRevalidate(request) {
+  const cache = await caches.open(RUNTIME_CACHE);
+  const cached = await cache.match(request);
 
-  self.addEventListener("activate", (event) => {
-    event.waitUntil(
-      caches.keys().then((keys) =>
-        Promise.all(
-          keys
-            .filter((key) => key !== CACHE_VERSION && key !== RUNTIME_CACHE)
-            .map((key) => caches.delete(key))
-        )
-      )
-    );
-    self.clients.claim();
-  });
+  const networkPromise = fetch(request)
+    .then((response) => {
+      if (response && response.ok) {
+        cache.put(request, response.clone());
+      }
+      return response;
+    })
+    .catch(() => null);
 
-  self.addEventListener("fetch", (event) => {
-    const { request } = event;
-    if (request.method !== "GET") return;
-
-    const url = new URL(request.url);
-    const isSameOrigin = url.origin === self.location.origin;
-
-    if (request.mode === "navigate") {
-      event.respondWith(
-        fetch(request)
-          .then((response) => {
-            const responseClone = response.clone();
-            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, responseClone));
-            return response;
-          })
-          .catch(async () => {
-            const cachedPage = await caches.match(request);
-            if (cachedPage) return cachedPage;
-            const home = await caches.match("./index.html");
-            if (home) return home;
-            return caches.match("./offline.html");
-          })
-      );
-      return;
-    }
-
-    if (!isSameOrigin) return;
-
-    const cacheableDestinations = ["style", "script", "image", "font", "manifest"];
-    if (cacheableDestinations.includes(request.destination)) {
-      event.respondWith(
-        caches.match(request).then((cached) => {
-          const networkFetch = fetch(request)
-            .then((response) => {
-              if (response && response.ok) {
-                const clone = response.clone();
-                caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, clone));
-              }
-              return response;
-            })
-            .catch(() => cached);
-
-          return cached || networkFetch;
-        })
-      );
-    }
-  });
+  if (cached) return cached;
+  const network = await networkPromise;
+  return network || Response.error();
 }
+
+async function navigationResponse(request) {
+  const cache = await caches.open(RUNTIME_CACHE);
+  const cached =
+    (await cache.match(request, { ignoreSearch: true })) ||
+    (await caches.match("./index.html"));
+
+  const networkPromise = fetch(request)
+    .then((response) => {
+      if (response && response.ok) {
+        cache.put(request, response.clone());
+      }
+      return response;
+    })
+    .catch(() => null);
+
+  if (cached) return cached;
+
+  const network = await networkPromise;
+  if (network) return network;
+
+  const offline = await caches.match(OFFLINE_URL);
+  return offline || Response.error();
+}
+
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  if (request.method !== "GET") return;
+
+  const url = new URL(request.url);
+
+  if (request.mode === "navigate") {
+    event.respondWith(navigationResponse(request));
+    return;
+  }
+
+  if (url.origin !== self.location.origin) return;
+
+  const staticDestinations = ["style", "script", "image", "font", "manifest", "worker"];
+  if (staticDestinations.includes(request.destination)) {
+    event.respondWith(cacheFirst(request));
+    return;
+  }
+
+  event.respondWith(staleWhileRevalidate(request));
+});

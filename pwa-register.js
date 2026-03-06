@@ -5,7 +5,7 @@
   window.addEventListener("load", async () => {
     const hadController = !!navigator.serviceWorker.controller;
     try {
-      const registration = await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+      const registration = await navigator.serviceWorker.register("./service-worker.js", { scope: "./" });
 
       const activateWaitingWorker = () => {
         if (registration.waiting) {
