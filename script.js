@@ -6,29 +6,218 @@
 }
 
 const ADMIN_STUDENT_CODE = '12345';
-const ADMIN_STUDENT_NAME = 'Aluno Admin';
+const ADMIN_STUDENT_NAME = 'Nicolas';
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const DEMO_WORKOUT_BLOCKS = [
+    {
+        title: 'Treino A - Peito e Triceps',
+        exercises: [
+            { nome: 'Supino Reto Barra', series: '4', reps: '8', carga: '40', descanso: '60s', observacao: 'Controle a descida em 2 segundos.', substitutes: ['Supino Halter', 'Supino Maquina'], supersetWithNext: false },
+            { nome: 'Crucifixo Inclinado', series: '3', reps: '12', carga: '14', descanso: '45s', observacao: 'Amplitude completa sem perder controle.', substitutes: ['Peck Deck'], supersetWithNext: false },
+            { nome: 'Triceps Corda', series: '3', reps: '12', carga: '20', descanso: '45s', observacao: 'Cotovelos fixos ao lado do corpo.', substitutes: ['Triceps Barra V'], supersetWithNext: false }
+        ]
+    },
+    {
+        title: 'Treino B - Costas e Biceps',
+        exercises: [
+            { nome: 'Puxada Alta Frente', series: '4', reps: '10', carga: '45', descanso: '60s', observacao: 'Puxe para o peitoral mantendo tronco estavel.', substitutes: ['Puxada Neutra'], supersetWithNext: false },
+            { nome: 'Remada Curvada', series: '3', reps: '10', carga: '35', descanso: '60s', observacao: 'Mantenha lombar neutra.', substitutes: ['Remada Serrote'], supersetWithNext: false },
+            { nome: 'Rosca Direta', series: '3', reps: '12', carga: '20', descanso: '45s', observacao: 'Evite balancar o corpo.', substitutes: ['Rosca Alternada'], supersetWithNext: false }
+        ]
+    }
+];
+
+const DEMO_MEAL_BLOCKS = [
+    {
+        name: 'Cafe da Manha',
+        items: [
+            { nome: 'Ovos mexidos', qtd: '3 un', kcal: 240, prot: 18, carb: 2, gord: 16 },
+            { nome: 'Aveia', qtd: '40 g', kcal: 154, prot: 5, carb: 26, gord: 3 }
+        ]
+    },
+    {
+        name: 'Almoco',
+        items: [
+            { nome: 'Frango grelhado', qtd: '180 g', kcal: 297, prot: 55, carb: 0, gord: 6 },
+            { nome: 'Arroz', qtd: '140 g', kcal: 182, prot: 4, carb: 39, gord: 0 }
+        ]
+    }
+];
+
+function readStorageJSON(key, fallback = []) {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(fallback) && !Array.isArray(parsed)) return fallback;
+        if (
+            fallback &&
+            typeof fallback === 'object' &&
+            !Array.isArray(fallback) &&
+            (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+        ) {
+            return fallback;
+        }
+        return parsed ?? fallback;
+    } catch (err) {
+        console.warn(`Falha ao ler localStorage["${key}"]`, err);
+        return fallback;
+    }
+}
+
+function sanitizeUserInput(value, options = {}) {
+    const allowNewlines = !!options.allowNewlines;
+    const maxLen = Number.isFinite(options.maxLen) ? Number(options.maxLen) : 300;
+    if (value === null || value === undefined) return '';
+
+    let clean = String(value)
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+        .replace(/[<>`]/g, '');
+
+    if (allowNewlines) {
+        clean = clean.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n');
+    } else {
+        clean = clean.replace(/\s+/g, ' ');
+    }
+
+    clean = clean.trim();
+    if (maxLen > 0) clean = clean.slice(0, maxLen);
+    return clean;
+}
+
+function sanitizeEmailInput(value) {
+    return sanitizeUserInput(value, { maxLen: 254 }).toLowerCase();
+}
+
+function sanitizeCodeInput(value, length = 5) {
+    return String(value || '').replace(/\D/g, '').slice(0, length);
+}
+
+function sanitizeFormFields(form) {
+    if (!(form instanceof HTMLFormElement)) return;
+
+    const fields = form.querySelectorAll('input, textarea');
+    fields.forEach((field) => {
+        if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement)) return;
+        if (field.disabled || field.readOnly) return;
+        if (field instanceof HTMLInputElement && (field.type === 'password' || field.type === 'file')) return;
+
+        if (field instanceof HTMLInputElement && field.type === 'email') {
+            field.value = sanitizeEmailInput(field.value);
+            return;
+        }
+
+        if (field instanceof HTMLInputElement && field.type === 'tel') {
+            const maxLength = field.maxLength > 0 ? field.maxLength : 20;
+            field.value = String(field.value || '').replace(/\D/g, '').slice(0, maxLength);
+            return;
+        }
+
+        if (field instanceof HTMLInputElement && field.type === 'number') {
+            field.value = String(field.value || '').replace(/[^\d.,-]/g, '').trim();
+            return;
+        }
+
+        if (field instanceof HTMLTextAreaElement) {
+            field.value = sanitizeUserInput(field.value, { allowNewlines: true, maxLen: 2000 });
+            return;
+        }
+
+        field.value = sanitizeUserInput(field.value, { maxLen: 180 });
+    });
+}
+
+function validateFormFields(form) {
+    if (!(form instanceof HTMLFormElement)) return true;
+
+    const emailFields = form.querySelectorAll('input[type="email"]');
+    for (const emailField of emailFields) {
+        if (!(emailField instanceof HTMLInputElement)) continue;
+        const value = sanitizeEmailInput(emailField.value);
+        emailField.value = value;
+        if (value && !EMAIL_REGEX.test(value)) {
+            emailField.setCustomValidity('Informe um e-mail válido.');
+            emailField.reportValidity();
+            return false;
+        }
+        emailField.setCustomValidity('');
+    }
+
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return false;
+    }
+
+    return true;
+}
+
+function setupClientSideFormProtection() {
+    if (document.documentElement.dataset.formsGuardInit === '1') return;
+    document.documentElement.dataset.formsGuardInit = '1';
+
+    document.addEventListener('submit', (event) => {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement)) return;
+
+        sanitizeFormFields(form);
+        const isValid = validateFormFields(form);
+        if (!isValid) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }, true);
+}
 
 function ensureAdminStudent() {
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
-    const exists = students.some(s => s.id === ADMIN_STUDENT_CODE);
-    if (exists) return;
+    const students = readStorageJSON('trainerStudents', []);
+    const nowIso = new Date().toISOString();
+    const baselineMetric = {
+        date: nowIso,
+        weight: 78,
+        bodyFat: 17,
+        height: 178
+    };
 
-    students.push({
+    const demoStudent = {
         id: ADMIN_STUDENT_CODE,
         name: ADMIN_STUDENT_NAME,
-        age: '25',
+        age: '28',
+        gender: 'M',
         goal: 'Hipertrofia',
-        weight: '75',
-        height: '175',
+        weight: '78',
+        height: '178',
+        bodyFat: '17',
         status: 'Ativo',
-        active: false,
-        dailyKcal: 2200,
-        workoutBlocks: [],
-        mealBlocks: [],
+        active: true,
+        pending: false,
+        dailyKcal: 2500,
         trainerCode: '00001',
-        progressLogs: [{ date: new Date().toISOString().slice(0, 10), weight: 75, notes: 'Perfil admin padrão.' }],
+        workoutBlocks: DEMO_WORKOUT_BLOCKS,
+        mealBlocks: DEMO_MEAL_BLOCKS,
+        metricHistory: [baselineMetric],
+        progressLogs: [{ date: new Date().toISOString().slice(0, 10), weight: 78, notes: 'Perfil demo Beta inicial.' }],
         personalRecords: {}
-    });
+    };
+
+    const idx = students.findIndex(s => s.id === ADMIN_STUDENT_CODE);
+    if (idx === -1) {
+        students.push(demoStudent);
+    } else {
+        const current = students[idx] || {};
+        students[idx] = {
+            ...demoStudent,
+            ...current,
+            id: ADMIN_STUDENT_CODE,
+            name: ADMIN_STUDENT_NAME,
+            active: true,
+            pending: false,
+            trainerCode: current.trainerCode || '00001',
+            workoutBlocks: Array.isArray(current.workoutBlocks) && current.workoutBlocks.length > 0 ? current.workoutBlocks : DEMO_WORKOUT_BLOCKS,
+            mealBlocks: Array.isArray(current.mealBlocks) && current.mealBlocks.length > 0 ? current.mealBlocks : DEMO_MEAL_BLOCKS,
+            metricHistory: Array.isArray(current.metricHistory) && current.metricHistory.length > 0 ? current.metricHistory : [baselineMetric]
+        };
+    }
 
     localStorage.setItem('trainerStudents', JSON.stringify(students));
 }
@@ -52,7 +241,9 @@ function logout() {
 }
 
 // â”€â”€â”€ Real-Time Sync (Cross-Tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const syncChannel = new BroadcastChannel('consultoria_sync');
+const syncChannel = typeof BroadcastChannel !== 'undefined'
+    ? new BroadcastChannel('consultoria_sync')
+    : { postMessage: () => { }, onmessage: null };
 
 syncChannel.onmessage = (event) => {
     const { type, payload } = event.data;
@@ -95,6 +286,7 @@ syncChannel.onmessage = (event) => {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+    setupClientSideFormProtection();
     ensureAdminStudent();
 
     // Prevent # anchors from jumping the page in app navigation
@@ -135,7 +327,7 @@ window.addEventListener('storage', (e) => {
 
             // If a profile is open, refresh its data too
             if (currentStudentIdx !== null) {
-                const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+                const students = readStorageJSON('trainerStudents', []);
                 if (students[currentStudentIdx]) {
                     // Update global cached blocks before re-rendering
                     workoutBlocks = students[currentStudentIdx].workoutBlocks || [];
@@ -168,7 +360,7 @@ function copyAccessCode(elementId, btnId) {
     const code = document.getElementById(elementId)?.innerText;
     if (!code) return;
 
-    navigator.clipboard.writeText(code).then(() => {
+    const applyCopiedFeedback = () => {
         const btn = document.getElementById(btnId);
         if (btn) {
             const originalIcon = btn.innerHTML;
@@ -177,7 +369,26 @@ function copyAccessCode(elementId, btnId) {
                 btn.innerHTML = originalIcon;
             }, 2000);
         }
-    });
+    };
+
+    const fallbackCopy = () => {
+        const temp = document.createElement('textarea');
+        temp.value = code;
+        temp.setAttribute('readonly', '');
+        temp.style.position = 'fixed';
+        temp.style.opacity = '0';
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+        applyCopiedFeedback();
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(applyCopiedFeedback).catch(fallbackCopy);
+    } else {
+        fallbackCopy();
+    }
 }
 
 // Alias for trainer dashboard
@@ -256,10 +467,15 @@ function toggleElement(id) {
 // â”€â”€â”€ Authentication Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function handleEmailLogin() {
-    const email = document.getElementById('login-email').value.trim().toLowerCase();
+    const email = sanitizeEmailInput(document.getElementById('login-email')?.value);
     const pass = document.getElementById('login-pass').value;
 
-    const users = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+    if (!EMAIL_REGEX.test(email)) {
+        alert('Informe um e-mail válido.');
+        return;
+    }
+
+    const users = readStorageJSON('registeredUsers', []);
     const user = users.find(u => String(u.email || '').trim().toLowerCase() === email && u.password === pass);
 
     if (user) {
@@ -270,12 +486,12 @@ function handleEmailLogin() {
 }
 
 function handleProfileCreation() {
-    const name = document.getElementById('reg-name').value.trim();
-    const email = document.getElementById('reg-email').value.trim().toLowerCase();
+    const name = sanitizeUserInput(document.getElementById('reg-name')?.value, { maxLen: 90 });
+    const email = sanitizeEmailInput(document.getElementById('reg-email')?.value);
     const pass = document.getElementById('reg-pass').value;
     const passConfirm = document.getElementById('reg-pass-confirm')?.value || '';
     const acceptedTerms = !!document.getElementById('reg-terms')?.checked;
-    const role = document.querySelector('input[name="reg-role"]:checked').value;
+    const role = document.querySelector('input[name="reg-role"]:checked')?.value || 'student';
 
     if (!name || !email || !pass || !passConfirm) {
         alert('Preencha todos os campos para criar sua conta.');
@@ -287,8 +503,7 @@ function handleProfileCreation() {
         return;
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!EMAIL_REGEX.test(email)) {
         alert('Informe um e-mail valido.');
         return;
     }
@@ -310,7 +525,7 @@ function handleProfileCreation() {
         return;
     }
 
-    let users = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+    let users = readStorageJSON('registeredUsers', []);
     if (users.some(u => String(u.email || '').trim().toLowerCase() === email)) {
         alert('Este e-mail já está cadastrado.');
         return;
@@ -353,14 +568,16 @@ function handleGoogleLogin() {
 }
 
 function processLogin(user) {
+    const safeUserName = sanitizeUserInput(user?.name || 'Aluno', { maxLen: 90 }) || 'Aluno';
+
     if (user.role === 'trainer') {
         // Find or create a trainer code for this user
         let trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
-        localStorage.setItem('trainerName', user.name.split(' ')[0]);
+        localStorage.setItem('trainerName', safeUserName.split(' ')[0]);
         localStorage.setItem('currentTrainerCode', trainerCode);
         window.location.href = 'trainer.html';
     } else {
-        localStorage.setItem('studentName', user.name);
+        localStorage.setItem('studentName', safeUserName);
         // Find if this user already has an ID, or generate one
         let studentId = localStorage.getItem('currentStudentId') || Math.floor(10000 + Math.random() * 90000).toString();
         if (studentId === ADMIN_STUDENT_CODE) {
@@ -383,6 +600,14 @@ let trainerAudioRecorder = null;
 let trainerAudioChunks = [];
 let trainerRecordingActive = false;
 
+window.addEventListener('blur', () => {
+    if (trainerRecordingActive) stopTrainerHoldRecord();
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && trainerRecordingActive) stopTrainerHoldRecord();
+});
+
 function switchStudentView(view) {
     const views = ['home', 'treino', 'dieta', 'perfil', 'log-workout', 'workout-summary'];
     views.forEach(v => {
@@ -403,7 +628,7 @@ function switchStudentView(view) {
 
 function renderStudentWorkoutMain() {
     const studentId = localStorage.getItem('currentStudentId');
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
 
     const tabsNav = document.getElementById('workout-tabs-nav');
@@ -555,62 +780,234 @@ function switchTreinoSubview(view) {
     }
 }
 
+let studentChatUploadTimer = null;
+
+function getStudentChatStorageKey(studentId) {
+    return `student_chat_beta_${studentId || 'anon'}`;
+}
+
+function buildStudentChatFromNotifications(studentId, studentName) {
+    const notifications = readStorageJSON('trainerNotifications', []);
+    const related = notifications
+        .filter(n => n.type === 'duvida' && ((studentId && n.studentId === studentId) || String(n.title || '').includes(studentName)))
+        .sort((a, b) => getNotificationActivityDate(a) - getNotificationActivityDate(b));
+
+    const mapped = [];
+    related.forEach((item, idx) => {
+        const baseId = `${item.studentId || studentId || 'unknown'}-${item.time || idx}`;
+        if (!item.fromTrainerOnly && item.desc) {
+            mapped.push({
+                id: `n-${baseId}-q`,
+                sender: 'student',
+                type: 'text',
+                text: item.desc,
+                time: item.time || new Date().toISOString()
+            });
+        }
+        if (item.reply) {
+            mapped.push({
+                id: `n-${baseId}-r`,
+                sender: 'trainer',
+                type: item.replyMedia?.type === 'video' ? 'video' : item.replyMedia?.type === 'audio' ? 'audio' : 'text',
+                text: item.reply,
+                time: item.repliedAt || item.time || new Date().toISOString()
+            });
+        } else if (item.fromTrainerOnly && item.desc) {
+            mapped.push({
+                id: `n-${baseId}-t`,
+                sender: 'trainer',
+                type: 'text',
+                text: item.desc,
+                time: item.time || new Date().toISOString()
+            });
+        }
+    });
+    return mapped;
+}
+
+function loadStudentChatMessages(studentId, studentName) {
+    const storageKey = getStudentChatStorageKey(studentId);
+    const localMsgs = readStorageJSON(storageKey, []);
+    const notifMsgs = buildStudentChatFromNotifications(studentId, studentName);
+    const map = new Map();
+
+    [...localMsgs, ...notifMsgs].forEach((msg) => {
+        if (!msg || !msg.id) return;
+        map.set(msg.id, msg);
+    });
+
+    const merged = Array.from(map.values()).sort((a, b) => new Date(a.time) - new Date(b.time));
+    localStorage.setItem(storageKey, JSON.stringify(merged));
+    return merged;
+}
+
+function saveStudentChatMessages(studentId, messages) {
+    localStorage.setItem(getStudentChatStorageKey(studentId), JSON.stringify(messages || []));
+}
+
+function renderStudentChatBubble(msg) {
+    const senderClass = msg.sender === 'trainer' ? 'from-trainer' : 'from-student';
+    let contentHtml = '';
+
+    if (msg.type === 'audio') {
+        contentHtml = `
+            <div class="sc-media-fake audio">
+                <i class="ph-fill ph-waveform"></i>
+                <div class="sc-media-track"><span style="width: 68%"></span></div>
+                <small>00:12</small>
+            </div>
+            ${msg.text ? `<p>${formatChatMessageText(msg.text)}</p>` : ''}
+        `;
+    } else if (msg.type === 'video') {
+        contentHtml = `
+            <div class="sc-media-fake video">
+                <div class="sc-video-thumb">
+                    <i class="ph-fill ph-play-circle"></i>
+                </div>
+                <div class="sc-media-track"><span style="width: 54%"></span></div>
+            </div>
+            ${msg.text ? `<p>${formatChatMessageText(msg.text)}</p>` : ''}
+        `;
+    } else {
+        contentHtml = `<p>${formatChatMessageText(msg.text || '')}</p>`;
+    }
+
+    return `
+        <div class="student-chat-msg ${senderClass}">
+            <div class="sc-bubble">
+                ${contentHtml}
+                <div class="sc-meta">
+                    <span class="sc-time">${formatChatTime(msg.time)}</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function sendStudentQuickMessage() {
+    const studentId = localStorage.getItem('currentStudentId');
+    const studentName = localStorage.getItem('studentName') || 'Aluno';
+    const input = document.getElementById('student-chat-input');
+    if (!studentId || !input) return;
+
+    const text = sanitizeUserInput(input.value, { allowNewlines: true, maxLen: 900 });
+    if (!text) return;
+
+    const messages = loadStudentChatMessages(studentId, studentName);
+    messages.push({
+        id: `m-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        sender: 'student',
+        type: 'text',
+        text,
+        time: new Date().toISOString()
+    });
+    saveStudentChatMessages(studentId, messages);
+    input.value = '';
+    renderStudentDuvidas();
+}
+
+function simulateStudentMediaUpload(kind = 'audio') {
+    const studentId = localStorage.getItem('currentStudentId');
+    const studentName = localStorage.getItem('studentName') || 'Aluno';
+    if (!studentId) return;
+
+    const uploadBox = document.getElementById('student-chat-upload');
+    const bar = document.getElementById('student-chat-upload-bar');
+    const label = document.getElementById('student-chat-upload-label');
+    if (!uploadBox || !bar || !label) return;
+
+    const mediaLabel = kind === 'video' ? 'vídeo' : 'áudio';
+    let progress = 0;
+    uploadBox.style.display = 'flex';
+    bar.style.width = '0%';
+    label.textContent = `Enviando ${mediaLabel}... 0%`;
+
+    if (studentChatUploadTimer) clearInterval(studentChatUploadTimer);
+    studentChatUploadTimer = setInterval(() => {
+        progress = Math.min(100, progress + (6 + Math.random() * 18));
+        bar.style.width = `${progress}%`;
+        label.textContent = `Enviando ${mediaLabel}... ${Math.round(progress)}%`;
+
+        if (progress >= 100) {
+            clearInterval(studentChatUploadTimer);
+            studentChatUploadTimer = null;
+
+            const messages = loadStudentChatMessages(studentId, studentName);
+            messages.push({
+                id: `m-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+                sender: 'student',
+                type: kind === 'video' ? 'video' : 'audio',
+                text: kind === 'video' ? '[Video simulado enviado]' : '[Audio simulado enviado]',
+                time: new Date().toISOString()
+            });
+            saveStudentChatMessages(studentId, messages);
+
+            setTimeout(() => {
+                uploadBox.style.display = 'none';
+                bar.style.width = '0%';
+                renderStudentDuvidas();
+            }, 220);
+        }
+    }, 220);
+}
+
 function renderStudentDuvidas() {
     const listEl = document.getElementById('student-duvidas-list');
     if (!listEl) return;
 
     const studentId = localStorage.getItem('currentStudentId');
     const studentName = localStorage.getItem('studentName') || 'Aluno';
-    const notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    const messages = loadStudentChatMessages(studentId, studentName);
 
-    // Prefer studentId for precision. Keep name fallback for older messages.
-    const myDuvidas = notifications
-        .filter(n => n.type === 'duvida' && ((studentId && n.studentId === studentId) || n.title.includes(studentName)))
-        .sort((a, b) => new Date(b.time) - new Date(a.time));
-
-    if (myDuvidas.length === 0) {
-        listEl.innerHTML = `
-            <div class="empty-state-card" style="margin-top:0; border-color: rgba(255,255,255,0.03);">
-                <i class="ph-bold ph-chat-circle-dots" style="font-size: 1.5rem; opacity: 0.5;"></i>
-                <p style="font-size: 0.8rem; color: var(--text-muted);">Voce ainda nao enviou duvidas.</p>
+    listEl.innerHTML = `
+        <div class="student-chat-demo-wrap">
+            <div id="student-chat-thread" class="student-chat-thread">
+                ${messages.length === 0
+            ? `<div class="empty-state-card" style="margin-top:0;border-color:rgba(255,255,255,0.03);">
+                            <i class="ph-bold ph-chat-circle-dots" style="font-size:1.5rem;opacity:0.5;"></i>
+                            <p style="font-size:0.8rem;color:var(--text-muted);">Envie uma mensagem para iniciar o chat de dúvidas.</p>
+                        </div>`
+            : messages.map(renderStudentChatBubble).join('')
+        }
             </div>
-        `;
-        return;
-    }
 
-    listEl.innerHTML = myDuvidas.map(d => `
-        <div class="student-duvida-card">
-            <div class="sdc-header">
-                <span class="sdc-time">${formatChatTime(d.time)}</span>
-                ${d.reply ? '<span class="sdc-status-replied"><i class="ph-fill ph-check-circle"></i> Respondido</span>' : '<span class="sdc-status-pending"><i class="ph-bold ph-clock"></i> Pendente</span>'}
+            <div id="student-chat-upload" class="student-chat-upload" style="display:none;">
+                <span id="student-chat-upload-label">Enviando...</span>
+                <div class="student-chat-upload-track">
+                    <div id="student-chat-upload-bar" class="student-chat-upload-bar"></div>
+                </div>
             </div>
-            <div class="sdc-body">
-                ${!d.fromTrainerOnly ? `
-                    <p class="sdc-text">
-                        <i class="ph-bold ph-question"></i> ${formatChatMessageText(d.desc)}
-                    </p>
-                ` : ''}
-                ${d.reply ? `
-                    <div class="sdc-reply">
-                        <div class="sdc-reply-header">
-                            <i class="ph-fill ph-user-circle"></i>
-                            <strong>Resposta do Treinador:</strong>
-                        </div>
-                        <p>${formatChatMessageText(d.reply)}</p>
-                    </div>
-                ` : ''}
+
+            <div class="student-chat-compose">
+                <textarea id="student-chat-input" class="q-input" rows="2" maxlength="900"
+                    placeholder="Digite sua dúvida aqui..."
+                    onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendStudentQuickMessage();}"></textarea>
+                <div class="student-chat-actions">
+                    <button type="button" class="btn-secondary-outline" onclick="simulateStudentMediaUpload('audio')">
+                        <i class="ph-bold ph-waveform"></i> Simular Áudio
+                    </button>
+                    <button type="button" class="btn-secondary-outline" onclick="simulateStudentMediaUpload('video')">
+                        <i class="ph-bold ph-video-camera"></i> Simular Vídeo
+                    </button>
+                    <button type="button" class="btn-primary" onclick="sendStudentQuickMessage()">
+                        <i class="ph-fill ph-paper-plane-right"></i> Enviar
+                    </button>
+                </div>
             </div>
         </div>
-    `).join('');
+    `;
+
+    const thread = document.getElementById('student-chat-thread');
+    if (thread) thread.scrollTop = thread.scrollHeight;
 }
 
 function renderWorkoutHistory() {
     const studentId = localStorage.getItem('currentStudentId');
-    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]')
+    const history = readStorageJSON('workoutHistory', [])
         .filter(w => w.ID_Usuario === studentId)
         .reverse();
 
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
     const prs = student?.personalRecords || {};
     const totalPRs = Object.values(prs).reduce((sum, pr) => {
@@ -698,7 +1095,7 @@ function renderWorkoutHistory() {
 
 function openHistoryDetail(originalIdx) {
     const studentId = localStorage.getItem('currentStudentId');
-    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]')
+    const history = readStorageJSON('workoutHistory', [])
         .filter(w => w.ID_Usuario === studentId);
 
     const workout = history[originalIdx];
@@ -833,7 +1230,7 @@ function openExerciseProgressModalEncoded(encodedName) {
 }
 
 function getExerciseProgressSeries(studentId, exerciseName) {
-    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]')
+    const history = readStorageJSON('workoutHistory', [])
         .filter(h => h.ID_Usuario === studentId)
         .sort((a, b) => new Date(a.Data_Treino) - new Date(b.Data_Treino));
 
@@ -903,7 +1300,7 @@ function confirmDeleteWorkout(idx) {
 }
 
 function deleteWorkoutEntry(idx) {
-    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+    const history = readStorageJSON('workoutHistory', []);
     history.splice(idx, 1);
     localStorage.setItem('workoutHistory', JSON.stringify(history));
     renderWorkoutHistory();
@@ -920,7 +1317,7 @@ function confirmDeleteMetric(idxInHistory) {
 
 function deleteMetricEntry(idx) {
     const studentId = localStorage.getItem('currentStudentId');
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const students = readStorageJSON('trainerStudents', []);
     const sIdx = students.findIndex(s => s.id === studentId);
 
     if (sIdx !== -1) {
@@ -958,7 +1355,7 @@ function closeDuvidaModal() {
 
 function enviarDuvida() {
     const assunto = document.getElementById('duvida-assunto')?.value || 'outro';
-    const texto = document.getElementById('duvida-texto')?.value.trim();
+    const texto = sanitizeUserInput(document.getElementById('duvida-texto')?.value, { allowNewlines: true, maxLen: 1200 });
 
     if (!texto) {
         alert('Por favor, descreva sua dúvida.');
@@ -977,7 +1374,7 @@ function enviarDuvida() {
     const studentId = localStorage.getItem('currentStudentId');
 
     // Send as notification to trainer
-    let notifs = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    let notifs = readStorageJSON('trainerNotifications', []);
     notifs.unshift({
         type: 'duvida',
         studentId: studentId,
@@ -1024,7 +1421,7 @@ function getMuscleGroups(exercises) {
 
 function renderStudentDietMain() {
     const studentId = localStorage.getItem('currentStudentId');
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
 
     const container = document.getElementById('student-diet-content-main');
@@ -1059,7 +1456,9 @@ function renderStudentDietMain() {
 }
 
 function handleUnifiedLogin() {
-    const code = document.getElementById('global-code').value;
+    const code = sanitizeCodeInput(document.getElementById('global-code')?.value, 5);
+    const codeInput = document.getElementById('global-code');
+    if (codeInput) codeInput.value = code;
     if (code.length !== 5) {
         alert('Digite o código de 5 dígitos.');
         return;
@@ -1068,9 +1467,11 @@ function handleUnifiedLogin() {
     // 1. Aluno admin fixo
     if (code === ADMIN_STUDENT_CODE) {
         ensureAdminStudent();
+        const students = readStorageJSON('trainerStudents', []);
+        const adminStudent = students.find(s => s.id === ADMIN_STUDENT_CODE);
         localStorage.setItem('currentStudentId', ADMIN_STUDENT_CODE);
-        localStorage.setItem('studentName', ADMIN_STUDENT_NAME);
-        localStorage.setItem('connectedTrainerCode', '00001');
+        localStorage.setItem('studentName', adminStudent?.name || ADMIN_STUDENT_NAME);
+        localStorage.setItem('connectedTrainerCode', adminStudent?.trainerCode || '00001');
 
         hideAllScreens();
         document.getElementById('app').classList.add('wide');
@@ -1080,7 +1481,7 @@ function handleUnifiedLogin() {
     }
 
     // 2. Check Trainer (Admin or allTrainers)
-    const trainers = JSON.parse(localStorage.getItem('allTrainers') || '[]');
+    const trainers = readStorageJSON('allTrainers', []);
     const isTrainer = trainers.some(t => t.code === code) || code === '00001';
 
     if (isTrainer) {
@@ -1092,7 +1493,7 @@ function handleUnifiedLogin() {
     }
 
     // 3. Check Student
-    const allStudents = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const allStudents = readStorageJSON('trainerStudents', []);
     const student = allStudents.find(s => s.id === code);
 
     if (student) {
@@ -1115,9 +1516,28 @@ function handleUnifiedLogin() {
 let pendingTrainerCode = '';
 
 function connectStudent() {
-    const code = document.getElementById('trainer-code').value;
+    const code = sanitizeCodeInput(document.getElementById('trainer-code')?.value, 5);
+    const codeInput = document.getElementById('trainer-code');
+    if (codeInput) codeInput.value = code;
     if (code.length !== 5) {
         alert('O código deve ter exatamente 5 dígitos.');
+        return;
+    }
+
+    // Demo Beta login direto do aluno pelo botao "Conectar"
+    if (code === ADMIN_STUDENT_CODE) {
+        ensureAdminStudent();
+        const students = readStorageJSON('trainerStudents', []);
+        const adminStudent = students.find(s => s.id === ADMIN_STUDENT_CODE);
+        localStorage.setItem('currentStudentId', ADMIN_STUDENT_CODE);
+        localStorage.setItem('studentName', adminStudent?.name || ADMIN_STUDENT_NAME);
+        localStorage.setItem('connectedTrainerCode', adminStudent?.trainerCode || '00001');
+
+        hideAllScreens();
+        document.getElementById('app').classList.add('wide');
+        document.getElementById('student-dashboard-screen').classList.add('active');
+        initStudentDashboard();
+        switchStudentView('home');
         return;
     }
 
@@ -1130,7 +1550,7 @@ function connectStudent() {
         consultoriaName = 'Admin Consultoria';
     } else {
         // Search in trainer data
-        const trainers = JSON.parse(localStorage.getItem('allTrainers') || '[]');
+        const trainers = readStorageJSON('allTrainers', []);
         const t = trainers.find(x => x.code === code);
         if (t) {
             coachName = t.name;
@@ -1172,15 +1592,28 @@ function switchQTab(tabName) {
 
 function submitQuestionnaire() {
     // Collect specific student data
-    const nome = document.getElementById('q_nome')?.value.trim() || 'Aluno';
-    const age = document.getElementById('q_idade')?.value || '25';
+    const nome = sanitizeUserInput(document.getElementById('q_nome')?.value, { maxLen: 90 }) || 'Aluno';
+    const ageRaw = parseInt(document.getElementById('q_idade')?.value, 10);
+    const age = String(Number.isFinite(ageRaw) ? Math.min(100, Math.max(10, ageRaw)) : 25);
     const gender = document.getElementById('q_genero')?.value || 'M';
-    const weight = document.getElementById('q_peso')?.value || '70';
-    const height = document.getElementById('q_altura')?.value || '175';
-    const goal = document.getElementById('q_objetivo')?.value || 'Hipertrofia';
+    const weightRaw = parseFloat(String(document.getElementById('q_peso')?.value || '').replace(',', '.'));
+    const heightRaw = parseFloat(String(document.getElementById('q_altura')?.value || '').replace(',', '.'));
+    const weight = String(Number.isFinite(weightRaw) ? Math.min(350, Math.max(20, weightRaw)) : 70);
+    const height = String(Number.isFinite(heightRaw) ? Math.min(250, Math.max(100, heightRaw)) : 175);
+    const goal = sanitizeUserInput(document.getElementById('q_objetivo')?.value, { maxLen: 120 }) || 'Hipertrofia';
+
+    if (nome.length < 2) {
+        alert('Informe seu nome para continuar.');
+        return;
+    }
+
+    if (!pendingTrainerCode || pendingTrainerCode.length !== 5) {
+        alert('Conexão com treinador inválida. Refaça o processo de conexão.');
+        return;
+    }
 
     let id = Math.floor(10000 + Math.random() * 90000).toString();
-    const usedIds = new Set((JSON.parse(localStorage.getItem('trainerStudents') || '[]')).map(s => String(s.id)));
+    const usedIds = new Set((readStorageJSON('trainerStudents', [])).map(s => String(s.id)));
     while (id === ADMIN_STUDENT_CODE || usedIds.has(id)) {
         id = Math.floor(10000 + Math.random() * 90000).toString();
     }
@@ -1196,14 +1629,20 @@ function submitQuestionnaire() {
         pending: true,
         trainerCode: pendingTrainerCode, // Store for re-login
         joinedAt: new Date().toISOString(),
+        metricHistory: [{
+            date: new Date().toISOString(),
+            weight: parseFloat(weight),
+            height: parseFloat(height),
+            bodyFat: null
+        }],
         personalRecords: {} // Initialize PRs
     };
 
-    let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    let students = readStorageJSON('trainerStudents', []);
     students.push(newStudent);
     localStorage.setItem('trainerStudents', JSON.stringify(students));
 
-    let notifs = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    let notifs = readStorageJSON('trainerNotifications', []);
     notifs.unshift({
         type: 'questionnaire',
         title: 'Questionário Respondido!',
@@ -1248,7 +1687,7 @@ function initStudentDashboard() {
         return;
     }
 
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
 
     if (student && student.active) {
@@ -1313,7 +1752,7 @@ function setProtocolStatus(isReady) {
 // Detail Views for Students
 function openStudentWorkout() {
     const studentId = localStorage.getItem('currentStudentId');
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
 
     if (!student || !student.workoutBlocks) return;
@@ -1354,7 +1793,7 @@ function closeStudentWorkout() {
 
 function openStudentDiet() {
     const studentId = localStorage.getItem('currentStudentId');
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
 
     if (!student || !student.mealBlocks) return;
@@ -1396,7 +1835,7 @@ let _perfilModalField = '';
 
 function getStudentData() {
     const studentId = localStorage.getItem('currentStudentId');
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const students = readStorageJSON('trainerStudents', []);
     return { studentId, students, student: students.find(s => s.id === studentId) };
 }
 
@@ -1879,9 +2318,10 @@ function savePerfilUpdate() {
             changed = true;
         }
     } else if (_perfilModalField === 'geral') {
-        const nome = document.getElementById('modal-nome')?.value.trim();
-        const idade = document.getElementById('modal-idade')?.value;
-        const objetivo = document.getElementById('modal-objetivo')?.value.trim();
+        const nome = sanitizeUserInput(document.getElementById('modal-nome')?.value, { maxLen: 90 });
+        const idadeRaw = parseInt(document.getElementById('modal-idade')?.value, 10);
+        const idade = Number.isFinite(idadeRaw) ? String(Math.min(100, Math.max(10, idadeRaw))) : '';
+        const objetivo = sanitizeUserInput(document.getElementById('modal-objetivo')?.value, { maxLen: 120 });
         if (nome) student.name = nome;
         if (idade) student.age = idade;
         if (objetivo) student.goal = objetivo;
@@ -1930,7 +2370,9 @@ function goToTrainerCreate() {
 }
 
 function connectTrainer() {
-    const code = document.getElementById('trainer-login-code').value;
+    const code = sanitizeCodeInput(document.getElementById('trainer-login-code')?.value, 5);
+    const codeInput = document.getElementById('trainer-login-code');
+    if (codeInput) codeInput.value = code;
     if (code.length !== 5) {
         alert('O código deve ter exatamente 5 dígitos.');
         return;
@@ -1940,7 +2382,7 @@ function connectTrainer() {
         localStorage.setItem('trainerName', 'Admin');
         localStorage.setItem('currentTrainerCode', '00001');
     } else {
-        const trainers = JSON.parse(localStorage.getItem('allTrainers') || '[]');
+        const trainers = readStorageJSON('allTrainers', []);
         const t = trainers.find(x => x.code === code);
         if (t) {
             localStorage.setItem('trainerName', t.name.split(' ')[0]);
@@ -1959,7 +2401,9 @@ function connectTrainer() {
 }
 
 function createConsultoria() {
-    const name = document.getElementById('trainer-name').value;
+    const name = sanitizeUserInput(document.getElementById('trainer-name')?.value, { maxLen: 90 });
+    const nameInput = document.getElementById('trainer-name');
+    if (nameInput) nameInput.value = name;
     const services = document.querySelector('input[name="services"]:checked');
 
     if (!name.trim() || !services) {
@@ -1967,11 +2411,11 @@ function createConsultoria() {
         return;
     }
 
-    const firstName = name.split(' ')[0];
+    const firstName = sanitizeUserInput(name.split(' ')[0], { maxLen: 30 }) || 'Coach';
     const newCode = Math.floor(10000 + Math.random() * 89999).toString();
 
     // Save trainer to "global" list
-    const trainers = JSON.parse(localStorage.getItem('allTrainers') || '[]');
+    const trainers = readStorageJSON('allTrainers', []);
     trainers.push({
         name: name,
         code: newCode,
@@ -2001,7 +2445,7 @@ function initTrainerDashboard() {
             localStorage.setItem('trainerName', 'Admin');
             localStorage.setItem('currentTrainerCode', '00001');
         } else {
-            const trainers = JSON.parse(localStorage.getItem('allTrainers') || '[]');
+            const trainers = readStorageJSON('allTrainers', []);
             const t = trainers.find(x => x.code === sessionCode);
             if (t) {
                 localStorage.setItem('trainerName', t.name.split(' ')[0]);
@@ -2181,14 +2625,14 @@ function buildStudentRow(s, idx, options = {}) {
 
 function openWhatsAppForStudent(studentIdx, event) {
     if (event) event.stopPropagation();
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const students = readStorageJSON('trainerStudents', []);
     const s = students[studentIdx];
     if (!s) return;
 
     let phoneRaw = String(s.whatsapp || s.phone || s.telefone || '').trim();
     if (!phoneRaw) {
         phoneRaw = prompt(`Informe o WhatsApp de ${s.name || 'Aluno'} com DDI (ex: 5511999998888):`) || '';
-        phoneRaw = phoneRaw.trim();
+        phoneRaw = sanitizeUserInput(phoneRaw, { maxLen: 20 });
         if (!phoneRaw) return;
         students[studentIdx].whatsapp = phoneRaw;
         localStorage.setItem('trainerStudents', JSON.stringify(students));
@@ -2236,7 +2680,7 @@ function buildPendingCard(s, idx) {
 
 // â”€â”€ Main stats + list renderer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function updateTrainerStats(filterText) {
-    let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    let students = readStorageJSON('trainerStudents', []);
     const activeStudents = students.filter(s => s.active && !s.pending);
     const pendingStudents = students.filter(s => s.pending);
     const pendingCount = pendingStudents.length;
@@ -2320,7 +2764,7 @@ function updateTrainerStats(filterText) {
     }
 
     // â”€â”€ Duvidas nav badge â”€â”€
-    const notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    const notifications = readStorageJSON('trainerNotifications', []);
     const unreadDuvidas = notifications.filter(n => n.type === 'duvida' && n.unread).length;
     const duvidasBadge = document.getElementById('duvidas-nav-badge');
     if (duvidasBadge) {
@@ -2344,8 +2788,8 @@ function backToChatList() {
 }
 
 function renderDuvidas(filterText) {
-    const notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const notifications = readStorageJSON('trainerNotifications', []);
+    const students = readStorageJSON('trainerStudents', []);
     const duvidas = notifications.filter(n => n.type === 'duvida');
 
     // â”€â”€ 1. Group by Student â”€â”€
@@ -2493,7 +2937,7 @@ function selectChat(studentId) {
     activeChatStudentId = studentId;
 
     // Mark as read when opening
-    let notifs = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    let notifs = readStorageJSON('trainerNotifications', []);
     let changed = false;
     notifs.forEach(n => {
         if (n.type === 'duvida' && (n.studentId === studentId || (!n.studentId && studentId === 'unknown')) && n.unread) {
@@ -2517,7 +2961,7 @@ function selectChat(studentId) {
 
 function markActiveChatAsRead() {
     if (!activeChatStudentId) return;
-    let notifs = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    let notifs = readStorageJSON('trainerNotifications', []);
     let changed = false;
     notifs.forEach(n => {
         if (n.type === 'duvida' && (n.studentId === activeChatStudentId || (!n.studentId && activeChatStudentId === 'unknown')) && n.unread) {
@@ -2567,7 +3011,13 @@ function openChatResponder(encodedStudentId, event) {
 }
 
 function openTrainerAttachmentPicker(source = 'gallery') {
-    const input = document.getElementById(source === 'camera' ? 'chat-camera-input' : 'chat-attach-input');
+    const idMap = {
+        camera: 'chat-camera-input',
+        gallery: 'chat-attach-input',
+        video: 'chat-video-input',
+        audio: 'chat-audio-file-input'
+    };
+    const input = document.getElementById(idMap[source] || idMap.gallery);
     if (input) input.click();
 }
 
@@ -2577,8 +3027,9 @@ async function handleTrainerAttachment(event) {
 
     const isImage = file.type.startsWith('image/');
     const isVideo = file.type.startsWith('video/');
-    if (!isImage && !isVideo) {
-        alert('Formato nao suportado. Use imagem ou video.');
+    const isAudio = file.type.startsWith('audio/');
+    if (!isImage && !isVideo && !isAudio) {
+        alert('Formato não suportado. Use imagem, vídeo ou áudio.');
         return;
     }
 
@@ -2586,28 +3037,34 @@ async function handleTrainerAttachment(event) {
         let dataUrl;
         if (isImage) {
             dataUrl = await compressImageToDataUrl(file, 1280, 0.82);
-        } else {
+        } else if (isVideo) {
             // Keep video size controlled due to localStorage limits
-            if (file.size > 6 * 1024 * 1024) {
-                alert('Video muito grande. Use ate 6MB para envio no chat.');
+            if (file.size > 8 * 1024 * 1024) {
+                alert('Vídeo muito grande. Use até 8MB para envio no chat.');
+                return;
+            }
+            dataUrl = await fileToDataUrl(file);
+        } else {
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Áudio muito grande. Use até 5MB para envio no chat.');
                 return;
             }
             dataUrl = await fileToDataUrl(file);
         }
 
         trainerPendingAttachment = {
-            type: isImage ? 'image' : 'video',
-            name: file.name,
+            type: isImage ? 'image' : (isVideo ? 'video' : 'audio'),
+            name: sanitizeUserInput(file.name, { maxLen: 120 }) || 'arquivo',
             dataUrl
         };
 
         renderTrainerAttachmentPreview();
     } catch (e) {
         console.error('Falha ao processar anexo', e);
-        alert('Nao foi possivel processar o arquivo.');
+        alert('Não foi possível processar o arquivo.');
     } finally {
-        const input = document.getElementById('chat-attach-input');
-        if (input) input.value = '';
+        const input = event?.target;
+        if (input && typeof input.value === 'string') input.value = '';
     }
 }
 
@@ -2686,11 +3143,11 @@ function compressImageToDataUrl(file, maxSize = 1280, quality = 0.82) {
 
 function sendTrainerChat() {
     const input = document.getElementById('chat-reply-input');
-    const reply = input?.value.trim();
+    const reply = sanitizeUserInput(input?.value, { allowNewlines: true, maxLen: 1200 });
     const media = trainerPendingAttachment ? { ...trainerPendingAttachment } : null;
     if ((!reply && !media) || !activeChatStudentId) return;
 
-    let notifs = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    let notifs = readStorageJSON('trainerNotifications', []);
     const nowIso = new Date().toISOString();
     const hasMediaOnly = !reply && !!media;
     const finalReplyText = reply || (hasMediaOnly ? '[arquivo enviado]' : '');
@@ -2710,7 +3167,7 @@ function sendTrainerChat() {
         doubt.unread = false; // Just in case
     } else {
         // If there is no pending doubt, store as a new trainer-only chat message
-        const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+        const students = readStorageJSON('trainerStudents', []);
         const matchedStudent = students.find(s => s.id === activeChatStudentId);
         const fallbackNotif = notifs.find(n => isFromActiveStudent(n));
         const fallbackName = fallbackNotif?.studentName || (fallbackNotif?.title ? String(fallbackNotif.title).replace('💬 Dúvida de ', '') : 'Aluno');
@@ -2764,7 +3221,11 @@ function openVideoPiPFromButton(buttonEl) {
 
 async function startTrainerHoldRecord(event) {
     event?.preventDefault?.();
+    const micBtn = event?.currentTarget || event?.target?.closest?.('.btn-mic-chat') || document.querySelector('.btn-mic-chat');
     if (trainerRecordingActive) return;
+    if (micBtn && Number.isInteger(event?.pointerId) && micBtn.setPointerCapture) {
+        try { micBtn.setPointerCapture(event.pointerId); } catch (_) { }
+    }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         alert('Gravação de áudio não suportada neste dispositivo.');
         return;
@@ -2778,39 +3239,52 @@ async function startTrainerHoldRecord(event) {
             if (e.data && e.data.size > 0) trainerAudioChunks.push(e.data);
         };
         trainerAudioRecorder.onstop = async () => {
-            const blob = new Blob(trainerAudioChunks, { type: 'audio/webm' });
-            const dataUrl = await fileToDataUrl(blob);
-            trainerPendingAttachment = {
-                type: 'audio',
-                name: `audio-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`,
-                dataUrl
-            };
-            renderTrainerAttachmentPreview();
-            stream.getTracks().forEach(t => t.stop());
+            try {
+                const blob = new Blob(trainerAudioChunks, { type: 'audio/webm' });
+                const dataUrl = await fileToDataUrl(blob);
+                trainerPendingAttachment = {
+                    type: 'audio',
+                    name: `audio-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`,
+                    dataUrl
+                };
+                renderTrainerAttachmentPreview();
+            } catch (err) {
+                console.error('Falha ao finalizar audio', err);
+            } finally {
+                stream.getTracks().forEach(t => t.stop());
+            }
         };
 
         trainerAudioRecorder.start();
         trainerRecordingActive = true;
         const wave = document.getElementById('chat-recording-wave');
         if (wave) wave.style.display = 'flex';
-        const micBtn = document.querySelector('.btn-mic-chat');
         if (micBtn) micBtn.classList.add('recording');
     } catch (e) {
         console.error('Falha ao iniciar gravação', e);
+        trainerRecordingActive = false;
+        const wave = document.getElementById('chat-recording-wave');
+        if (wave) wave.style.display = 'none';
+        if (micBtn) micBtn.classList.remove('recording');
         alert('Não foi possível acessar o microfone.');
     }
 }
 
 function stopTrainerHoldRecord(event) {
     event?.preventDefault?.();
+    const micBtn = event?.currentTarget || event?.target?.closest?.('.btn-mic-chat') || document.querySelector('.btn-mic-chat');
+    if (micBtn && Number.isInteger(event?.pointerId) && micBtn.releasePointerCapture && micBtn.hasPointerCapture?.(event.pointerId)) {
+        try { micBtn.releasePointerCapture(event.pointerId); } catch (_) { }
+    }
     if (!trainerRecordingActive) return;
     trainerRecordingActive = false;
     const wave = document.getElementById('chat-recording-wave');
     if (wave) wave.style.display = 'none';
-    const micBtn = document.querySelector('.btn-mic-chat');
     if (micBtn) micBtn.classList.remove('recording');
-    if (trainerAudioRecorder && trainerAudioRecorder.state !== 'inactive') {
-        trainerAudioRecorder.stop();
+    const recorder = trainerAudioRecorder;
+    trainerAudioRecorder = null;
+    if (recorder && recorder.state !== 'inactive') {
+        recorder.stop();
     }
 }
 
@@ -2833,7 +3307,7 @@ function switchTreinoSubview(subview) {
 
 function renderStudentWorkoutContentMain() {
     const studentId = localStorage.getItem('currentStudentId');
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
     if (!student || !student.workoutBlocks) return;
 
@@ -2957,7 +3431,7 @@ function toggleExDetails(idx) {
 }
 
 function getLatestPerformanceDate(studentId, routineTitle) {
-    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+    const history = readStorageJSON('workoutHistory', []);
     const lastSession = [...history].reverse().find(h =>
         h.ID_Usuario === studentId && (h.Nome_Treino === routineTitle || h.title === routineTitle)
     );
@@ -3010,10 +3484,10 @@ function formatChatTime(dateIso) {
 }
 
 function markDuvidaAsRead(idx) {
-    let notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
-    if (notifications[idx]) {
-        notifications[idx].unread = false;
-        localStorage.setItem('trainerNotifications', JSON.stringify(notifications));
+    let notifs = readStorageJSON('trainerNotifications', []);
+    if (notifs[idx]) {
+        notifs[idx].unread = false;
+        localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
 
         // Broadcast change
         syncChannel.postMessage({ type: 'DOUBT_RESOLVED' });
@@ -3029,15 +3503,15 @@ function responderDuvida(idx) {
         return;
     }
 
-    let notifications = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
-    if (notifications[idx]) {
-        notifications[idx].unread = false;
-        notifications[idx].reply = replyText;
-        notifications[idx].repliedAt = new Date().toISOString();
-        localStorage.setItem('trainerNotifications', JSON.stringify(notifications));
+    let notifs = readStorageJSON('trainerNotifications', []);
+    if (notifs[idx]) {
+        notifs[idx].unread = false;
+        notifs[idx].reply = replyText;
+        notifs[idx].repliedAt = new Date().toISOString();
+        localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
 
         // Broadcast change
-        syncChannel.postMessage({ type: 'DOUBT_REPLY', payload: { studentId: notifications[idx].studentId } });
+        syncChannel.postMessage({ type: 'DOUBT_REPLY', payload: { studentId: notifs[idx].studentId } });
 
         updateTrainerStats();
         renderDuvidas();
@@ -3047,7 +3521,7 @@ function responderDuvida(idx) {
 
 // â”€â”€ Accept a pending student â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function acceptStudent(idx) {
-    let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    let students = readStorageJSON('trainerStudents', []);
     if (!students[idx]) return;
     students[idx].pending = false;
     students[idx].active = true;
@@ -3070,7 +3544,7 @@ function acceptStudent(idx) {
 // â”€â”€ Reject / remove a pending student â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function rejectStudent(idx) {
     if (!confirm('Tem certeza que deseja recusar esta solicitação?')) return;
-    let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    let students = readStorageJSON('trainerStudents', []);
     students.splice(idx, 1);
     localStorage.setItem('trainerStudents', JSON.stringify(students));
 
@@ -3085,7 +3559,7 @@ function filterStudents(query) {
 }
 
 function markNotifRead(index, btnElement) {
-    let notifs = JSON.parse(localStorage.getItem('trainerNotifications') || '[]');
+    let notifs = readStorageJSON('trainerNotifications', []);
     if (notifs[index]) {
         notifs[index].unread = false;
         localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
@@ -3138,7 +3612,7 @@ function escapeHTML(str) {
 
 
 function openStudentProfile(studentIndex) {
-    let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    let students = readStorageJSON('trainerStudents', []);
     const s = students[studentIndex];
     if (!s) return;
 
@@ -3666,7 +4140,7 @@ function confirmAddFood() {
 
 function saveStudentPlan() {
     if (currentStudentIdx === null) return;
-    let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    let students = readStorageJSON('trainerStudents', []);
     const diet = students[currentStudentIdx].dietMeta || {};
     diet.kcal = document.getElementById('diet-kcal-meta')?.value || '';
     diet.protein = document.getElementById('diet-protein-meta')?.value || '';
@@ -3716,7 +4190,7 @@ function checkRemoveInput() {
 
 function confirmRemoveStudent() {
     if (currentStudentIdx === null) return;
-    let students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    let students = readStorageJSON('trainerStudents', []);
     students.splice(currentStudentIdx, 1);
     localStorage.setItem('trainerStudents', JSON.stringify(students));
 
@@ -3773,7 +4247,7 @@ function restoreWorkoutBackup() {
 }
 
 function getPreviousSessionData(studentId, exerciseName) {
-    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+    const history = readStorageJSON('workoutHistory', []);
     // Filter history for THIS student and find the latest session containing THIS exercise
     const lastSession = [...history].reverse().find(h =>
         h.ID_Usuario === studentId && (h.Exercicios || h.exercises).some(ex => ex.nome === exerciseName)
@@ -3795,9 +4269,17 @@ function getPreviousSessionData(studentId, exerciseName) {
     return '-';
 }
 
+function appendCompletedSetLog(entry) {
+    if (!entry || !entry.id) return;
+    const logs = readStorageJSON('completed_sets_log', []);
+    if (logs.some(item => item.id === entry.id)) return;
+    logs.push(entry);
+    localStorage.setItem('completed_sets_log', JSON.stringify(logs));
+}
+
 function startWorkoutSession(blockIdx = 0) {
     const studentId = localStorage.getItem('currentStudentId');
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
 
     if (!student || !student.workoutBlocks || !student.workoutBlocks[blockIdx]) {
@@ -3810,6 +4292,7 @@ function startWorkoutSession(blockIdx = 0) {
     const supersetGroups = computeSupersetGroups(block.exercises || []);
 
     workoutState = {
+        sessionId: `${studentId}-${Date.now()}`,
         startTime: Date.now(),
         title: block.title || 'Meu Treino',
         exercises: block.exercises.map((ex, idx) => ({
@@ -3828,6 +4311,7 @@ function startWorkoutSession(blockIdx = 0) {
                 intensityLevel: 0,
                 rpe: '',
                 rir: '',
+                logged: false,
                 completed: false,
                 brokenPRs: { weight: false, volume: false, reps: false },
                 prev: getPreviousSessionData(studentId, ex.nome)
@@ -3916,14 +4400,14 @@ function renderWorkoutLog() {
                         <button class="set-prev col-prev" onclick="fillFromPreviousSet(${exIdx}, ${setIdx})">${escHtml(set.prev)}</button>
 
                         <div class="set-input-wrap">
-                            <input type="number" class="set-input log-input-tactile" value="${set.weight}" 
+                            <input type="number" inputmode="decimal" min="0" step="0.5" class="set-input log-input-tactile" value="${set.weight}" 
                                 placeholder="--" oninput="updateSetData(${exIdx}, ${setIdx}, 'weight', this.value)"
                                 ${set.completed ? 'disabled' : ''}>
                             <button class="mini-adjust" onclick="adjustSetWeight(${exIdx}, ${setIdx}, 2.5)">+2.5</button>
                         </div>
 
                         <div class="set-input-wrap">
-                            <input type="number" class="set-input log-input-tactile" value="${set.reps}" 
+                            <input type="number" inputmode="numeric" min="0" step="1" class="set-input log-input-tactile" value="${set.reps}" 
                                 placeholder="--" oninput="updateSetData(${exIdx}, ${setIdx}, 'reps', this.value)"
                                 ${set.completed ? 'disabled' : ''}>
                             <button class="mini-adjust" onclick="adjustSetReps(${exIdx}, ${setIdx}, 1)">+1</button>
@@ -3980,7 +4464,16 @@ function renderPRTrophy(set) {
 
 function updateSetData(exIdx, setIdx, field, value) {
     if (workoutState && workoutState.exercises[exIdx] && workoutState.exercises[exIdx].sets[setIdx]) {
-        workoutState.exercises[exIdx].sets[setIdx][field] = value;
+        let normalized = value;
+        if (field === 'weight') {
+            normalized = String(value || '').replace(',', '.').replace(/[^\d.]/g, '');
+            const parts = normalized.split('.');
+            normalized = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : normalized;
+        }
+        if (field === 'reps') {
+            normalized = String(value || '').replace(/\D/g, '');
+        }
+        workoutState.exercises[exIdx].sets[setIdx][field] = normalized;
         updateExercisePRs(exIdx);
         saveWorkoutBackup();
     }
@@ -4076,7 +4569,8 @@ function checkPRs(exIdx, setIdx) {
 
 function toggleSetCompletion(exIdx, setIdx) {
     if (!workoutState) return;
-    const set = workoutState.exercises[exIdx].sets[setIdx];
+    const exercise = workoutState.exercises[exIdx];
+    const set = exercise.sets[setIdx];
 
     if (!set.completed && !set.intensityLevel) {
         pendingSetCompletion = { exIdx, setIdx };
@@ -4088,6 +4582,23 @@ function toggleSetCompletion(exIdx, setIdx) {
 
     if (set.completed) {
         startRestTimer(60); // Default 60s
+        if (!set.logged) {
+            appendCompletedSetLog({
+                id: `${workoutState.sessionId}-${exIdx}-${setIdx}`,
+                sessionId: workoutState.sessionId,
+                studentId: localStorage.getItem('currentStudentId'),
+                workoutTitle: workoutState.title,
+                exercise: exercise.nome,
+                serie: setIdx + 1,
+                peso: parseFloat(set.weight) || 0,
+                reps: parseInt(set.reps) || 0,
+                intensidade: set.intensityLevel || 0,
+                rpe: set.rpe ?? null,
+                rir: set.rir ?? null,
+                completedAt: new Date().toISOString()
+            });
+            set.logged = true;
+        }
     } else {
         hideRestTimer();
     }
@@ -4212,6 +4723,34 @@ function onRestTimerEnd() {
     if (overlay) {
         overlay.classList.add('timer-ended');
     }
+    if (navigator.vibrate) {
+        navigator.vibrate([120, 80, 120]);
+    }
+    playRestEndBeep();
+}
+
+function playRestEndBeep() {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.16);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.17);
+        osc.onended = () => ctx.close();
+    } catch (_) {
+        // no-op for devices that block WebAudio in background
+    }
 }
 
 function skipRestTimer() {
@@ -4251,6 +4790,7 @@ function addSetToExercise(exIdx) {
         intensityLevel: 0,
         rpe: '',
         rir: '',
+        logged: false,
         completed: false,
         brokenPRs: { weight: false, volume: false, reps: false },
         prev: '-'
@@ -4397,12 +4937,12 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
     };
 
     // SAVE TO HISTORY
-    const history = JSON.parse(localStorage.getItem('workoutHistory') || '[]');
+    const history = readStorageJSON('workoutHistory', []);
     history.push(workoutArchive);
     localStorage.setItem('workoutHistory', JSON.stringify(history));
 
     // UPDATE PERSONAL RECORDS PERMANENTLY
-    const students = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+    const students = readStorageJSON('trainerStudents', []);
     const sIdx = students.findIndex(s => s.id === studentId);
 
     if (sIdx !== -1) {
@@ -4744,6 +5284,9 @@ function setSetIntensity(exIdx, setIdx, level) {
     saveWorkoutBackup();
     renderWorkoutLog();
 }
+
+
+
 
 
 

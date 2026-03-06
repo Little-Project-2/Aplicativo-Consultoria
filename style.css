@@ -162,6 +162,63 @@ body {
     align-items: center;
 }
 
+.hero-home {
+    width: 100%;
+    min-height: calc(100dvh - 2rem);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 0.85rem;
+    padding: 1rem 0.25rem;
+}
+
+.hero-kicker {
+    color: var(--primary-color);
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 700;
+}
+
+.hero-title {
+    max-width: 22ch;
+    margin: 0 auto;
+    line-height: 1.14;
+}
+
+.hero-subtitle {
+    max-width: 34ch;
+    margin: 0 auto;
+    font-size: 0.94rem;
+    color: #c7c7cd;
+}
+
+.hero-cta {
+    width: min(320px, 100%);
+    margin-top: 0.55rem;
+    font-size: 0.98rem;
+    font-weight: 800;
+}
+
+.home-secondary-access {
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto 0.75rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.home-secondary-title {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-bottom: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-align: center;
+}
+
 .logo-icon {
     width: 64px;
     height: 64px;
@@ -6457,7 +6514,135 @@ body {
 .sc-meta { display: flex; justify-content: flex-end; margin-top: 4px; }
 .sc-time { font-size: 0.65rem; opacity: 0.5; }
 .from-trainer .sc-time { color: rgba(0,0,0,0.5); }
-.student-duvidas-list { display: flex; flex-direction: column; gap: 4px; max-height: 400px; overflow-y: auto; padding-right: 5px; }
+.student-duvidas-list { display: flex; flex-direction: column; gap: 4px; max-height: none; overflow: visible; padding-right: 0; }
+
+.student-chat-demo-wrap {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+.student-chat-thread {
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 0.8rem 0.8rem 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.student-chat-compose {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0.65rem;
+    background: rgba(12, 12, 12, 0.75);
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.student-chat-compose textarea {
+    min-height: 58px;
+    resize: none;
+}
+
+.student-chat-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.student-chat-actions .btn-secondary-outline,
+.student-chat-actions .btn-primary {
+    width: auto;
+    min-height: 40px;
+    padding: 0.55rem 0.8rem;
+    font-size: 0.78rem;
+}
+
+.student-chat-upload {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.55rem 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(163, 230, 53, 0.06);
+}
+
+.student-chat-upload span {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.student-chat-upload-track {
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+}
+
+.student-chat-upload-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #84cc16, var(--primary-color));
+    transition: width 0.2s ease;
+}
+
+.sc-media-fake {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-bottom: 0.35rem;
+}
+
+.sc-media-fake i {
+    font-size: 1rem;
+}
+
+.sc-media-track {
+    flex: 1;
+    min-width: 80px;
+    height: 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.26);
+    overflow: hidden;
+}
+
+.sc-media-track span {
+    display: block;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.from-student .sc-media-track span {
+    background: rgba(255, 255, 255, 0.6);
+}
+
+.sc-video-thumb {
+    width: 86px;
+    height: 52px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.35);
+}
+
+@media (max-width: 560px) {
+    .student-chat-thread {
+        max-height: 300px;
+    }
+
+    .student-chat-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .student-chat-actions .btn-primary {
+        grid-column: span 2;
+    }
+}
 
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    EXERCISE CATALOG SCREEN
@@ -8579,6 +8764,20 @@ body {
         font-size: 1.35rem;
     }
 
+    .hero-home {
+        min-height: calc(100dvh - 1.4rem);
+        padding-top: 0.6rem;
+        padding-bottom: 0.6rem;
+    }
+
+    .hero-title {
+        font-size: 1.42rem;
+    }
+
+    .hero-subtitle {
+        font-size: 0.88rem;
+    }
+
     .subtitle {
         font-size: 0.82rem;
     }
@@ -8949,4 +9148,234 @@ body {
 #student-workout-screen.active,
 #student-diet-screen.active {
     align-items: stretch;
+}
+
+/* =============================
+   MOBILE STABILITY FIXES (PWA)
+   ============================= */
+:root {
+    --touch-target-min: 44px;
+}
+
+.student-list-item,
+.treino-option-card,
+.role-card {
+    opacity: 1;
+}
+
+.student-list-item::after,
+.role-card::after,
+.treino-option-card::after,
+.routine-card::before,
+.t-stat-card::before,
+.chat-item.active::before,
+.superset-linked::after {
+    pointer-events: none;
+}
+
+.perfil-modal-overlay,
+.trainer-profile-sheet-overlay {
+    pointer-events: none;
+}
+
+.perfil-modal-overlay.active,
+.trainer-profile-sheet-overlay.active {
+    pointer-events: auto;
+}
+
+@media (max-width: 1024px) {
+
+    html,
+    body,
+    #app,
+    #app.wide,
+    .dashboard-layout,
+    .main-content,
+    .screen,
+    .view-section {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    body {
+        overflow-x: hidden;
+        overscroll-behavior-y: none;
+    }
+
+    .dashboard-layout {
+        width: 100% !important;
+        left: 0;
+        right: 0;
+    }
+
+    .main-content,
+    .students-section,
+    .student-list-container,
+    .chat-container,
+    .chat-window,
+    .chat-sidebar,
+    .protocol-content-list,
+    .routine-content-area,
+    .prof-editor-layout,
+    .p-tab-content {
+        min-width: 0 !important;
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+    }
+
+    img,
+    video,
+    canvas,
+    svg,
+    iframe {
+        max-width: 100%;
+        height: auto;
+    }
+
+    .btn-primary,
+    .btn-secondary,
+    .btn-secondary-outline,
+    .btn-save-plan,
+    .btn-add-block,
+    .btn-add-ex,
+    .btn-start-routine,
+    .btn-duvida-treino,
+    .btn-check-set,
+    .btn-attach-chat,
+    .btn-send-chat,
+    .btn-icon,
+    .btn-icon-minimal,
+    .btn-copy-tiny,
+    .nav-item,
+    .workout-tab,
+    .chat-item,
+    .student-list-item,
+    .treino-option-card,
+    .action-card,
+    .set-intensity-dot {
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: rgba(163, 230, 53, 0.2);
+    }
+
+    .btn-icon,
+    .btn-icon-minimal,
+    .btn-copy-tiny,
+    .btn-send-chat,
+    .btn-attach-chat,
+    .btn-check-set {
+        min-width: var(--touch-target-min) !important;
+        min-height: var(--touch-target-min) !important;
+    }
+
+    .btn-primary,
+    .btn-secondary,
+    .btn-secondary-outline,
+    .btn-save-plan,
+    .btn-add-block,
+    .btn-add-ex,
+    .btn-start-routine,
+    .btn-duvida-treino,
+    .nav-item,
+    .workout-tab {
+        min-height: var(--touch-target-min) !important;
+    }
+
+    .chat-status-pill {
+        min-height: 32px;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .chat-input-wrapper textarea,
+    .q-input,
+    input,
+    select,
+    textarea {
+        font-size: 16px;
+    }
+
+    .chat-input-area {
+        padding-bottom: calc(0.8rem + env(safe-area-inset-bottom)) !important;
+    }
+
+    .chat-preview-image,
+    .chat-preview-video {
+        border-radius: 12px !important;
+        width: min(280px, 100%) !important;
+        height: auto !important;
+        max-height: 180px !important;
+    }
+
+    .chat-media-image,
+    .chat-media-video {
+        width: min(320px, 100%) !important;
+        max-height: 220px !important;
+    }
+
+    .student-list-item.grid-layout .sli-col.actions {
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+
+    .student-list-item.grid-layout .sli-col.actions .btn-icon-minimal {
+        width: var(--touch-target-min);
+        height: var(--touch-target-min);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .student-list-item,
+    .pending-card,
+    .history-workout-card,
+    .log-exercise-card,
+    .chat-item {
+        animation: none !important;
+        opacity: 1 !important;
+        transform: none !important;
+    }
+}
+
+/* Chat media toolbar (audio/video quick actions) */
+.chat-media-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-shrink: 0;
+    min-width: 0;
+}
+
+@media (max-width: 1024px) {
+    .chat-input-wrapper {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "tools tools"
+            "text send";
+        align-items: end;
+        gap: 0.5rem;
+    }
+
+    .chat-media-toolbar {
+        grid-area: tools;
+        width: 100%;
+        overflow-x: auto;
+        padding-bottom: 0.12rem;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .chat-media-toolbar::-webkit-scrollbar {
+        display: none;
+    }
+
+    .chat-input-wrapper textarea {
+        grid-area: text;
+        width: 100%;
+    }
+
+    .chat-input-wrapper .btn-send-chat {
+        grid-area: send;
+        align-self: end;
+    }
 }

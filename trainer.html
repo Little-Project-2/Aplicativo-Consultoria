@@ -4,12 +4,27 @@
 <head>
     <meta charset='UTF-8'>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Painel do treinador para acompanhamento de alunos, respostas em tempo real e gestão de treino e dieta.">
     <meta name="theme-color" content="#080808">
     <meta name="application-name" content="Consultoria">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Consultoria">
+    <link rel="canonical" href="https://aplicativo-consultoria.vercel.app/trainer.html">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="pt_BR">
+    <meta property="og:title" content="Painel do Treinador | Consultoria Fitness">
+    <meta property="og:description"
+        content="Gerencie alunos, protocolos, dúvidas e progresso com uma experiência mobile-first premium.">
+    <meta property="og:url" content="https://aplicativo-consultoria.vercel.app/trainer.html">
+    <meta property="og:image" content="https://aplicativo-consultoria.vercel.app/assets/icons/icon-512.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Painel do Treinador | Consultoria Fitness">
+    <meta name="twitter:description"
+        content="Gerencie alunos, protocolos, dúvidas e progresso com uma experiência mobile-first premium.">
+    <meta name="twitter:image" content="https://aplicativo-consultoria.vercel.app/assets/icons/icon-512.png">
     <title>Painel do Treinador - Consultoria</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
@@ -64,7 +79,7 @@
                 <p class="subtitle" style="text-align: center; margin-bottom: 2rem;">Configure os detalhes do seu
                     serviço.</p>
 
-                <form class="login-form">
+                <form class="login-form" onsubmit="event.preventDefault(); createConsultoria();">
                     <div class="input-group">
                         <label for="trainer-name">SEU NOME COMPLETO</label>
                         <input type="text" id="trainer-name" placeholder="Ex: João Silva" required autocomplete="off">
@@ -97,8 +112,7 @@
                         </div>
                     </div>
 
-                    <button type="button" class="btn-primary" style="margin-top: 1rem;"
-                        onclick="createConsultoria()">Criar e Acessar</button>
+                    <button type="submit" class="btn-primary" style="margin-top: 1rem;">Criar e Acessar</button>
                 </form>
             </div>
         </div>
@@ -327,6 +341,10 @@
                                         style="display:none;" onchange="handleTrainerAttachment(event)">
                                     <input type="file" id="chat-camera-input" accept="image/*,video/*" capture="environment"
                                         style="display:none;" onchange="handleTrainerAttachment(event)">
+                                    <input type="file" id="chat-video-input" accept="video/*" capture="environment"
+                                        style="display:none;" onchange="handleTrainerAttachment(event)">
+                                    <input type="file" id="chat-audio-file-input" accept="audio/*"
+                                        style="display:none;" onchange="handleTrainerAttachment(event)">
 
                                     <div id="chat-attach-preview" class="chat-attach-preview" style="display:none;">
                                         <div id="chat-attach-preview-content" class="chat-attach-preview-content"></div>
@@ -341,21 +359,33 @@
                                     </div>
 
                                     <div class="chat-input-wrapper">
-                                        <button class="btn-attach-chat" onclick="openTrainerAttachmentPicker('camera')"
-                                            title="Câmera">
-                                            <i class="ph-bold ph-camera"></i>
-                                        </button>
-                                        <button class="btn-attach-chat" onclick="openTrainerAttachmentPicker('gallery')"
-                                            title="Galeria">
-                                            <i class="ph-bold ph-paperclip"></i>
-                                        </button>
-                                        <button class="btn-attach-chat btn-mic-chat"
-                                            onpointerdown="startTrainerHoldRecord(event)"
-                                            onpointerup="stopTrainerHoldRecord(event)"
-                                            onpointerleave="stopTrainerHoldRecord(event)"
-                                            title="Segure para gravar áudio">
-                                            <i class="ph-bold ph-microphone"></i>
-                                        </button>
+                                        <div class="chat-media-toolbar">
+                                            <button class="btn-attach-chat" onclick="openTrainerAttachmentPicker('camera')"
+                                                title="Câmera">
+                                                <i class="ph-bold ph-camera"></i>
+                                            </button>
+                                            <button class="btn-attach-chat" onclick="openTrainerAttachmentPicker('gallery')"
+                                                title="Galeria">
+                                                <i class="ph-bold ph-paperclip"></i>
+                                            </button>
+                                            <button class="btn-attach-chat" onclick="openTrainerAttachmentPicker('video')"
+                                                title="Enviar vídeo">
+                                                <i class="ph-bold ph-video-camera"></i>
+                                            </button>
+                                            <button class="btn-attach-chat" onclick="openTrainerAttachmentPicker('audio')"
+                                                title="Enviar áudio">
+                                                <i class="ph-bold ph-waveform"></i>
+                                            </button>
+                                            <button class="btn-attach-chat btn-mic-chat"
+                                                onpointerdown="startTrainerHoldRecord(event)"
+                                                onpointerup="stopTrainerHoldRecord(event)"
+                                                onpointerleave="stopTrainerHoldRecord(event)"
+                                                onpointercancel="stopTrainerHoldRecord(event)"
+                                                onlostpointercapture="stopTrainerHoldRecord(event)"
+                                                title="Segure para gravar áudio">
+                                                <i class="ph-bold ph-microphone"></i>
+                                            </button>
+                                        </div>
                                         <textarea id="chat-reply-input" placeholder="Digite sua resposta..."
                                             onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); sendTrainerChat(); }"></textarea>
                                         <button class="btn-send-chat" onclick="sendTrainerChat()">

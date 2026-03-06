@@ -4,12 +4,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Sua melhor versão começa aqui. Treino e dieta na palma da mão com acompanhamento próximo do treinador e foco em performance.">
     <meta name="theme-color" content="#080808">
     <meta name="application-name" content="Consultoria">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Consultoria">
+    <link rel="canonical" href="https://aplicativo-consultoria.vercel.app/">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="pt_BR">
+    <meta property="og:title" content="Consultoria Fitness | Treino e Dieta na Palma da Mão">
+    <meta property="og:description"
+        content="Acompanhamento próximo do treinador, execução inteligente de treino e evolução real da sua performance.">
+    <meta property="og:url" content="https://aplicativo-consultoria.vercel.app/">
+    <meta property="og:image" content="https://aplicativo-consultoria.vercel.app/assets/icons/icon-512.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Consultoria Fitness | Treino e Dieta na Palma da Mão">
+    <meta name="twitter:description"
+        content="Acompanhamento próximo do treinador, execução inteligente de treino e evolução real da sua performance.">
+    <meta name="twitter:image" content="https://aplicativo-consultoria.vercel.app/assets/icons/icon-512.png">
     <title>Aplicativo Consultoria</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
@@ -90,7 +105,7 @@
         }
 
         /* Fix for background-clip */
-        .summary-header h1 {
+        .summary-header h2 {
             background-clip: text;
             -webkit-background-clip: text;
         }
@@ -167,43 +182,45 @@
     <div id="app">
         <!-- Trainer forms removed, now they should be linked or redirected to trainer.html -->
         <div id="home-screen" class="screen active">
-            <div class="logo-container">
+            <section class="hero-home">
                 <div class="logo-icon glow">
                     <i class="ph-bold ph-barbell"></i>
                 </div>
-                <h1 class="main-title">Consultoria Fitness</h1>
-                <p class="subtitle">A plataforma completa para consultoria esportiva e acompanhamento de alunos.</p>
-            </div>
-
-            <div class="role-selection">
-                <p class="section-title">QUEM É VOCÊ?</p>
-
-                <button class="role-card" onclick="openTrainerArea()">
-                    <div class="card-icon active-icon">
-                        <i class="ph-bold ph-clipboard-text"></i>
-                    </div>
-                    <div class="card-content">
-                        <h3>Sou Treinador</h3>
-                        <p>Gerenciar alunos, protocolos e acompanhamentos</p>
-                    </div>
-                    <i class="ph-bold ph-caret-right arrow-icon"></i>
+                <p class="hero-kicker">Consultoria Esportiva Premium</p>
+                <h1 class="main-title hero-title">Sua Melhor Versão Começa Aqui. Treino e Dieta na Palma da Mão.</h1>
+                <p class="subtitle hero-subtitle">Acompanhamento próximo do treinador, ajustes inteligentes e foco total
+                    em performance no seu dia a dia.</p>
+                <button class="btn-primary hero-cta" onclick="goToGlobalLogin()">
+                    <i class="ph-bold ph-rocket-launch"></i> Iniciar Meu Protocolo
                 </button>
+            </section>
 
-                <button class="role-card" onclick="goToStudentArea()">
-                    <div class="card-icon inactive-icon">
-                        <i class="ph-bold ph-barbell"></i>
-                    </div>
-                    <div class="card-content">
-                        <h3>Sou Aluno</h3>
-                        <p>Acessar meus treinos, dieta e evolução</p>
-                    </div>
-                    <i class="ph-bold ph-caret-right arrow-icon"></i>
-                </button>
+            <section class="home-secondary-access">
+                <h2 class="home-secondary-title">Acessos rápidos</h2>
+                <div class="role-selection">
+                    <button class="role-card" onclick="openTrainerArea()">
+                        <div class="card-icon active-icon">
+                            <i class="ph-bold ph-clipboard-text"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>Sou Treinador</h3>
+                            <p>Gerenciar alunos, protocolos e acompanhamentos</p>
+                        </div>
+                        <i class="ph-bold ph-caret-right arrow-icon"></i>
+                    </button>
 
-                <button class="btn-primary" style="margin-top: 1rem;" onclick="goToGlobalLogin()">
-                    <i class="ph-bold ph-sign-in"></i> Entrar na Minha Conta
-                </button>
-            </div>
+                    <button class="role-card" onclick="goToStudentArea()">
+                        <div class="card-icon inactive-icon">
+                            <i class="ph-bold ph-barbell"></i>
+                        </div>
+                        <div class="card-content">
+                            <h3>Sou Aluno</h3>
+                            <p>Acessar meus treinos, dieta e evolução</p>
+                        </div>
+                        <i class="ph-bold ph-caret-right arrow-icon"></i>
+                    </button>
+                </div>
+            </section>
         </div>
 
         <div id="global-login-screen" class="screen">
@@ -1300,9 +1317,9 @@
                         <div class="summary-header"
                             style="text-align: center; margin-bottom: 2rem; animation: slideUp 0.6s ease;">
                             <div class="summary-icon-celebration" style="font-size: 3rem; margin-bottom: 1rem;">ðŸŽ‰</div>
-                            <h1
+                            <h2 class="summary-main-title"
                                 style="font-size: 2rem; background: linear-gradient(135deg, #fff 0%, var(--primary-color) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-                                Treino Concluído!</h1>
+                                Treino Concluído!</h2>
                             <p style="color: var(--text-muted); margin-top: 0.5rem;">Excelente trabalho hoje.</p>
                         </div>
 
