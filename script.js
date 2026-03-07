@@ -233,7 +233,10 @@ function uiSvgIcon(name, className = '') {
         'timer': '<circle cx="12" cy="13" r="7.5" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M12 13V9m0 4 2.6 1.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M9 3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
         'x': '<path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"></path>',
         'star': '<path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3z" fill="currentColor"></path>',
-        'arrow-up-right': '<path d="M7 17L17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>'
+        'arrow-up-right': '<path d="M7 17L17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>',
+        'protein': '<path d="M8 9.5c0-2.2 1.8-4 4-4h1.5c1.4 0 2.5 1.1 2.5 2.5V11c0 4.4-3.6 8-8 8-1.4 0-2.5-1.1-2.5-2.5V15c0-3 2.5-5.5 5.5-5.5h2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
+        'carb': '<path d="M5 14c0-3.3 2.7-6 6-6s6 2.7 6 6v1.5A3.5 3.5 0 0 1 13.5 19h-3A5.5 5.5 0 0 1 5 13.5V14z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path><path d="M8 10.5h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
+        'fat': '<path d="M12 4c2.2 3 4.8 5.5 4.8 8.5A4.8 4.8 0 0 1 12 17.3a4.8 4.8 0 0 1-4.8-4.8C7.2 9.5 9.8 7 12 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>'
     };
     const inner = icons[name];
     if (!inner) return '';
@@ -1869,6 +1872,95 @@ function getMuscleGroups(exercises) {
     return muscles.size > 0 ? Array.from(muscles) : ['Geral'];
 }
 
+function computeDietMacroData(student) {
+    const blocks = Array.isArray(student?.mealBlocks) ? student.mealBlocks : [];
+    let totalProtein = 0;
+    let totalCarb = 0;
+    let totalFat = 0;
+
+    blocks.forEach((meal) => {
+        (meal.items || []).forEach((item) => {
+            totalProtein += parseDecimalSafe(item.prot);
+            totalCarb += parseDecimalSafe(item.carb);
+            totalFat += parseDecimalSafe(item.gord);
+        });
+    });
+
+    const targetProtein = Math.max(1, parseDecimalSafe(student?.dietMeta?.protein) || 150);
+    const targetCarb = Math.max(1, parseDecimalSafe(student?.dietMeta?.carb) || 220);
+    const targetFat = Math.max(1, parseDecimalSafe(student?.dietMeta?.fat) || 70);
+
+    return {
+        totals: {
+            protein: Math.round(totalProtein),
+            carb: Math.round(totalCarb),
+            fat: Math.round(totalFat)
+        },
+        targets: {
+            protein: Math.round(targetProtein),
+            carb: Math.round(targetCarb),
+            fat: Math.round(targetFat)
+        },
+        progress: {
+            protein: Math.min(100, Math.max(8, Math.round((totalProtein / targetProtein) * 100))),
+            carb: Math.min(100, Math.max(8, Math.round((totalCarb / targetCarb) * 100))),
+            fat: Math.min(100, Math.max(8, Math.round((totalFat / targetFat) * 100)))
+        }
+    };
+}
+
+function renderStudentDietContent(student) {
+    const macro = computeDietMacroData(student);
+    const meals = Array.isArray(student?.mealBlocks) ? student.mealBlocks : [];
+
+    const summaryCard = `
+        <div class="diet-macro-summary-card">
+            <div class="diet-macro-summary-title">Macros Diários</div>
+            <div class="diet-progress-row">
+                <div class="diet-progress-label protein">${uiSvgIcon('protein')} Proteína</div>
+                <div class="diet-progress-bar"><span class="diet-progress-fill protein" style="width:${macro.progress.protein}%"></span></div>
+                <div class="diet-progress-value">${macro.totals.protein}/${macro.targets.protein}g</div>
+            </div>
+            <div class="diet-progress-row">
+                <div class="diet-progress-label carb">${uiSvgIcon('carb')} Carboidrato</div>
+                <div class="diet-progress-bar"><span class="diet-progress-fill carb" style="width:${macro.progress.carb}%"></span></div>
+                <div class="diet-progress-value">${macro.totals.carb}/${macro.targets.carb}g</div>
+            </div>
+            <div class="diet-progress-row">
+                <div class="diet-progress-label fat">${uiSvgIcon('fat')} Gordura</div>
+                <div class="diet-progress-bar"><span class="diet-progress-fill fat" style="width:${macro.progress.fat}%"></span></div>
+                <div class="diet-progress-value">${macro.totals.fat}/${macro.targets.fat}g</div>
+            </div>
+        </div>
+    `;
+
+    const mealCards = meals.map((meal, idx) => `
+        <div class="meal-block meal-glass-card">
+            <div class="block-header meal-header-glass tone-${idx % 3}">
+                <h3>${escHtml(meal.name)}</h3>
+            </div>
+            <div class="meal-items-list">
+                ${(meal.items || []).map(item => `
+                    <div class="meal-item-row">
+                        <div style="flex:1;">
+                            <strong>${escHtml(item.nome)}</strong>
+                            <span class="text-sub">${escHtml(item.qtd)}</span>
+                        </div>
+                        <div class="meal-macros-mini">
+                            <span class="macro-badge kcal">${item.kcal} kcal</span>
+                            <span class="macro-badge protein">${uiSvgIcon('protein')} ${item.prot}g P</span>
+                            <span class="macro-badge carb">${uiSvgIcon('carb')} ${item.carb}g C</span>
+                            <span class="macro-badge fat">${uiSvgIcon('fat')} ${item.gord}g G</span>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `).join('');
+
+    return `${summaryCard}${mealCards}`;
+}
+
 function renderStudentDietMain() {
     const studentId = localStorage.getItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
@@ -1888,21 +1980,8 @@ function renderStudentDietMain() {
         return;
     }
 
-    container.innerHTML = student.mealBlocks.map(meal => `
-        <div class="meal-block">
-            <div class="block-header"><h3>${escHtml(meal.name)}</h3></div>
-            <div class="meal-items-list">
-                ${meal.items.map(item => `
-                    <div class="meal-item-row">
-                        <div style="flex:1;"><strong>${escHtml(item.nome)}</strong><span class="text-sub">${escHtml(item.qtd)}</span></div>
-                        <div class="meal-macros-mini">
-                            <span>${item.kcal}kcal</span><span>${item.prot}g P</span><span>${item.carb}g C</span>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-    `).join('');
+    container.innerHTML = renderStudentDietContent(student);
+    optimizeMediaElements(container);
 }
 
 function handleUnifiedLogin() {
@@ -2255,27 +2334,8 @@ function openStudentDiet() {
     const container = document.getElementById('student-diet-content');
     if (!container) return;
 
-    container.innerHTML = student.mealBlocks.map(meal => `
-        <div class="meal-block">
-            <div class="block-header"><h3>${escHtml(meal.name)}</h3></div>
-            <div class="meal-items-list">
-                ${meal.items.map(item => `
-                    <div class="meal-item-row">
-                        <div style="flex:1;">
-                            <strong>${escHtml(item.nome)}</strong>
-                            <span class="text-sub">${escHtml(item.qtd)}</span>
-                        </div>
-                        <div class="meal-macros-mini">
-                            <span>${item.kcal} kcal</span>
-                            <span>P:${item.prot}g</span>
-                            <span>C:${item.carb}g</span>
-                            <span>G:${item.gord}g</span>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-    `).join('');
+    container.innerHTML = renderStudentDietContent(student);
+    optimizeMediaElements(container);
 
     document.getElementById('student-diet-screen').classList.add('active');
 }
@@ -4764,19 +4824,23 @@ function renderWorkoutLog() {
         <div class="log-exercise-card ${ex.supersetGroup ? 'superset-card' : ''} ${linkedToNext ? 'superset-linked' : ''}">
             <div class="log-ex-header">
                 <div class="log-ex-head-main">
-                    <h3 class="clickable-ex-title" onclick="openExerciseProgressModalEncoded('${encodeURIComponent(ex.nome)}')">${escHtml(ex.nome)}</h3>
+                    <div class="log-ex-title-row">
+                        <h3 class="clickable-ex-title" onclick="openExerciseProgressModalEncoded('${encodeURIComponent(ex.nome)}')">${escHtml(ex.nome)}</h3>
+                        <div class="log-ex-top-actions">
+                            ${ex.substitutes && ex.substitutes.length > 0 ? `
+                            <button class="btn-icon-tiny action-swap" onclick="toggleLogSubstitutes(${exIdx})" title="Trocar exercício">
+                                ${uiSvgIcon('arrows-clockwise')}
+                            </button>` : ''}
+                            <button class="btn-icon-tiny action-trash" onclick="removeExerciseFromLog(${exIdx})" title="Excluir exercício">
+                                ${uiSvgIcon('trash')}
+                            </button>
+                        </div>
+                    </div>
                     <div class="log-ex-meta">
                         <span class="meta-pill">${uiSvgIcon('check-circle')} ${completed}/${total} séries</span>
                         <span class="meta-pill muted">${uiSvgIcon('chart-line-up')} registrar carga</span>
                         ${ex.supersetGroup ? `<span class="meta-pill">${uiSvgIcon('lightning')} bi-set ${ex.supersetGroup}</span>` : ''}
                     </div>
-                </div>
-                <div class="log-ex-top-actions">
-                    ${ex.substitutes && ex.substitutes.length > 0 ? `
-                    <button class="btn-icon-tiny" onclick="toggleLogSubstitutes(${exIdx})" title="Trocar exercicio">
-                        ${uiSvgIcon('arrows-clockwise')}
-                    </button>` : ''}
-                <button class="btn-icon-tiny" onclick="removeExerciseFromLog(${exIdx})">${uiSvgIcon('trash')}</button>
                 </div>
             </div>
 

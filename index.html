@@ -189,37 +189,24 @@
                     <i class="ph-bold ph-barbell"></i>
                 </div>
                 <p class="hero-kicker">Consultoria Esportiva Premium</p>
-                <h1 class="main-title hero-title">Sua Melhor Versão Começa Aqui. Treino e Dieta na Palma da Mão.</h1>
+                <h1 class="main-title hero-title">Sua Melhor Versão Começa Agora. Treino e Dieta Inteligentes na Palma da Mão.</h1>
                 <p class="subtitle hero-subtitle">Acompanhamento próximo do treinador, ajustes inteligentes e foco total
                     em performance no seu dia a dia.</p>
-                <button class="btn-primary hero-cta" onclick="goToStudentArea()">
+                <button class="btn-primary hero-cta hero-cta-dominant" onclick="goToStudentArea()">
                     <i class="ph-bold ph-rocket-launch"></i> Iniciar Meu Protocolo
                 </button>
             </section>
 
             <section class="home-secondary-access">
-                <h2 class="home-secondary-title">Acessos rápidos</h2>
-                <div class="role-selection">
-                    <button class="role-card" onclick="openTrainerArea()">
-                        <div class="card-icon active-icon">
-                            <i class="ph-bold ph-clipboard-text"></i>
-                        </div>
-                        <div class="card-content">
-                            <h3>Sou Treinador</h3>
-                            <p>Gerenciar alunos, protocolos e acompanhamentos</p>
-                        </div>
-                        <i class="ph-bold ph-caret-right arrow-icon"></i>
+                <h2 class="home-secondary-title">Escolha seu acesso</h2>
+                <div class="role-quick-grid">
+                    <button class="role-quick-btn student" onclick="goToStudentArea()">
+                        <span class="role-quick-icon"><i class="ph-bold ph-barbell"></i></span>
+                        <span>Eu sou Aluno</span>
                     </button>
-
-                    <button class="role-card" onclick="goToStudentArea()">
-                        <div class="card-icon inactive-icon">
-                            <i class="ph-bold ph-barbell"></i>
-                        </div>
-                        <div class="card-content">
-                            <h3>Sou Aluno</h3>
-                            <p>Acessar meus treinos, dieta e evolução</p>
-                        </div>
-                        <i class="ph-bold ph-caret-right arrow-icon"></i>
+                    <button class="role-quick-btn trainer" onclick="openTrainerArea()">
+                        <span class="role-quick-icon"><i class="ph-bold ph-clipboard-text"></i></span>
+                        <span>Eu sou Treinador</span>
                     </button>
                 </div>
             </section>
