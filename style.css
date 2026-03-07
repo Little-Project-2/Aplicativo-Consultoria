@@ -130,6 +130,8 @@ body {
 .dashboard-layout,
 .main-content {
     min-height: calc(100dvh - 24px);
+    padding-bottom: 90px;
+    /* Space for bottom nav */
 }
 
 @keyframes fadeIn {
@@ -501,8 +503,11 @@ body {
     width: 100%;
     display: flex;
     flex-direction: column;
+    justify-content: center;
     align-items: center;
-    margin-top: 4rem;
+    min-height: 100dvh;
+    padding: 2rem;
+    box-sizing: border-box;
 }
 
 .logo-icon.lg {
@@ -630,8 +635,26 @@ body {
 .workout-tab:active,
 .treino-option-card:active,
 .action-card:active,
+.student-list-item:active,
+.recent-student-card:active,
 .set-intensity-dot:active {
-    transform: scale(0.97);
+    transform: scale(0.98);
+}
+
+.student-list-item,
+.recent-student-card {
+    cursor: pointer;
+    user-select: none;
+}
+
+.student-list-item:hover,
+.recent-student-card:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.student-list-item:active,
+.recent-student-card:active {
+    background: rgba(255, 255, 255, 0.06);
 }
 
 .btn-link:hover {
@@ -8820,10 +8843,10 @@ body {
         line-height: 1;
     }
 
-.dashboard-layout .sidebar .nav-item i,
-.dashboard-layout .sidebar .nav-item .ui-svg-icon {
+    .dashboard-layout .sidebar .nav-item i,
+    .dashboard-layout .sidebar .nav-item .ui-svg-icon {
         font-size: 2.24rem;
-}
+    }
 
     .dashboard-layout .sidebar .nav-item:nth-child(n+5) {
         display: none;
@@ -9874,7 +9897,7 @@ body {
         top: auto !important;
         width: auto !important;
         height: 72px !important;
-        z-index: 1600;
+        z-index: 1000;
         border-radius: 18px;
         border: 1px solid rgba(255, 255, 255, 0.14);
         background: rgba(12, 12, 12, 0.72);
@@ -10420,9 +10443,20 @@ body {
         height: 24px;
     }
 }
-/* Nutrition Layout Adjustments */
-.diet-progress-fill.protein { box-shadow: 0 0 10px rgba(248, 113, 113, 0.8); }
-.diet-progress-fill.carb { box-shadow: 0 0 10px rgba(251, 191, 36, 0.8); }
-.diet-progress-fill.fat { box-shadow: 0 0 10px rgba(96, 165, 250, 0.8); }
-.meal-block .block-header button i.ph-check { font-size: 1.1rem; }
 
+/* Nutrition Layout Adjustments */
+.diet-progress-fill.protein {
+    box-shadow: 0 0 10px rgba(248, 113, 113, 0.8);
+}
+
+.diet-progress-fill.carb {
+    box-shadow: 0 0 10px rgba(251, 191, 36, 0.8);
+}
+
+.diet-progress-fill.fat {
+    box-shadow: 0 0 10px rgba(96, 165, 250, 0.8);
+}
+
+.meal-block .block-header button i.ph-check {
+    font-size: 1.1rem;
+}

@@ -4,8 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description"
-        content="Treinos e dietas de elite com acompanhamento próximo.">
+    <meta name="description" content="Treinos e dietas de elite com acompanhamento próximo.">
     <meta name="theme-color" content="#080808">
     <meta name="application-name" content="Consultoria">
     <meta name="mobile-web-app-capable" content="yes">
@@ -16,14 +15,12 @@
     <meta property="og:type" content="website">
     <meta property="og:locale" content="pt_BR">
     <meta property="og:title" content="Consultoria Fitness | Treino e Dieta de Elite">
-    <meta property="og:description"
-        content="Treinos e dietas de elite com acompanhamento próximo.">
+    <meta property="og:description" content="Treinos e dietas de elite com acompanhamento próximo.">
     <meta property="og:url" content="https://aplicativo-consultoria.vercel.app/">
     <meta property="og:image" content="https://aplicativo-consultoria.vercel.app/assets/icons/icon-512.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Consultoria Fitness | Treino e Dieta de Elite">
-    <meta name="twitter:description"
-        content="Treinos e dietas de elite com acompanhamento próximo.">
+    <meta name="twitter:description" content="Treinos e dietas de elite com acompanhamento próximo.">
     <meta name="twitter:image" content="https://aplicativo-consultoria.vercel.app/assets/icons/icon-512.png">
     <title>Consultoria Fitness – Treino e Dieta de Elite</title>
     <link rel="manifest" href="manifest.json">
@@ -195,7 +192,8 @@
                 <button class="btn-primary hero-cta hero-cta-dominant" onclick="goToStudentArea()">
                     <i class="ph-bold ph-rocket-launch"></i> Iniciar Meu Protocolo
                 </button>
-                <button id="install-app-btn" class="btn-secondary-outline install-app-btn" style="margin-top: 0.75rem; display: none; width: auto;">
+                <button id="install-app-btn" class="btn-secondary-outline install-app-btn"
+                    style="margin-top: 0.75rem; display: none; width: auto;">
                     Instalar Aplicativo
                 </button>
             </section>
@@ -287,20 +285,25 @@
                 <form class="login-form" onsubmit="event.preventDefault(); handleProfileCreation();">
                     <div class="input-group">
                         <label for="reg-name">NOME COMPLETO</label>
-                        <input type="text" id="reg-name" placeholder="Ex: Nicolas Silveira" required autocomplete="name">
+                        <input type="text" id="reg-name" placeholder="Ex: Nicolas Silveira" required
+                            autocomplete="name">
                     </div>
                     <div class="input-group">
                         <label for="reg-email">E-MAIL</label>
-                        <input type="email" id="reg-email" placeholder="seu@email.com" required autocomplete="email" inputmode="email">
+                        <input type="email" id="reg-email" placeholder="seu@email.com" required autocomplete="email"
+                            inputmode="email">
                     </div>
                     <div class="input-group">
                         <label for="reg-pass">CRIAR SENHA</label>
-                        <input type="password" id="reg-pass" placeholder="Minimo 8 caracteres" required minlength="8" autocomplete="new-password">
-                        <small style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;display:block;">Use letras e numeros para maior seguranca.</small>
+                        <input type="password" id="reg-pass" placeholder="Minimo 8 caracteres" required minlength="8"
+                            autocomplete="new-password">
+                        <small style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;display:block;">Use
+                            letras e numeros para maior seguranca.</small>
                     </div>
                     <div class="input-group">
                         <label for="reg-pass-confirm">CONFIRMAR SENHA</label>
-                        <input type="password" id="reg-pass-confirm" placeholder="Repita sua senha" required minlength="8" autocomplete="new-password">
+                        <input type="password" id="reg-pass-confirm" placeholder="Repita sua senha" required
+                            minlength="8" autocomplete="new-password">
                     </div>
 
                     <div class="input-group">
@@ -328,7 +331,7 @@
                         <span>Aceito os Termos de Uso e Privacidade</span>
                     </label>
 
-                    
+
 
                     <button type="submit" class="btn-primary" style="margin-top: 1rem;">Criar Conta</button>
                 </form>
@@ -647,7 +650,8 @@
                                         checked><span>ðŸ§ Sentado</span></label>
                                 <label class="segment-opt"><input type="radio" name="q_trab" value="em_pe"><span>ðŸ§ Em
                                         pé</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_trab" value="movimento"><span>ðŸš¶
+                                <label class="segment-opt"><input type="radio" name="q_trab"
+                                        value="movimento"><span>ðŸš¶
                                         Movimento</span></label>
                             </div>
                         </div>
@@ -814,7 +818,8 @@
                         </a>
                         <a href="#" class="nav-item" id="snav-perfil" onclick="switchStudentView('perfil')">
                             <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2"></circle>
+                                <circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2">
+                                </circle>
                                 <path d="M5 19c1.4-2.8 3.7-4.2 7-4.2 3.3 0 5.6 1.4 7 4.2" fill="none"
                                     stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
                             </svg>
@@ -939,7 +944,14 @@
 
                         <!-- Landing: Two Options -->
                         <div id="treino-landing" class="treino-landing">
-                            <div class="dashboard-header">
+                            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem;">
+                                <button class="btn-top-back" onclick="switchStudentView('home')"
+                                    style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                                    <i class="ph-bold ph-arrow-left"></i>
+                                </button>
+                                <span style="font-weight: 600; color: var(--text-muted);">INÍCIO</span>
+                            </div>
+                            <div class="dashboard-header" style="margin-top:0;">
                                 <div class="user-info">
                                     <h2>Meu Treino</h2>
                                     <p class="subtitle">Escolha o que deseja fazer</p>
@@ -984,15 +996,20 @@
 
                         <!-- Sub-view: Analisar Treino -->
                         <div id="treino-analise" style="display:none;">
-                            <button class="btn-treino-back" onclick="switchTreinoSubview('landing')">
-                                <i class="ph-bold ph-arrow-left"></i> Voltar
-                            </button>
+                            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                                <button class="btn-top-back" onclick="switchTreinoSubview('landing')"
+                                    style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                                    <i class="ph-bold ph-arrow-left"></i>
+                                </button>
+                                <span style="font-weight: 600; color: var(--text-muted);">VOLTAR</span>
+                            </div>
 
                             <div class="dashboard-header" style="margin-top:0.5rem;">
                                 <div class="user-info">
                                     <h2><i class="ph-bold ph-list-magnifying-glass"
                                             style="color:var(--primary-color);"></i> Analisar Meu Treino</h2>
-                                    <p class="subtitle">Painel completo de execucao, progresso e suporte do treinador</p>
+                                    <p class="subtitle">Painel completo de execucao, progresso e suporte do treinador
+                                    </p>
                                 </div>
                                 <button class="btn-duvida-treino" onclick="openDuvidaModal()">
                                     <i class="ph-bold ph-question"></i> Duvida
@@ -1120,6 +1137,13 @@
 
                     <!-- VIEW: DIETA -->
                     <div id="view-student-dieta" class="view-section" style="display: none;">
+                        <div style="display: flex; align-items: center; gap: 1rem; margin: 1rem 0 2rem;">
+                            <button class="btn-top-back" onclick="switchStudentView('home')"
+                                style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                                <i class="ph-bold ph-arrow-left"></i>
+                            </button>
+                            <span style="font-weight: 600; color: var(--text-muted);">INÍCIO</span>
+                        </div>
                         <div class="dashboard-header">
                             <div class="user-info">
                                 <h2>Minha Dieta</h2>
@@ -1133,6 +1157,13 @@
 
                     <!-- VIEW: MEU PERFIL -->
                     <div id="view-student-perfil" class="view-section" style="display: none;">
+                        <div style="display: flex; align-items: center; gap: 1rem; margin: 1rem 0 2rem;">
+                            <button class="btn-top-back" onclick="switchStudentView('home')"
+                                style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                                <i class="ph-bold ph-arrow-left"></i>
+                            </button>
+                            <span style="font-weight: 600; color: var(--text-muted);">INÍCIO</span>
+                        </div>
                         <!-- Profile Header Card -->
                         <div class="perfil-header-card">
                             <div class="perfil-avatar" id="perfil-avatar">
@@ -1237,10 +1268,12 @@
                                 <div
                                     style="display: flex; align-items: center; gap: 0.5rem; color: var(--primary-color); font-weight: 700;">
                                     <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                        <circle cx="12" cy="13" r="7.5" fill="none" stroke="currentColor" stroke-width="2"></circle>
-                                        <path d="M12 13V9m0 4 2.6 1.6" fill="none" stroke="currentColor" stroke-width="2"
-                                            stroke-linecap="round" stroke-linejoin="round"></path>
-                                        <path d="M9 3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                                        <circle cx="12" cy="13" r="7.5" fill="none" stroke="currentColor"
+                                            stroke-width="2"></circle>
+                                        <path d="M12 13V9m0 4 2.6 1.6" fill="none" stroke="currentColor"
+                                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                                        <path d="M9 3h6" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round"></path>
                                     </svg>
                                     <span id="log-workout-timer">00:00</span>
                                 </div>
@@ -1279,17 +1312,21 @@
                                 <div class="perfil-modal-header">
                                     <h3>Como foi esta serie?</h3>
                                     <button class="btn-icon" onclick="closeSetEffortQuickModal()">
-                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2"
-                                                stroke-linecap="round"></path>
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true"
+                                            focusable="false">
+                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+                                                stroke-width="2.2" stroke-linecap="round"></path>
                                         </svg>
                                     </button>
                                 </div>
                                 <div class="perfil-modal-body">
                                     <div class="seqm-options">
-                                        <button type="button" class="seqm-btn leve" onclick="chooseQuickSetEffort(1)">⚪ Leve</button>
-                                        <button type="button" class="seqm-btn ponto" onclick="chooseQuickSetEffort(3)">🟡 No ponto</button>
-                                        <button type="button" class="seqm-btn falha" onclick="chooseQuickSetEffort(5)">🔴 Falhei</button>
+                                        <button type="button" class="seqm-btn leve" onclick="chooseQuickSetEffort(1)">⚪
+                                            Leve</button>
+                                        <button type="button" class="seqm-btn ponto"
+                                            onclick="chooseQuickSetEffort(3)">🟡 No ponto</button>
+                                        <button type="button" class="seqm-btn falha"
+                                            onclick="chooseQuickSetEffort(5)">🔴 Falhei</button>
                                     </div>
                                 </div>
                             </div>
@@ -1300,13 +1337,15 @@
                                 <div class="perfil-modal-header">
                                     <h3 id="exercise-progress-title">Historico de Carga</h3>
                                     <button class="btn-icon" onclick="closeExerciseProgressModal()">
-                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2"
-                                                stroke-linecap="round"></path>
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true"
+                                            focusable="false">
+                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+                                                stroke-width="2.2" stroke-linecap="round"></path>
                                         </svg>
                                     </button>
                                 </div>
-                                <div class="perfil-modal-body" id="exercise-progress-body" style="max-height:70vh;overflow-y:auto;">
+                                <div class="perfil-modal-body" id="exercise-progress-body"
+                                    style="max-height:70vh;overflow-y:auto;">
                                 </div>
                             </div>
                         </div>
@@ -1316,17 +1355,19 @@
                             <div class="perfil-modal workout-feedback-modal">
                                 <div class="perfil-modal-header">
                                     <h3>
-                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
-                                            style="color:var(--primary-color);">
-                                            <path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3z"
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true"
+                                            focusable="false" style="color:var(--primary-color);">
+                                            <path
+                                                d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3z"
                                                 fill="currentColor"></path>
                                         </svg>
                                         Avaliar treino
                                     </h3>
                                     <button class="btn-icon" onclick="closeWorkoutFeedbackModal()">
-                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2"
-                                                stroke-linecap="round"></path>
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true"
+                                            focusable="false">
+                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+                                                stroke-width="2.2" stroke-linecap="round"></path>
                                         </svg>
                                     </button>
                                 </div>
@@ -1334,20 +1375,28 @@
                                     <div class="perfil-modal-field">
                                         <label>QUALIDADE GERAL</label>
                                         <div class="wfb-rating-row">
-                                            <button type="button" class="wfb-emoji-btn" data-rating="1" onclick="setWorkoutFeedbackRating(1)">★</button>
-                                            <button type="button" class="wfb-emoji-btn" data-rating="2" onclick="setWorkoutFeedbackRating(2)">★</button>
-                                            <button type="button" class="wfb-emoji-btn" data-rating="3" onclick="setWorkoutFeedbackRating(3)">★</button>
-                                            <button type="button" class="wfb-emoji-btn" data-rating="4" onclick="setWorkoutFeedbackRating(4)">★</button>
-                                            <button type="button" class="wfb-emoji-btn" data-rating="5" onclick="setWorkoutFeedbackRating(5)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="1"
+                                                onclick="setWorkoutFeedbackRating(1)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="2"
+                                                onclick="setWorkoutFeedbackRating(2)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="3"
+                                                onclick="setWorkoutFeedbackRating(3)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="4"
+                                                onclick="setWorkoutFeedbackRating(4)">★</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="5"
+                                                onclick="setWorkoutFeedbackRating(5)">★</button>
                                         </div>
                                     </div>
 
                                     <div class="perfil-modal-field">
                                         <label>INTENSIDADE PERCEBIDA</label>
                                         <div class="wfb-intensity-row">
-                                            <button type="button" class="wfb-intensity-btn" data-level="leve" onclick="setWorkoutFeedbackIntensity('leve')">Leve</button>
-                                            <button type="button" class="wfb-intensity-btn active" data-level="moderado" onclick="setWorkoutFeedbackIntensity('moderado')">Moderado</button>
-                                            <button type="button" class="wfb-intensity-btn" data-level="pesado" onclick="setWorkoutFeedbackIntensity('pesado')">Pesado</button>
+                                            <button type="button" class="wfb-intensity-btn" data-level="leve"
+                                                onclick="setWorkoutFeedbackIntensity('leve')">Leve</button>
+                                            <button type="button" class="wfb-intensity-btn active" data-level="moderado"
+                                                onclick="setWorkoutFeedbackIntensity('moderado')">Moderado</button>
+                                            <button type="button" class="wfb-intensity-btn" data-level="pesado"
+                                                onclick="setWorkoutFeedbackIntensity('pesado')">Pesado</button>
                                         </div>
                                     </div>
 
@@ -1373,7 +1422,8 @@
                     <div id="view-student-workout-summary" class="view-section" style="display: none; padding: 1.5rem;">
                         <div class="summary-header"
                             style="text-align: center; margin-bottom: 2rem; animation: slideUp 0.6s ease;">
-                            <div class="summary-icon-celebration" style="font-size: 3rem; margin-bottom: 1rem;">ðŸŽ‰</div>
+                            <div class="summary-icon-celebration" style="font-size: 3rem; margin-bottom: 1rem;">ðŸŽ‰
+                            </div>
                             <h2 class="summary-main-title"
                                 style="font-size: 2rem; background: linear-gradient(135deg, #fff 0%, var(--primary-color) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
                                 Treino Concluído!</h2>
@@ -1442,6 +1492,3 @@
 </body>
 
 </html>
-
-
-

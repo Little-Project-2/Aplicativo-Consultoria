@@ -2279,8 +2279,45 @@ function switchQTab(tabName) {
     btns.forEach(btn => btn.classList.remove('active'));
 
     // Show selected
-    document.getElementById(`q - tab - ${tabName} `).classList.add('active');
-    document.getElementById(`btn - tab - ${tabName} `).classList.add('active');
+    const tabEl = document.getElementById(`q-tab-${tabName}`);
+    const btnEl = document.getElementById(`btn-tab-${tabName}`);
+    if (tabEl) tabEl.classList.add('active');
+    if (btnEl) btnEl.classList.add('active');
+
+    // Trigger data loading if needed
+    renderQuestions(tabName);
+}
+
+function renderQuestions(tab) {
+    const container = document.getElementById(`q-tab-${tab}`);
+    if (!container) return;
+
+    const questionBanks = {
+        'saude': [
+            { id: 'q_lesao', label: 'Possui alguma lesão ou limitação?', type: 'text', placeholder: 'Ex: Hérnia de disco, dor no joelho...' },
+            { id: 'q_medicacao', label: 'Toma algum medicamento controlado?', type: 'text', placeholder: 'Ex: Pressão alta, tireoide...' },
+            { id: 'q_patologia', label: 'Histórico de doenças na família?', type: 'text', placeholder: 'Ex: Diabetes, problemas cardíacos...' }
+        ],
+        'nutricao': [
+            { id: 'q_refeicoes', label: 'Quantas refeições faz por dia?', type: 'number', placeholder: 'Ex: 4' },
+            { id: 'q_suplementos', label: 'Usa algum suplemento?', type: 'text', placeholder: 'Ex: Creatina, Whey...' },
+            { id: 'q_agua', label: 'Litros de água por dia?', type: 'number', placeholder: 'Ex: 3' }
+        ],
+        'rotina': [
+            { id: 'q_treino_frequencia', label: 'Quantos dias pretende treinar?', type: 'number', placeholder: 'Ex: 5' },
+            { id: 'q_sono', label: 'Horas de sono por noite?', type: 'number', placeholder: 'Ex: 8' },
+            { id: 'q_trabalho', label: 'Seu trabalho é mais sentado ou ativo?', type: 'text', placeholder: 'Ex: Sentado o dia todo' }
+        ]
+    };
+
+    const questions = questionBanks[tab] || [];
+    container.innerHTML = questions.map(q => `
+        <div class="q-group" style="margin-bottom: 1.5rem;">
+            <label style="display: block; margin-bottom: 0.5rem; font-weight: 500; font-size: 0.9rem;">${q.label}</label>
+            <input type="${q.type}" id="${q.id}" class="form-control" placeholder="${q.placeholder}" 
+                style="width: 100%; padding: 0.8rem; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white;">
+        </div>
+    `).join('');
 }
 
 function submitQuestionnaire() {
@@ -2414,7 +2451,7 @@ function renderWorkoutStartOptions(student) {
             <div style="flex:1; text-align: left;">
                 <span style="display: block; font-weight: 700; color: var(--text-main); font-size: 1rem;">${escHtml(title)}</span>
                 <span style="font-size: 0.75rem; color: var(--primary-color); font-weight: 500;">${muscles.join(' • ')}</span>
-                <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${block.exercises.length} exercícios • Registrar cargas</span>
+                <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${block.exercises.length} exercícios</span>
             </div>
             <i class="ph-bold ph-caret-right" style="color: var(--primary-color); font-size: 1rem;"></i>
         </button> `;
@@ -2431,20 +2468,28 @@ function setProtocolStatus(isReady) {
         if (elWaiting) elWaiting.style.display = 'none';
         if (elReady) elReady.style.display = 'block';
 
-        statusTreino.innerText = 'Ativo';
-        statusTreino.className = 'text-success';
+        if (statusTreino) {
+            statusTreino.innerHTML = 'Ativo';
+            statusTreino.className = 'text-success';
+        }
 
-        statusDieta.innerText = 'Ativo';
-        statusDieta.className = 'text-success';
+        if (statusDieta) {
+            statusDieta.innerHTML = 'Ativo';
+            statusDieta.className = 'text-success';
+        }
     } else {
         if (elReady) elReady.style.display = 'none';
         if (elWaiting) elWaiting.style.display = 'flex';
 
-        statusTreino.innerText = 'Pendente';
-        statusTreino.className = 'text-warning';
+        if (statusTreino) {
+            statusTreino.innerHTML = 'Pendente';
+            statusTreino.className = 'text-warning';
+        }
 
-        statusDieta.innerText = 'Pendente';
-        statusDieta.className = 'text-warning';
+        if (statusDieta) {
+            statusDieta.innerHTML = 'Pendente';
+            statusDieta.className = 'text-warning';
+        }
     }
 }
 
@@ -2627,7 +2672,7 @@ function renderStudentPerfil() {
 
     // Profile header
     const nameEl = document.getElementById('perfil-nome');
-    if (nameEl) nameEl.textContent = student.name || 'Aluno';
+    if (nameEl) nameEl.innerHTML = student.name || 'Aluno';
 
     const avatarEl = document.getElementById('perfil-avatar');
     if (avatarEl) {
@@ -2636,7 +2681,7 @@ function renderStudentPerfil() {
     }
 
     const membroEl = document.getElementById('perfil-membro-desde');
-    if (membroEl) membroEl.textContent = `Membro desde ${formatDate(student.joinedAt)} `;
+    if (membroEl) membroEl.innerHTML = `Membro desde ${formatDate(student.joinedAt)} `;
 
     // Metrics grid
     const metricsGrid = document.getElementById('perfil-metrics-grid');
@@ -2798,14 +2843,14 @@ function renderPerfilHistory(student) {
                         <i class="ph-bold ph-calendar-check"></i>
                         ${formatDate(entry.date)}
                     </div>
-                    <div class="history-changes">
+                    <div class="history-changes" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem;">
                         ${changes.map(c => `
-                            <div class="history-change-chip">
-                                <i class="ph-bold ${c.icon}"></i>
-                                <span>${c.label}: <strong>${c.value}</strong></span>
+                            <div class="history-change-chip" style="background: rgba(255,255,255,0.05); padding: 0.3rem 0.6rem; border-radius: 8px; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; border: 1px solid rgba(255,255,255,0.08);">
+                                <i class="ph-bold ${c.icon}" style="color: var(--primary-color);"></i>
+                                <span>${c.label}: <strong style="color: var(--text-main);">${c.value}</strong></span>
                                 ${c.delta !== null ? `
-                                    <span class="history-delta ${parseFloat(c.delta) > 0 ? 'up' : parseFloat(c.delta) < 0 ? 'down' : ''}">
-                                        ${parseFloat(c.delta) > 0 ? '+' : ''}${c.delta}%
+                                    <span class="history-delta ${parseFloat(c.delta) > 0 ? 'up' : parseFloat(c.delta) < 0 ? 'down' : ''}" style="font-size: 0.75rem; font-weight: 600;">
+                                        (${parseFloat(c.delta) > 0 ? '+' : ''}${c.delta}%)
                                     </span>
                                 ` : ''}
                             </div>
@@ -3259,7 +3304,13 @@ function switchDashView(view) {
     if (view === 'alunos') {
         if (viewAlunos) viewAlunos.style.display = '';
         if (navAlunos) navAlunos.classList.add('active');
-        if (pageTitle) pageTitle.textContent = 'Gerenciar Alunos';
+        if (pageTitle) {
+            pageTitle.innerHTML = `
+                <button class="btn-icon-minimal" onclick="switchDashView('dashboard')" style="margin-right: 0.5rem; vertical-align: middle;">
+                    <i class="ph-bold ph-arrow-left"></i>
+                </button>
+                Gerenciar Alunos`;
+        }
     } else if (view === 'duvidas') {
         if (viewDuvidas) viewDuvidas.style.display = '';
         if (navDuvidas) navDuvidas.classList.add('active');
@@ -3322,7 +3373,11 @@ function buildStudentRow(s, idx, options = {}) {
 
     if (recentCompact) {
         return `
-        <div class="student-list-item recent-student-card" onclick="openStudentProfile(${idx})">
+        <div class="student-list-item recent-student-card" 
+             style="padding: 1.25rem; transition: background 0.2s ease;"
+             onmouseover="this.style.background='rgba(255,255,255,0.05)'"
+             onmouseout="this.style.background='transparent'"
+             onclick="openStudentProfile(${idx})">
             <div class="recent-student-top">
                 <h4>${safeName}</h4>
                 <span class="recent-status active">Ativo</span>
@@ -3338,7 +3393,11 @@ function buildStudentRow(s, idx, options = {}) {
     }
 
     return `
-        <div class="student-list-item grid-layout" onclick="openStudentProfile(${idx})">
+        <div class="student-list-item grid-layout" 
+             style="padding: 1.25rem; transition: background 0.2s ease;"
+             onmouseover="this.style.background='rgba(255,255,255,0.05)'"
+             onmouseout="this.style.background='transparent'"
+             onclick="openStudentProfile(${idx})">
         <div class="sli-col" data-label="Status">
             <span class="badge active"><div class="dot"></div> Ativo</span>
         </div>
@@ -4979,7 +5038,7 @@ function renderWorkoutLog() {
     if (!container || !workoutState) return;
 
     const titleEl = document.getElementById('log-workout-title');
-    if (titleEl) titleEl.innerText = workoutState.title;
+    if (titleEl) titleEl.innerHTML = workoutState.title;
 
     container.innerHTML = workoutState.exercises.map((ex, exIdx) => {
         const completed = ex.sets.filter(s => s.completed).length;
