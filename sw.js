@@ -107,6 +107,23 @@ async function navigationResponse(request) {
   return offline || Response.error();
 }
 
+async function handleCompletedWorkoutsSync() {
+  // Stub de Background Sync para futuros envios ao backend.
+  // Aqui você pode buscar registros offline em IndexedDB e enviá-los para uma API.
+  try {
+    // Mantém a função resolvendo mesmo sem backend configurado.
+    return true;
+  } catch (err) {
+    return true;
+  }
+}
+
+self.addEventListener("sync", (event) => {
+  if (event.tag === "sync-completed-workouts") {
+    event.waitUntil(handleCompletedWorkoutsSync());
+  }
+});
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;

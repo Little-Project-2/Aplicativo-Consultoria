@@ -1,4 +1,4 @@
-﻿function hideAllScreens() {
+function hideAllScreens() {
     const screens = document.querySelectorAll('.screen');
     screens.forEach(screen => screen.classList.remove('active'));
     const app = document.getElementById('app');
@@ -236,11 +236,122 @@ function uiSvgIcon(name, className = '') {
         'arrow-up-right': '<path d="M7 17L17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>',
         'protein': '<path d="M8 9.5c0-2.2 1.8-4 4-4h1.5c1.4 0 2.5 1.1 2.5 2.5V11c0 4.4-3.6 8-8 8-1.4 0-2.5-1.1-2.5-2.5V15c0-3 2.5-5.5 5.5-5.5h2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
         'carb': '<path d="M5 14c0-3.3 2.7-6 6-6s6 2.7 6 6v1.5A3.5 3.5 0 0 1 13.5 19h-3A5.5 5.5 0 0 1 5 13.5V14z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path><path d="M8 10.5h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
-        'fat': '<path d="M12 4c2.2 3 4.8 5.5 4.8 8.5A4.8 4.8 0 0 1 12 17.3a4.8 4.8 0 0 1-4.8-4.8C7.2 9.5 9.8 7 12 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>'
+        'fat': '<path d="M12 4c2.2 3 4.8 5.5 4.8 8.5A4.8 4.8 0 0 1 12 17.3a4.8 4.8 0 0 1-4.8-4.8C7.2 9.5 9.8 7 12 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>',
+        // bottom nav / sidebar icons
+        'nav-dashboard': '<rect x="4" y="4" width="7" height="7" rx="1.8"></rect><rect x="13" y="4" width="7" height="7" rx="1.8"></rect><rect x="4" y="13" width="7" height="7" rx="1.8"></rect><rect x="13" y="13" width="7" height="7" rx="1.8"></rect>',
+        'nav-alunos': '<circle cx="9" cy="9" r="3"></circle><circle cx="17" cy="9" r="3"></circle><path d="M4 19a4.5 4.5 0 0 1 9 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M13 18.5A4.5 4.5 0 0 1 20 19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
+        'nav-duvidas': '<path d="M5 5h14a2 2 0 0 1 2 2v6.5a2 2 0 0 1-2 2h-4.5L10 21v-5.5H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path><circle cx="10" cy="10" r="1"></circle><circle cx="14" cy="10" r="1"></circle>',
+        'nav-exercicios': '<path d="M4 10h3l2-3h6l2 3h3v4h-3l-2 3H9l-2-3H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path><path d="M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
+        'nav-avaliacoes': '<rect x="5" y="4" width="14" height="16" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"></rect><path d="M9 4v3m6-3v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M8 11h8m-8 4h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
+        'nav-config': '<circle cx="12" cy="12" r="3.2"></circle><path d="M4.5 12.8l1.1 1.9-1 1.8 2 2 1.8-1 1.9 1.1h2.4l1.9-1.1 1.8 1 2-2-1-1.8 1.1-1.9v-2.4l-1.1-1.9 1-1.8-2-2-1.8 1-1.9-1.1h-2.4L8.4 4l-1.8-1-2 2 1 1.8-1.1 1.9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>',
+        'nav-logout': '<path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M15 16l4-4-4-4m4 4H9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>'
     };
     const inner = icons[name];
     if (!inner) return '';
     return `<svg class="ui-svg-icon ${className}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${inner}</svg>`;
+}
+
+function triggerHaptic(durationMs = 20) {
+    try {
+        if (window.navigator && typeof window.navigator.vibrate === 'function') {
+            window.navigator.vibrate(durationMs);
+        }
+    } catch {
+        // ignora erros de vibração
+    }
+}
+
+async function scheduleCompletedWorkoutSync() {
+    try {
+        if (!('serviceWorker' in navigator) || !('SyncManager' in window)) return;
+        const registration = await navigator.serviceWorker.ready;
+        await registration.sync.register('sync-completed-workouts');
+    } catch {
+        // falha silenciosa; o app continua funcionando offline-first
+    }
+}
+
+function upgradeSidebarNavIcons() {
+    try {
+        const trainerSidebar = document.querySelector('#trainer-dashboard-screen .sidebar');
+        if (!trainerSidebar) return;
+
+        const mapping = {
+            'nav-dashboard': 'nav-dashboard',
+            'nav-alunos': 'nav-alunos',
+            'nav-duvidas': 'nav-duvidas',
+            'nav-exercicios': 'nav-exercicios'
+        };
+
+        Object.entries(mapping).forEach(([id, iconName]) => {
+            const item = document.getElementById(id);
+            if (!item) return;
+            const iEl = item.querySelector('i');
+            if (!iEl) return;
+            const wrapper = document.createElement('span');
+            wrapper.innerHTML = uiSvgIcon(iconName);
+            const svg = wrapper.firstElementChild;
+            if (svg) iEl.replaceWith(svg);
+        });
+
+        const extraMap = [
+            { selector: '.sidebar-nav .nav-item:nth-of-type(5) i', icon: 'nav-avaliacoes' },
+            { selector: '.sidebar-nav .nav-item:nth-of-type(6) i', icon: 'nav-config' },
+            { selector: '.sidebar-footer .btn-logout i', icon: 'nav-logout' }
+        ];
+
+        extraMap.forEach(({ selector, icon }) => {
+            const iEl = trainerSidebar.querySelector(selector);
+            if (!iEl) return;
+            const wrapper = document.createElement('span');
+            wrapper.innerHTML = uiSvgIcon(icon);
+            const svg = wrapper.firstElementChild;
+            if (svg) iEl.replaceWith(svg);
+        });
+    } catch {
+        // fail silently to avoid breaking app
+    }
+}
+
+let deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    const btn = document.getElementById('install-app-btn');
+    if (btn) {
+        btn.style.display = 'inline-flex';
+    }
+});
+
+window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    const btn = document.getElementById('install-app-btn');
+    if (btn) {
+        btn.style.display = 'none';
+    }
+});
+
+function setupInstallButton() {
+    const btn = document.getElementById('install-app-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+        if (!deferredInstallPrompt) {
+            btn.style.display = 'none';
+            return;
+        }
+        try {
+            deferredInstallPrompt.prompt();
+            const { outcome } = await deferredInstallPrompt.userChoice;
+            if (outcome === 'accepted') {
+                btn.style.display = 'none';
+            }
+        } catch {
+            // ignore
+        } finally {
+            deferredInstallPrompt = null;
+        }
+    });
 }
 
 function validateFormFields(form) {
@@ -350,10 +461,7 @@ function goToHome() {
 
 function logout() {
     if (confirm('Deseja realmente sair?')) {
-        localStorage.removeItem('currentStudentId');
-        localStorage.removeItem('connectedTrainerCode');
-        localStorage.removeItem('studentName');
-        clearStudentAuthToken();
+        localStorage.clear();
         location.reload(); // Hard refresh to clear state
     }
 }
@@ -406,6 +514,16 @@ syncChannel.onmessage = (event) => {
 document.addEventListener('DOMContentLoaded', () => {
     setupClientSideFormProtection();
     ensureAdminStudent();
+    upgradeSidebarNavIcons();
+    setupInstallButton();
+
+    // Haptic para ações de salvar plano, quando existirem
+    document.addEventListener('click', (event) => {
+        const saveBtn = event.target.closest('.btn-save-plan');
+        if (saveBtn) {
+            triggerHaptic(25);
+        }
+    });
 
     // Prevent # anchors from jumping the page in app navigation
     document.querySelectorAll('.sidebar-nav .nav-item[href="#"]').forEach((link) => {
@@ -884,8 +1002,8 @@ function renderStudentWorkoutMain(options = {}) {
 
                     <div class="routine-exercise-list">
                         ${exercises.map((ex, idx) => {
-                            const substitutes = Array.isArray(ex.substitutes) ? ex.substitutes.filter(Boolean) : [];
-                            return `
+        const substitutes = Array.isArray(ex.substitutes) ? ex.substitutes.filter(Boolean) : [];
+        return `
                             <div class="routine-ex-item exercise-clarity-card ${ex.supersetWithNext ? 'has-superset' : ''}">
                                 <div class="exercise-order-badge">${idx + 1}</div>
                                 <div class="ex-name-box">
@@ -899,7 +1017,7 @@ function renderStudentWorkoutMain(options = {}) {
                                     <i class="ph-bold ph-chart-line-up"></i>
                                 </button>
                             </div>`;
-                        }).join('')}
+    }).join('')}
                     </div>
                 </div>
 
@@ -1909,9 +2027,18 @@ function computeDietMacroData(student) {
     };
 }
 
+window.updateWater = function (delta) {
+    let count = parseInt(localStorage.getItem('water_cups') || '0', 10);
+    count = Math.max(0, count + delta);
+    localStorage.setItem('water_cups', count);
+    const el = document.getElementById('water-counter-display');
+    if (el) el.innerText = count;
+};
+
 function renderStudentDietContent(student) {
     const macro = computeDietMacroData(student);
     const meals = Array.isArray(student?.mealBlocks) ? student.mealBlocks : [];
+    const savedWater = localStorage.getItem('water_cups') || '0';
 
     const summaryCard = `
         <div class="diet-macro-summary-card">
@@ -1936,8 +2063,11 @@ function renderStudentDietContent(student) {
 
     const mealCards = meals.map((meal, idx) => `
         <div class="meal-block meal-glass-card">
-            <div class="block-header meal-header-glass tone-${idx % 3}">
+            <div class="block-header meal-header-glass tone-${idx % 3}" style="display: flex; justify-content: space-between; align-items: center;">
                 <h3>${escHtml(meal.name)}</h3>
+                <button class="btn-icon-tiny meal-check-btn" onclick="handleMealCheckClick(this)" title="Marcar como consumida" style="color: rgba(255,255,255,0.4); border: 2px solid currentColor; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s ease;">
+                    ${uiSvgIcon('check')}
+                </button>
             </div>
             <div class="meal-items-list">
                 ${(meal.items || []).map(item => `
@@ -1958,7 +2088,43 @@ function renderStudentDietContent(student) {
         </div>
     `).join('');
 
-    return `${summaryCard}${mealCards}`;
+    const waterCard = `
+        <div class="meal-block meal-glass-card" style="text-align: center; padding: 1.5rem; margin-top: 1rem;">
+            <h3 style="margin-bottom: 1rem; color: #60a5fa; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <i class="ph-fill ph-drop" style="font-size: 1.5rem;"></i> Consumo de Água
+            </h3>
+            <div style="display: flex; justify-content: center; align-items: center; gap: 1.5rem; font-size: 2rem;">
+                <button class="btn-icon" onclick="updateWater(-1)" style="color: #f87171; background: rgba(248,113,113,0.1); border-radius: 50%; width: 48px; height: 48px;">
+                    <i class="ph-bold ph-minus"></i>
+                </button>
+                <div style="display: flex; align-items: baseline; gap: 4px;">
+                    <span id="water-counter-display" style="font-weight: 800; font-size: 2.5rem;">${savedWater}</span>
+                    <span style="font-size: 1rem; color: rgba(255,255,255,0.6); font-weight: 600;">copos</span>
+                </div>
+                <button class="btn-icon" onclick="updateWater(1)" style="color: #60a5fa; background: rgba(96,165,250,0.1); border-radius: 50%; width: 48px; height: 48px;">
+                    <i class="ph-bold ph-plus"></i>
+                </button>
+            </div>
+            <p style="margin-top: 1rem; font-size: 0.85rem; color: rgba(255,255,255,0.5);">A meta recomendada é de ~8 a 10 copos por dia (2L+)</p>
+        </div>
+    `;
+
+    return `${summaryCard}${mealCards}${waterCard}`;
+}
+
+function handleMealCheckClick(buttonEl) {
+    if (!buttonEl) return;
+    const isActive = buttonEl.classList.toggle('consumed');
+    if (isActive) {
+        buttonEl.style.color = '#4ade80';
+        buttonEl.style.borderColor = '#4ade80';
+        buttonEl.innerHTML = uiSvgIcon('check-circle');
+    } else {
+        buttonEl.style.color = 'rgba(255,255,255,0.4)';
+        buttonEl.style.borderColor = 'currentColor';
+        buttonEl.innerHTML = uiSvgIcon('check');
+    }
+    triggerHaptic(20);
 }
 
 function renderStudentDietMain() {
@@ -2067,7 +2233,7 @@ function connectStudent() {
         const t = trainers.find(x => x.code === code);
         if (t) {
             coachName = t.name;
-            consultoriaName = t.consultoriaName || `Consultoria de ${t.name.split(' ')[0]}`;
+            consultoriaName = t.consultoriaName || `Consultoria de ${t.name.split(' ')[0]} `;
         } else {
             alert('Código de treinador não encontrado.');
             return;
@@ -2113,8 +2279,8 @@ function switchQTab(tabName) {
     btns.forEach(btn => btn.classList.remove('active'));
 
     // Show selected
-    document.getElementById(`q-tab-${tabName}`).classList.add('active');
-    document.getElementById(`btn-tab-${tabName}`).classList.add('active');
+    document.getElementById(`q - tab - ${tabName} `).classList.add('active');
+    document.getElementById(`btn - tab - ${tabName} `).classList.add('active');
 }
 
 function submitQuestionnaire() {
@@ -2191,7 +2357,7 @@ function initStudentDashboard() {
     const trainerCode = localStorage.getItem('connectedTrainerCode');
     const studentName = localStorage.getItem('studentName') || 'Aluno';
 
-    document.getElementById('dash-student-name').innerText = `Olá, ${studentName.split(' ')[0]}`;
+    document.getElementById('dash-student-name').innerText = `Olá, ${studentName.split(' ')[0]} `;
     document.getElementById('dash-student-trainer').innerText = trainerCode || 'Consultoria';
 
     // Sync sidebar name
@@ -2240,7 +2406,7 @@ function renderWorkoutStartOptions(student) {
 
     container.innerHTML = student.workoutBlocks.map((block, idx) => {
         const muscles = getMuscleGroups(block.exercises);
-        const title = block.title || `Treino ${String.fromCharCode(65 + idx)}`;
+        const title = block.title || `Treino ${String.fromCharCode(65 + idx)} `;
         return `
         <button class="action-card highlight" onclick="startWorkoutSession(${idx})"
             style="background: rgba(163, 230, 53, 0.1); border-color: rgba(163, 230, 53, 0.3); padding: 1rem;">
@@ -2251,7 +2417,7 @@ function renderWorkoutStartOptions(student) {
                 <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${block.exercises.length} exercícios • Registrar cargas</span>
             </div>
             <i class="ph-bold ph-caret-right" style="color: var(--primary-color); font-size: 1rem;"></i>
-        </button>`;
+        </button> `;
     }).join('');
 }
 
@@ -2315,7 +2481,7 @@ function openStudentWorkout() {
                 `).join('')}
             </div>
         </div>
-    `).join('');
+        `).join('');
 
     document.getElementById('student-workout-screen').classList.add('active');
 }
@@ -2433,14 +2599,14 @@ function formatDate(iso) {
     if (!iso) return '—';
     const d = new Date(iso);
     const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} `;
 }
 
 function formatDateShort(iso) {
     if (!iso) return '—';
     const d = new Date(iso);
     const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    return `${d.getDate()} ${months[d.getMonth()]}`;
+    return `${d.getDate()} ${months[d.getMonth()]} `;
 }
 
 function renderStudentPerfil() {
@@ -2470,7 +2636,7 @@ function renderStudentPerfil() {
     }
 
     const membroEl = document.getElementById('perfil-membro-desde');
-    if (membroEl) membroEl.textContent = `Membro desde ${formatDate(student.joinedAt)}`;
+    if (membroEl) membroEl.textContent = `Membro desde ${formatDate(student.joinedAt)} `;
 
     // Metrics grid
     const metricsGrid = document.getElementById('perfil-metrics-grid');
@@ -2480,7 +2646,7 @@ function renderStudentPerfil() {
         const bfDelta = getPercentDelta(bodyFat, prevBodyFat);
 
         metricsGrid.innerHTML = `
-            <div class="perfil-metric-card" onclick="openPerfilUpdateModal('peso')">
+        <div class="perfil-metric-card" onclick="openPerfilUpdateModal('peso')">
                 <div class="metric-card-top">
                     <span class="metric-label">Peso</span>
                     <button class="metric-edit-btn"><i class="ph-bold ph-pencil-simple"></i></button>
@@ -2491,7 +2657,8 @@ function renderStudentPerfil() {
                         <i class="ph-bold ${parseFloat(weightDelta) > 0 ? 'ph-trend-up' : parseFloat(weightDelta) < 0 ? 'ph-trend-down' : 'ph-minus'}"></i>
                         ${Math.abs(weightDelta)}% desde última atualização
                     </div>
-                ` : '<div class="metric-delta neutral">Primeiro registro</div>'}
+                ` : '<div class="metric-delta neutral">Primeiro registro</div>'
+            }
             </div>
 
             <div class="perfil-metric-card">
@@ -2530,14 +2697,14 @@ function renderStudentPerfil() {
                     ${(height / 100).toFixed(2)}m
                 </div>
             </div>
-        `;
+    `;
     }
 
     // Personal Info grid
     const infoGrid = document.getElementById('perfil-info-grid');
     if (infoGrid) {
         infoGrid.innerHTML = `
-            <div class="perfil-info-item">
+        <div class="perfil-info-item">
                 <i class="ph-bold ph-user"></i>
                 <div>
                     <span class="info-label">Nome</span>
@@ -2565,7 +2732,7 @@ function renderStudentPerfil() {
                     <span class="info-value">${student.goal || '—'}</span>
                 </div>
             </div>
-        `;
+    `;
     }
 
     // History list
@@ -2583,7 +2750,7 @@ function renderPerfilHistory(student) {
 
     if (history.length === 0) {
         list.innerHTML = `
-            <div class="perfil-history-empty">
+        <div class="perfil-history-empty">
                 <i class="ph-bold ph-note-blank"></i>
                 <p>Nenhuma alteração registrada ainda. Atualize suas métricas para começar a acompanhar sua evolução.</p>
             </div>
@@ -2610,7 +2777,7 @@ function renderPerfilHistory(student) {
             const delta = prev && prev.bodyFat ? getPercentDelta(entry.bodyFat, prev.bodyFat) : null;
             changes.push({
                 label: 'Gordura',
-                value: `${entry.bodyFat}%`,
+                value: `${entry.bodyFat}% `,
                 delta: delta,
                 icon: 'ph-fire'
             });
@@ -2625,7 +2792,7 @@ function renderPerfilHistory(student) {
         }
 
         return `
-            <div class="perfil-history-item" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+        <div class="perfil-history-item" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
                 <div style="flex: 1;">
                     <div class="history-date">
                         <i class="ph-bold ph-calendar-check"></i>
@@ -2781,7 +2948,7 @@ function openPerfilUpdateModal(field) {
     if (field === 'peso') {
         title.textContent = 'Atualizar Peso';
         html = `
-            <div class="perfil-modal-field">
+        <div class="perfil-modal-field">
                 <label>PESO ATUAL (KG)</label>
                 <input type="number" step="0.1" id="modal-peso" class="q-input" value="${student.weight || ''}" placeholder="Ex: 78.5">
             </div>
@@ -2789,19 +2956,19 @@ function openPerfilUpdateModal(field) {
                 <span>Valor anterior:</span>
                 <strong>${student.weight || '—'} kg</strong>
             </div>
-        `;
+    `;
     } else if (field === 'altura') {
         title.textContent = 'Atualizar Altura';
         html = `
-            <div class="perfil-modal-field">
+        <div class="perfil-modal-field">
                 <label>ALTURA (CM)</label>
                 <input type="number" id="modal-altura" class="q-input" value="${student.height || ''}" placeholder="Ex: 175">
             </div>
-        `;
+    `;
     } else if (field === 'gordura') {
         title.textContent = 'Atualizar % Gordura Corporal';
         html = `
-            <div class="perfil-modal-field">
+        <div class="perfil-modal-field">
                 <label>PERCENTUAL DE GORDURA (%)</label>
                 <input type="number" step="0.1" id="modal-gordura" class="q-input" value="${student.bodyFat || ''}" placeholder="Ex: 14.2">
             </div>
@@ -2809,11 +2976,11 @@ function openPerfilUpdateModal(field) {
                 <span>Valor anterior:</span>
                 <strong>${student.bodyFat || '—'}%</strong>
             </div>
-        `;
+    `;
     } else if (field === 'geral') {
         title.textContent = 'Editar Perfil';
         html = `
-            <div class="perfil-modal-field">
+        <div class="perfil-modal-field">
                 <label>NOME</label>
                 <input type="text" id="modal-nome" class="q-input" value="${student.name || ''}" placeholder="Seu nome">
             </div>
@@ -2825,7 +2992,7 @@ function openPerfilUpdateModal(field) {
                 <label>OBJETIVO</label>
                 <input type="text" id="modal-objetivo" class="q-input" value="${student.goal || ''}" placeholder="Ex: Hipertrofia">
             </div>
-        `;
+    `;
     }
 
     body.innerHTML = html;
@@ -2910,7 +3077,7 @@ function savePerfilUpdate() {
 
         // Also update dashboard name if changed
         const nameEl = document.getElementById('dash-student-name');
-        if (nameEl) nameEl.innerText = `Olá, ${(student.name || 'Aluno').split(' ')[0]}`;
+        if (nameEl) nameEl.innerText = `Olá, ${(student.name || 'Aluno').split(' ')[0]} `;
         const sideEl = document.getElementById('side-student-name');
         if (sideEl) sideEl.innerText = (student.name || 'Aluno').split(' ')[0];
         renderStudentBaseCalories(student);
@@ -2990,7 +3157,7 @@ function createConsultoria() {
     trainers.push({
         name: name,
         code: newCode,
-        consultoriaName: `Consultoria de ${firstName}`,
+        consultoriaName: `Consultoria de ${firstName} `,
         services: services.value
     });
     localStorage.setItem('allTrainers', JSON.stringify(trainers));
@@ -3167,11 +3334,11 @@ function buildStudentRow(s, idx, options = {}) {
                 </div>
                 <p><strong>Consumo:</strong> ${kcal} kcal/dia</p>
             </div>
-        </div>`;
+        </div> `;
     }
 
     return `
-    <div class="student-list-item grid-layout" onclick="openStudentProfile(${idx})">
+        <div class="student-list-item grid-layout" onclick="openStudentProfile(${idx})">
         <div class="sli-col" data-label="Status">
             <span class="badge active"><div class="dot"></div> Ativo</span>
         </div>
@@ -3191,7 +3358,7 @@ function buildStudentRow(s, idx, options = {}) {
             </button>
             <button class="btn-icon-minimal" title="Mais ações" onclick="event.stopPropagation()"><i class="ph-bold ph-dots-three-vertical"></i></button>
         </div>
-    </div>`;
+    </div > `;
 }
 
 function openWhatsAppForStudent(studentIdx, event) {
@@ -3202,7 +3369,7 @@ function openWhatsAppForStudent(studentIdx, event) {
 
     let phoneRaw = String(s.whatsapp || s.phone || s.telefone || '').trim();
     if (!phoneRaw) {
-        phoneRaw = prompt(`Informe o WhatsApp de ${s.name || 'Aluno'} com DDI (ex: 5511999998888):`) || '';
+        phoneRaw = prompt(`Informe o WhatsApp de ${s.name || 'Aluno'} com DDI(ex: 5511999998888): `) || '';
         phoneRaw = sanitizeUserInput(phoneRaw, { maxLen: 20 });
         if (!phoneRaw) return;
         students[studentIdx].whatsapp = phoneRaw;
@@ -4827,11 +4994,10 @@ function renderWorkoutLog() {
                     <div class="log-ex-title-row">
                         <h3 class="clickable-ex-title" onclick="openExerciseProgressModalEncoded('${encodeURIComponent(ex.nome)}')">${escHtml(ex.nome)}</h3>
                         <div class="log-ex-top-actions">
-                            ${ex.substitutes && ex.substitutes.length > 0 ? `
-                            <button class="btn-icon-tiny action-swap" onclick="toggleLogSubstitutes(${exIdx})" title="Trocar exercício">
+                            <button class="btn-icon-tiny action-swap" onclick="toggleLogSubstitutes(${exIdx})" title="Trocar exercício" style="color: #a3e635; filter: drop-shadow(0 0 4px rgba(163,230,53,0.4));">
                                 ${uiSvgIcon('arrows-clockwise')}
-                            </button>` : ''}
-                            <button class="btn-icon-tiny action-trash" onclick="removeExerciseFromLog(${exIdx})" title="Excluir exercício">
+                            </button>
+                            <button class="btn-icon-tiny action-trash" onclick="removeExerciseFromLog(${exIdx})" title="Excluir exercício" style="color: #f87171;">
                                 ${uiSvgIcon('trash')}
                             </button>
                         </div>
@@ -4870,15 +5036,15 @@ function renderWorkoutLog() {
                     <span>OK</span>
                 </div>
                 ${ex.sets.map((set, setIdx) => {
-                    const prevMetrics = parsePreviousSetMetrics(set.prev);
-                    const currentWeight = parseFloat(String(set.weight || '').replace(',', '.'));
-                    const currentReps = parseInt(set.reps, 10);
-                    const weightUp = Number.isFinite(currentWeight) && prevMetrics.weight !== null && currentWeight > prevMetrics.weight;
-                    const repsUp = Number.isFinite(currentReps) && prevMetrics.reps !== null && currentReps > prevMetrics.reps;
-                    const lastWeightLabel = prevMetrics.weight === null ? '--' : `${formatMetricNumber(prevMetrics.weight)}kg`;
-                    const lastRepsLabel = prevMetrics.reps === null ? '--' : `${prevMetrics.reps} reps`;
+            const prevMetrics = parsePreviousSetMetrics(set.prev);
+            const currentWeight = parseFloat(String(set.weight || '').replace(',', '.'));
+            const currentReps = parseInt(set.reps, 10);
+            const weightUp = Number.isFinite(currentWeight) && prevMetrics.weight !== null && currentWeight > prevMetrics.weight;
+            const repsUp = Number.isFinite(currentReps) && prevMetrics.reps !== null && currentReps > prevMetrics.reps;
+            const lastWeightLabel = prevMetrics.weight === null ? '--' : `${formatMetricNumber(prevMetrics.weight)}kg`;
+            const lastRepsLabel = prevMetrics.reps === null ? '--' : `${prevMetrics.reps} reps`;
 
-                    return `
+            return `
                     <div class="log-set-row ${set.completed ? 'completed' : ''}" id="row-${exIdx}-${setIdx}">
                         <div class="set-number">${setIdx + 1}</div>
 
@@ -4891,7 +5057,7 @@ function renderWorkoutLog() {
                                     ${weightUp ? uiSvgIcon('lightning') : ''}
                                 </span>
                             </div>
-                            <div class="set-prev-line">Última: ${lastWeightLabel}</div>
+                            <div class="set-prev-line" style="text-align: center;">Ant: ${lastWeightLabel}</div>
                         </div>
 
                         <div class="set-value-stack">
@@ -4903,7 +5069,7 @@ function renderWorkoutLog() {
                                     ${repsUp ? uiSvgIcon('arrow-up-right') : ''}
                                 </span>
                             </div>
-                            <div class="set-prev-line">Última: ${lastRepsLabel}</div>
+                            <div class="set-prev-line" style="text-align: center;">Ant: ${lastRepsLabel}</div>
                         </div>
 
                         <div class="set-intensity-visual" title="${getIntensityLabel(set.intensityLevel)}">
@@ -4919,7 +5085,7 @@ function renderWorkoutLog() {
                         </div>
                     </div>
                 `;
-                }).join('')}
+        }).join('')}
             </div>
             
             <div class="log-ex-footer">
@@ -5031,7 +5197,14 @@ function toggleSetCompletion(exIdx, setIdx) {
         return;
     }
 
-    set.completed = !set.completed;
+    const willComplete = !set.completed;
+    set.completed = willComplete;
+    if (willComplete) {
+        triggerHaptic(20);
+        if (!navigator.onLine) {
+            scheduleCompletedWorkoutSync();
+        }
+    }
 
     if (set.completed) {
         startRestTimer(60); // Default 60s
@@ -5102,6 +5275,7 @@ function chooseQuickSetEffort(level) {
     pendingSetCompletion = null;
     closeSetEffortQuickModal();
     toggleSetCompletion(exIdx, setIdx);
+    triggerHaptic(20);
 }
 // â”€â”€â”€ REST TIMER LOGIC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function startRestTimer(seconds) {
