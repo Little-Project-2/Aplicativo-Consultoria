@@ -681,6 +681,43 @@ function logoutTrainerFromMenu() {
     window.location.href = 'index.html';
 }
 
+function editTrainerProfile() {
+    const trainerName = localStorage.getItem('trainerName') || 'Treinador';
+    const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
+    
+    alert(`✏️ Editar Perfil\n\nNome: ${trainerName}\nCódigo: ${trainerCode}\n\nEsta funcionalidade será implementada em breve.`);
+    closeTrainerProfileMenu();
+}
+
+function viewTrainerStats() {
+    const students = readStorageJSON('trainerStudents', []);
+    const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
+    const myStudents = students.filter(s => s.trainerCode === trainerCode);
+    
+    const total = myStudents.length;
+    const active = myStudents.filter(s => s.active).length;
+    const pending = myStudents.filter(s => s.pending).length;
+    
+    alert(`📊 Estatísticas\n\nTotal de Alunos: ${total}\nAtivos: ${active}\nPendentes: ${pending}\n\nVisita a aba "Alunos" para gerenciar.`);
+    closeTrainerProfileMenu();
+    switchDashView('alunos');
+}
+
+function shareTrainerCode() {
+    const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
+    const message = `Meu código de consultoria: ${trainerCode}\n\nJunte-se ao meu programa de treino e nutrição!`;
+    
+    if (navigator.share) {
+        navigator.share({
+            title: 'Código de Consultoria',
+            text: message
+        });
+    } else {
+        alert(`📤 Código para compartilhar:\n\n${trainerCode}\n\nCopie este código e compartilhe com seus alunos.`);
+    }
+    closeTrainerProfileMenu();
+}
+
 function goToStudentArea() {
     hideAllScreens();
     const studentScreen = document.getElementById('student-screen');
@@ -2284,40 +2321,7 @@ function switchQTab(tabName) {
     if (tabEl) tabEl.classList.add('active');
     if (btnEl) btnEl.classList.add('active');
 
-    // Trigger data loading if needed
-    renderQuestions(tabName);
-}
-
-function renderQuestions(tab) {
-    const container = document.getElementById(`q-tab-${tab}`);
-    if (!container) return;
-
-    const questionBanks = {
-        'saude': [
-            { id: 'q_lesao', label: 'Possui alguma lesão ou limitação?', type: 'text', placeholder: 'Ex: Hérnia de disco, dor no joelho...' },
-            { id: 'q_medicacao', label: 'Toma algum medicamento controlado?', type: 'text', placeholder: 'Ex: Pressão alta, tireoide...' },
-            { id: 'q_patologia', label: 'Histórico de doenças na família?', type: 'text', placeholder: 'Ex: Diabetes, problemas cardíacos...' }
-        ],
-        'nutricao': [
-            { id: 'q_refeicoes', label: 'Quantas refeições faz por dia?', type: 'number', placeholder: 'Ex: 4' },
-            { id: 'q_suplementos', label: 'Usa algum suplemento?', type: 'text', placeholder: 'Ex: Creatina, Whey...' },
-            { id: 'q_agua', label: 'Litros de água por dia?', type: 'number', placeholder: 'Ex: 3' }
-        ],
-        'rotina': [
-            { id: 'q_treino_frequencia', label: 'Quantos dias pretende treinar?', type: 'number', placeholder: 'Ex: 5' },
-            { id: 'q_sono', label: 'Horas de sono por noite?', type: 'number', placeholder: 'Ex: 8' },
-            { id: 'q_trabalho', label: 'Seu trabalho é mais sentado ou ativo?', type: 'text', placeholder: 'Ex: Sentado o dia todo' }
-        ]
-    };
-
-    const questions = questionBanks[tab] || [];
-    container.innerHTML = questions.map(q => `
-        <div class="q-group" style="margin-bottom: 1.5rem;">
-            <label style="display: block; margin-bottom: 0.5rem; font-weight: 500; font-size: 0.9rem;">${q.label}</label>
-            <input type="${q.type}" id="${q.id}" class="form-control" placeholder="${q.placeholder}" 
-                style="width: 100%; padding: 0.8rem; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white;">
-        </div>
-    `).join('');
+    // Note: renderQuestions() was removed to preserve the full HTML questionnaire layout
 }
 
 function submitQuestionnaire() {
@@ -3258,6 +3262,15 @@ function initTrainerDashboard() {
     const elDashCode = document.getElementById('dash-trainer-code');
     if (elDashCode) elDashCode.innerText = trainerCode;
 
+    // Update trainer services in menu
+    const trainers = readStorageJSON('allTrainers', []);
+    const currentTrainer = trainers.find(t => t.code === trainerCode) || (trainerCode === '00001' ? { services: 'ambos' } : null);
+    const servicesLabel = document.getElementById('trainer-services-label');
+    if (servicesLabel && currentTrainer) {
+        const serviceMap = { 'treino': 'Treino', 'dieta': 'Nutrição', 'ambos': 'Treino + Dieta' };
+        servicesLabel.textContent = serviceMap[currentTrainer.services] || 'Serviços Gerais';
+    }
+
     const root = document.getElementById('trainer-dashboard-screen');
     if (root && !root.dataset.menuInit) {
         root.addEventListener('click', (evt) => {
@@ -3273,6 +3286,172 @@ function initTrainerDashboard() {
         });
         root.dataset.menuInit = '1';
     }
+
+    // Add swipe gestures for mobile navigation
+    const mainContent = document.querySelector('.main-content');
+    if (mainContent && !mainContent.dataset.swipeInit) {
+        let startX = 0;
+        let startY = 0;
+        let isSwiping = false;
+        let pullStartY = 0;
+        let isPulling = false;
+        let pullIndicator = null;
+
+        // Create pull-to-refresh indicator
+        const createPullIndicator = () => {
+            if (pullIndicator) return;
+            pullIndicator = document.createElement('div');
+            pullIndicator.style.cssText = `
+                position: absolute;
+                top: -60px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(163, 230, 53, 0.9);
+                color: #000;
+                padding: 8px 16px;
+                border-radius: 20px;
+                font-size: 0.8rem;
+                font-weight: 600;
+                opacity: 0;
+                transition: opacity 0.3s ease;
+                z-index: 1000;
+                pointer-events: none;
+                backdrop-filter: blur(10px);
+            `;
+            pullIndicator.textContent = '↻ Atualizar';
+            mainContent.style.position = 'relative';
+            mainContent.appendChild(pullIndicator);
+        };
+
+        mainContent.addEventListener('touchstart', (e) => {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            isSwiping = true;
+
+            // Check if at top of scroll for pull-to-refresh
+            if (mainContent.scrollTop === 0) {
+                pullStartY = startY;
+                isPulling = true;
+                createPullIndicator();
+            }
+        }, { passive: true });
+
+        mainContent.addEventListener('touchmove', (e) => {
+            if (!isSwiping) return;
+            const deltaX = e.touches[0].clientX - startX;
+            const deltaY = e.touches[0].clientY - startY;
+
+            // Handle pull-to-refresh
+            if (isPulling && deltaY > 0 && mainContent.scrollTop === 0) {
+                const pullDistance = Math.min(deltaY * 0.5, 80);
+                if (pullIndicator) {
+                    pullIndicator.style.transform = `translateX(-50%) translateY(${pullDistance}px)`;
+                    pullIndicator.style.opacity = Math.min(pullDistance / 40, 1);
+                }
+                e.preventDefault();
+                return;
+            }
+
+            // Only consider horizontal swipes
+            if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
+                e.preventDefault(); // Prevent scrolling
+            }
+        }, { passive: false });
+
+        mainContent.addEventListener('touchend', (e) => {
+            if (!isSwiping) return;
+            const endX = e.changedTouches[0].clientX;
+            const endY = e.changedTouches[0].clientY;
+            const deltaX = endX - startX;
+            const deltaY = endY - startY;
+
+            // Handle pull-to-refresh release
+            if (isPulling && deltaY > 60) {
+                // Trigger refresh
+                updateTrainerStats();
+                if (navigator.vibrate) navigator.vibrate(50);
+
+                // Animate indicator
+                if (pullIndicator) {
+                    pullIndicator.textContent = '✓ Atualizado';
+                    pullIndicator.style.background = 'rgba(34, 197, 94, 0.9)';
+                    setTimeout(() => {
+                        if (pullIndicator) {
+                            pullIndicator.style.opacity = '0';
+                            setTimeout(() => pullIndicator?.remove(), 300);
+                        }
+                    }, 1000);
+                }
+            } else if (pullIndicator) {
+                // Reset indicator
+                pullIndicator.style.transform = 'translateX(-50%) translateY(0)';
+                pullIndicator.style.opacity = '0';
+                setTimeout(() => pullIndicator?.remove(), 300);
+            }
+
+            // Minimum swipe distance and angle
+            const minSwipeDistance = 100;
+            const maxVerticalMovement = 50;
+
+            if (Math.abs(deltaX) > minSwipeDistance && Math.abs(deltaY) < maxVerticalMovement && !isPulling) {
+                const views = ['dashboard', 'alunos', 'duvidas', 'exercicios'];
+                const currentView = views.find(v => document.getElementById(`view-${v}`)?.style.display !== 'none') || 'dashboard';
+                const currentIndex = views.indexOf(currentView);
+
+                if (deltaX > 0) {
+                    // Swipe right - previous view
+                    const prevIndex = currentIndex > 0 ? currentIndex - 1 : views.length - 1;
+                    switchDashView(views[prevIndex]);
+                } else {
+                    // Swipe left - next view
+                    const nextIndex = currentIndex < views.length - 1 ? currentIndex + 1 : 0;
+                    switchDashView(views[nextIndex]);
+                }
+
+                // Trigger haptic feedback if available
+                if (navigator.vibrate) {
+                    navigator.vibrate(25);
+                }
+            }
+
+            isSwiping = false;
+            isPulling = false;
+        });
+
+        mainContent.dataset.swipeInit = '1';
+    }
+
+    // Add swipe hint for mobile users
+    const showSwipeHint = () => {
+        if (localStorage.getItem('swipeHintShown')) return;
+
+        const hint = document.createElement('div');
+        hint.style.cssText = `
+            position: fixed;
+            bottom: 120px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 25px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            z-index: 2000;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            animation: slideUpFade 0.5s ease, fadeOut 0.5s ease 3s forwards;
+            pointer-events: none;
+        `;
+        hint.innerHTML = '👆 Deslize para navegar entre as telas';
+        document.body.appendChild(hint);
+
+        setTimeout(() => hint.remove(), 4000);
+        localStorage.setItem('swipeHintShown', 'true');
+    };
+
+    // Show hint after a short delay
+    setTimeout(showSwipeHint, 2000);
 
     updateTrainerStats();
 }

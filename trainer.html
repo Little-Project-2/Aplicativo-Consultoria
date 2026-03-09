@@ -30,6 +30,7 @@
     <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
     <link rel="preload" href="assets/vendor/phosphor/bold/Phosphor-Bold.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="assets/vendor/phosphor/fill/Phosphor-Fill.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="assets/logo.svg" as="image" type="image/svg+xml">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="assets/vendor/phosphor/phosphor-local.css">
 </head>
@@ -124,9 +125,8 @@
                 <!-- Sidebar -->
                 <aside class="sidebar">
                     <div class="sidebar-logo">
-                        <div class="logo-icon glow"
-                            style="width: 40px; height: 40px; font-size: 20px; color: #121214; border-radius: 10px;">
-                            <i class="ph-bold ph-barbell"></i>
+                        <div class="logo-icon glow" style="width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                            <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="a"><stop offset="0%" stop-color="#A3E635"/><stop offset="100%" stop-color="#84CC16"/></linearGradient><filter id="b"><feGaussianBlur stdDeviation="1"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect x="6" y="15" width="20" height="2" rx="1" fill="url(#a)"/><rect x="2" y="12" width="5" height="8" rx="1.5" fill="url(#a)"/><circle cx="4.5" cy="11" r="1" fill="url(#a)"/><circle cx="4.5" cy="21" r="1" fill="url(#a)"/><rect x="25" y="12" width="5" height="8" rx="1.5" fill="url(#a)"/><circle cx="27.5" cy="11" r="1" fill="url(#a)"/><circle cx="27.5" cy="21" r="1" fill="url(#a)"/><rect x="13" y="14" width="6" height="4" rx="1" fill="#121214"/><circle cx="16" cy="16" r="1.2" fill="url(#a)"/></svg>
                         </div>
                         <div>
                             <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-main);">Adicionar nome
@@ -733,10 +733,13 @@
         <div id="trainer-profile-sheet-overlay" class="trainer-profile-sheet-overlay" style="display:none;" onclick="closeTrainerProfileMenu()"></div>
         <div id="trainer-profile-menu" class="trainer-profile-menu trainer-profile-sheet" style="display:none;" role="dialog" aria-modal="true" aria-label="Menu do perfil do treinador" onclick="event.stopPropagation()">
             <div class="trainer-profile-sheet-handle"></div>
+            
             <div class="trainer-profile-menu-head">
                 <span class="profile-label">Treinador</span>
                 <span class="profile-name" id="dash-trainer-name">Treinador</span>
+                <p class="profile-subtitle" id="trainer-services-label" style="font-size: 0.75rem; color: var(--primary-color); margin-top: 0.2rem;">—</p>
             </div>
+
             <div class="trainer-profile-menu-code">
                 <div class="profile-code-wrap">
                     <span class="profile-label">Código de Convite</span>
@@ -746,6 +749,26 @@
                     <i class="ph-bold ph-copy"></i>
                 </button>
             </div>
+
+            <div class="trainer-profile-menu-items">
+                <button class="trainer-menu-item" onclick="editTrainerProfile()">
+                    <i class="ph-bold ph-pencil-simple"></i>
+                    <span>Editar Perfil</span>
+                </button>
+                <button class="trainer-menu-item" onclick="viewTrainerStats()">
+                    <i class="ph-bold ph-chart-bar"></i>
+                    <span>Estatísticas</span>
+                </button>
+                <button class="trainer-menu-item" onclick="shareTrainerCode()">
+                    <i class="ph-bold ph-share-network"></i>
+                    <span>Compartilhar Código</span>
+                </button>
+                <button class="trainer-menu-item" onclick="switchDashView('dashboard'); closeTrainerProfileMenu();">
+                    <i class="ph-bold ph-gear"></i>
+                    <span>Configurações</span>
+                </button>
+            </div>
+
             <button class="btn-profile-logout" onclick="logoutTrainerFromMenu()">
                 <i class="ph-bold ph-sign-out"></i> Sair
             </button>
