@@ -511,7 +511,24 @@ syncChannel.onmessage = (event) => {
     }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+async function loadSPAComponents() {
+    const containers = document.querySelectorAll('[data-page]');
+    const promises = Array.from(containers).map(async (container) => {
+        const url = container.getAttribute('data-page');
+        try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            const html = await res.text();
+            container.outerHTML = html;
+        } catch (e) {
+            console.error('Error loading component:', url, e);
+        }
+    });
+    await Promise.all(promises);
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadSPAComponents();
     setupClientSideFormProtection();
     ensureAdminStudent();
     upgradeSidebarNavIcons();
@@ -684,7 +701,7 @@ function logoutTrainerFromMenu() {
 function editTrainerProfile() {
     const trainerName = localStorage.getItem('trainerName') || 'Treinador';
     const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
-    
+
     alert(`✏️ Editar Perfil\n\nNome: ${trainerName}\nCódigo: ${trainerCode}\n\nEsta funcionalidade será implementada em breve.`);
     closeTrainerProfileMenu();
 }
@@ -693,11 +710,11 @@ function viewTrainerStats() {
     const students = readStorageJSON('trainerStudents', []);
     const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
     const myStudents = students.filter(s => s.trainerCode === trainerCode);
-    
+
     const total = myStudents.length;
     const active = myStudents.filter(s => s.active).length;
     const pending = myStudents.filter(s => s.pending).length;
-    
+
     alert(`📊 Estatísticas\n\nTotal de Alunos: ${total}\nAtivos: ${active}\nPendentes: ${pending}\n\nVisita a aba "Alunos" para gerenciar.`);
     closeTrainerProfileMenu();
     switchDashView('alunos');
@@ -706,7 +723,7 @@ function viewTrainerStats() {
 function shareTrainerCode() {
     const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
     const message = `Meu código de consultoria: ${trainerCode}\n\nJunte-se ao meu programa de treino e nutrição!`;
-    
+
     if (navigator.share) {
         navigator.share({
             title: 'Código de Consultoria',

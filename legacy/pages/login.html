@@ -1,0 +1,52 @@
+<div id="global-login-screen" class="screen">
+    <button class="btn-back" onclick="goToHome()">
+        <i class="ph-bold ph-arrow-left"></i> Voltar
+    </button>
+
+    <div class="student-login-container">
+        <div class="logo-icon glow lg">
+            <i class="ph-bold ph-user-circle"></i>
+        </div>
+        <h2>Bem-vindo de volta</h2>
+        <p class="subtitle">Escolha como deseja acessar sua conta</p>
+
+        <div class="social-login-group">
+            <button class="btn-social google" onclick="handleGoogleLogin()">
+                <i class="ph-bold ph-google-logo"></i> Entrar com Google
+            </button>
+        </div>
+
+        <div class="divider"><span>OU USE SEU E-MAIL</span></div>
+
+        <form class="login-form" onsubmit="event.preventDefault(); handleEmailLogin();">
+            <div class="input-group">
+                <label for="login-email">E-MAIL</label>
+                <input type="email" id="login-email" placeholder="exemplo@email.com" required>
+            </div>
+            <div class="input-group">
+                <label for="login-pass">SENHA</label>
+                <input type="password" id="login-pass" placeholder="••••••••" required>
+            </div>
+            <button type="submit" class="btn-primary">Entrar</button>
+        </form>
+
+        <div class="divider"><span>OU SEU CÓDIGO</span></div>
+
+        <form class="login-form" onsubmit="event.preventDefault(); handleUnifiedLogin();" style="margin-top: 0;">
+            <button type="button" class="btn-secondary-outline" onclick="toggleElement('unified-code-input')">
+                <i class="ph-bold ph-hash"></i> Entrar com Código de 5 Dígitos
+            </button>
+            <div id="unified-code-input" style="display: none; margin-top: 1rem;">
+                <input type="tel" id="global-code" placeholder="00000" maxlength="5" autocomplete="off"
+                    inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'').substring(0,5)"
+                    style="letter-spacing:0.4rem; font-size:1.5rem; text-align:center; font-family:monospace; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 12px; padding: 1rem; width: 100%; color: #fff;">
+                <button type="submit" class="btn-primary" style="margin-top: 0.5rem;">Validar Código</button>
+            </div>
+        </form>
+
+        <p style="font-size: 0.85rem; color: var(--text-muted); text-align: center; margin-top: 2rem;">
+            Não tem uma conta? <a href="#" onclick="goToProfileCreate()"
+                style="color: var(--primary-color); font-weight: 600;">Criar Perfil</a>
+        </p>
+    </div>
+</div>

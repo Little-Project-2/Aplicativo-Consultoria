@@ -1,0 +1,70 @@
+<div id="profile-create-screen" class="screen">
+    <button class="btn-back" onclick="goToGlobalLogin()">
+        <i class="ph-bold ph-arrow-left"></i> Voltar
+    </button>
+
+    <div class="student-login-container">
+        <div class="logo-icon glow lg">
+            <i class="ph-bold ph-user-plus"></i>
+        </div>
+        <h2>Criar seu Perfil</h2>
+        <p class="subtitle">Crie sua conta com seguranca em menos de 1 minuto</p>
+
+        <form class="login-form" onsubmit="event.preventDefault(); handleProfileCreation();">
+            <div class="input-group">
+                <label for="reg-name">NOME COMPLETO</label>
+                <input type="text" id="reg-name" placeholder="Ex: Nicolas Silveira" required autocomplete="name">
+            </div>
+            <div class="input-group">
+                <label for="reg-email">E-MAIL</label>
+                <input type="email" id="reg-email" placeholder="seu@email.com" required autocomplete="email"
+                    inputmode="email">
+            </div>
+            <div class="input-group">
+                <label for="reg-pass">CRIAR SENHA</label>
+                <input type="password" id="reg-pass" placeholder="Minimo 8 caracteres" required minlength="8"
+                    autocomplete="new-password">
+                <small style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;display:block;">Use letras e
+                    numeros para maior seguranca.</small>
+            </div>
+            <div class="input-group">
+                <label for="reg-pass-confirm">CONFIRMAR SENHA</label>
+                <input type="password" id="reg-pass-confirm" placeholder="Repita sua senha" required minlength="8"
+                    autocomplete="new-password">
+            </div>
+
+            <div class="input-group">
+                <label>VOCÊ É:</label>
+                <div class="radio-group">
+                    <label class="radio-card">
+                        <input type="radio" name="reg-role" value="student" checked>
+                        <div class="radio-content">
+                            <i class="ph-bold ph-barbell"></i>
+                            <span>Aluno</span>
+                        </div>
+                    </label>
+                    <label class="radio-card">
+                        <input type="radio" name="reg-role" value="trainer">
+                        <div class="radio-content">
+                            <i class="ph-bold ph-clipboard-text"></i>
+                            <span>Treinador</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            <label class="checkbox-wrapper" style="margin-top:0.25rem;">
+                <input type="checkbox" id="reg-terms" required>
+                <span class="checkmark"></span>
+                <span>Aceito os Termos de Uso e Privacidade</span>
+            </label>
+
+            <button type="submit" class="btn-primary" style="margin-top: 1rem;">Criar Conta</button>
+        </form>
+
+        <p
+            style="font-size: 0.75rem; color: var(--text-muted); text-align: center; margin-top: 1.5rem; line-height: 1.4;">
+            Ao criar uma conta, você concorda com nossos <br> <a href="#">Termos de Uso</a> e <a
+                href="#">Privacidade</a>.
+        </p>
+    </div>
+</div>
