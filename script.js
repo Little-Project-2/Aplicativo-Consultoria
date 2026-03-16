@@ -722,6 +722,43 @@ const syncChannel = typeof BroadcastChannel !== 'undefined'
     ? new BroadcastChannel('consultoria_sync')
     : { postMessage: () => { }, onmessage: null };
 
+function handleStudentDataUpdate(payload = {}) {
+    const currentStudentId = localStorage.getItem('currentStudentId');
+    if (!currentStudentId) return;
+    if (payload?.studentId && String(payload.studentId) !== String(currentStudentId)) return;
+
+    if (isWorkoutSessionActive()) {
+        localStorage.setItem('pending_plan_update', String(Date.now()));
+        return;
+    }
+
+    if (payload?.reason === 'workout_plan_updated') {
+        clearWorkoutBackup();
+    }
+
+    if (typeof initStudentDashboard === 'function') initStudentDashboard();
+    if (typeof renderStudentWorkoutMain === 'function') renderStudentWorkoutMain({ withSkeleton: false });
+    if (typeof renderStudentDietMain === 'function') renderStudentDietMain();
+
+    const landing = document.getElementById('treino-landing');
+    if (landing && landing.style.display !== 'none') {
+        switchTreinoSubview('landing');
+    }
+
+    localStorage.removeItem('pending_plan_update');
+}
+
+function broadcastStudentDataUpdate(studentId, reason = 'update') {
+    if (!studentId) return;
+    const payload = { studentId: String(studentId), reason, ts: Date.now() };
+    syncChannel.postMessage({ type: 'student_data_updated', payload });
+    try {
+        localStorage.setItem('student_data_updated', JSON.stringify(payload));
+    } catch {
+        // ignore storage errors
+    }
+}
+
 syncChannel.onmessage = (event) => {
     const { type, payload } = event.data;
 
@@ -760,7 +797,20 @@ syncChannel.onmessage = (event) => {
             initStudentDashboard();
         }
     }
+    if (type === 'student_data_updated') {
+        handleStudentDataUpdate(payload);
+    }
 };
+
+window.addEventListener('storage', (event) => {
+    if (event.key !== 'student_data_updated' || !event.newValue) return;
+    try {
+        const payload = JSON.parse(event.newValue);
+        handleStudentDataUpdate(payload);
+    } catch {
+        // ignore malformed payload
+    }
+});
 
 async function loadSPAComponents() {
     const containers = document.querySelectorAll('[data-page]');
@@ -1488,6 +1538,7 @@ function updateStudentWorkoutBlocks(studentId, mutator) {
     }
     students[idx] = student;
     saveStudentData(students);
+    broadcastStudentDataUpdate(student.id, 'workout_plan_updated');
     return student;
 }
 
@@ -5974,6 +6025,7 @@ let mealBlocks = [];           // local state for meal blocks
 let pendingBlockIdx = null;    // which block an exercise is being added to
 let pendingMealIdx = null;    // which meal an item is being added to
 let workoutPlanAutosaveTimer = null;
+let lastWorkoutPlanBroadcast = 0;
 
 let activeExerciseFilter = 'todos';
 let activeEquipmentFilter = 'todos';
@@ -6188,6 +6240,11 @@ function queueWorkoutPlanAutosave() {
         student.workoutBlocks = workoutBlocks;
         students[currentStudentIdx] = student;
         localStorage.setItem('trainerStudents', JSON.stringify(students));
+        const now = Date.now();
+        if (now - lastWorkoutPlanBroadcast > 1500) {
+            broadcastStudentDataUpdate(student.id, 'workout_plan_updated');
+            lastWorkoutPlanBroadcast = now;
+        }
     }, 350);
 }
 
