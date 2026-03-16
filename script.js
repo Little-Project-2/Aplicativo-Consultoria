@@ -4401,26 +4401,39 @@ function createConsultoria() {
 // TRAINER DASHBOARD LOGIC (Runs on trainer.html)
 function initTrainerDashboard() {
     // If we have a trainerSessionCode from index.html unified login
+    const trainers = readStorageJSON('allTrainers', []);
     const sessionCode = localStorage.getItem('trainerSessionCode');
+    let sessionCodeValid = false;
     if (sessionCode) {
         if (sessionCode === '00001') {
             localStorage.setItem('trainerName', 'Admin');
             localStorage.setItem('currentTrainerCode', '00001');
+            sessionCodeValid = true;
         } else {
-            const trainers = readStorageJSON('allTrainers', []);
             const t = trainers.find(x => x.code === sessionCode);
             if (t) {
                 localStorage.setItem('trainerName', t.name.split(' ')[0]);
                 localStorage.setItem('currentTrainerCode', t.code);
+                sessionCodeValid = true;
             }
         }
         localStorage.removeItem('trainerSessionCode'); // Consume it
+        if (!sessionCodeValid) {
+            const input = document.getElementById('trainer-login-code');
+            if (input) input.value = sessionCode;
+        }
     }
 
-    const trainerName = localStorage.getItem('trainerName') || 'Treinador';
+    let trainerName = localStorage.getItem('trainerName') || 'Treinador';
     const trainerCode = localStorage.getItem('currentTrainerCode') || '00000';
-    const canAutoEnterDashboard = !!sessionCode || (!!trainerCode && trainerCode !== '00000');
-    if (!localStorage.getItem('trainerCodeDefault') && trainerCode && trainerCode !== '00000') {
+    const trainerRecord = trainerCode === '00001' ? { services: 'ambos' } : trainers.find(t => t.code === trainerCode);
+    const canAutoEnterDashboard = sessionCodeValid || !!trainerRecord;
+    if (!trainerRecord && trainerCode !== '00000') {
+        localStorage.removeItem('currentTrainerCode');
+        localStorage.removeItem('trainerName');
+        trainerName = 'Treinador';
+    }
+    if (!localStorage.getItem('trainerCodeDefault') && trainerRecord && trainerCode !== '00000') {
         localStorage.setItem('trainerCodeDefault', trainerCode);
     }
 
@@ -4432,6 +4445,16 @@ function initTrainerDashboard() {
             if (app) app.classList.add('wide');
             dashboardScreen.classList.add('active');
         }
+    } else {
+        hideAllScreens();
+        const loginScreen = document.getElementById('trainer-login-screen');
+        if (loginScreen) loginScreen.classList.add('active');
+        const input = document.getElementById('trainer-login-code');
+        if (input) {
+            input.removeAttribute('disabled');
+            input.removeAttribute('readonly');
+            setTimeout(() => input.focus(), 80);
+        }
     }
 
     const elDashName = document.getElementById('dash-trainer-name');
@@ -4441,8 +4464,7 @@ function initTrainerDashboard() {
     if (elDashCode) elDashCode.innerText = trainerCode;
 
     // Update trainer services in menu
-    const trainers = readStorageJSON('allTrainers', []);
-    const currentTrainer = trainers.find(t => t.code === trainerCode) || (trainerCode === '00001' ? { services: 'ambos' } : null);
+    const currentTrainer = trainerRecord || (trainerCode === '00001' ? { services: 'ambos' } : null);
     const servicesLabel = document.getElementById('trainer-services-label');
     if (servicesLabel && currentTrainer) {
         const serviceMap = { 'treino': 'Treino', 'dieta': 'Nutrição', 'ambos': 'Treino + Dieta' };
