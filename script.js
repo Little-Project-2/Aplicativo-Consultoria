@@ -412,6 +412,7 @@ function ensureSelfTrainingStudent() {
         bodyFat: 18,
         height: 178
     };
+    const defaultWorkoutBlocks = JSON.parse(JSON.stringify(DEMO_WORKOUT_BLOCKS));
 
     const selfStudent = {
         id: SELF_TRAINING_STUDENT_CODE,
@@ -427,8 +428,8 @@ function ensureSelfTrainingStudent() {
         pending: false,
         dailyKcal: 2600,
         trainerCode: '00001',
-        workoutBlocks: [],
-        mealBlocks: [],
+        workoutBlocks: defaultWorkoutBlocks,
+        mealBlocks: JSON.parse(JSON.stringify(DEMO_MEAL_BLOCKS)),
         metricHistory: [baselineMetric],
         progressLogs: [{ date: new Date().toISOString().slice(0, 10), weight: 82, notes: 'Perfil Diego auto-treino.' }],
         personalRecords: {}
@@ -448,8 +449,12 @@ function ensureSelfTrainingStudent() {
             active: true,
             pending: false,
             trainerCode: current.trainerCode || '00001',
-            workoutBlocks: Array.isArray(current.workoutBlocks) ? current.workoutBlocks : [],
-            mealBlocks: Array.isArray(current.mealBlocks) ? current.mealBlocks : []
+            workoutBlocks: Array.isArray(current.workoutBlocks) && current.workoutBlocks.length > 0
+                ? current.workoutBlocks
+                : defaultWorkoutBlocks,
+            mealBlocks: Array.isArray(current.mealBlocks) && current.mealBlocks.length > 0
+                ? current.mealBlocks
+                : JSON.parse(JSON.stringify(DEMO_MEAL_BLOCKS))
         };
     }
 
@@ -989,7 +994,14 @@ function switchStudentView(view) {
     // Specific logic for each view
     if (view === 'treino') {
         currentWorkoutTab = 0;
-        switchTreinoSubview('landing');
+        const studentId = localStorage.getItem('currentStudentId');
+        const students = readStorageJSON('trainerStudents', []);
+        const student = students.find(s => s.id === studentId);
+        if (studentCanEditWorkout(student)) {
+            switchTreinoSubview('analise');
+        } else {
+            switchTreinoSubview('landing');
+        }
     }
     if (view === 'dieta') renderStudentDietMain();
     if (view === 'perfil') renderStudentPerfil();
@@ -1034,10 +1046,19 @@ function getWorkoutBlockTitle(block, idx) {
 }
 
 function toggleStudentWorkoutEditMode(force) {
+    const wasEditing = studentWorkoutEditMode;
     if (typeof force === 'boolean') {
         studentWorkoutEditMode = force;
     } else {
         studentWorkoutEditMode = !studentWorkoutEditMode;
+    }
+    if (wasEditing && !studentWorkoutEditMode) {
+        const studentId = localStorage.getItem('currentStudentId');
+        const students = readStorageJSON('trainerStudents', []);
+        const student = students.find(s => String(s.id) === String(studentId));
+        if (student && studentCanEditWorkout(student)) {
+            notifyTrainerWorkoutUpdate(student, { force: true });
+        }
     }
     renderStudentWorkoutMain({ withSkeleton: false });
 }
@@ -1064,6 +1085,34 @@ function updateStudentWorkoutBlocks(studentId, mutator) {
     students[idx] = student;
     saveStudentData(students);
     return student;
+}
+
+function notifyTrainerWorkoutUpdate(student, options = {}) {
+    const studentId = String(student?.id || '');
+    if (!studentId) return;
+    const blocks = Array.isArray(student?.workoutBlocks) ? student.workoutBlocks : [];
+    const totalExercises = blocks.reduce((acc, block) => acc + (Array.isArray(block.exercises) ? block.exercises.length : 0), 0);
+    const lastKey = `workout_update_last_${studentId}`;
+    const now = Date.now();
+    const lastSent = parseInt(localStorage.getItem(lastKey) || '0', 10);
+    const minIntervalMs = 30_000;
+    if (!options.force && now - lastSent < minIntervalMs) return;
+
+    const studentName = sanitizeUserInput(student?.name || localStorage.getItem('studentName') || 'Aluno', { maxLen: 90 }) || 'Aluno';
+    const notifs = readStorageJSON('trainerNotifications', []);
+    notifs.unshift({
+        type: 'duvida',
+        kind: 'workout_update',
+        studentId,
+        studentName,
+        title: `📌 Treino atualizado - ${studentName}`,
+        desc: `[Plano de treino atualizado] ${blocks.length} treino(s), ${totalExercises} exercícios.`,
+        time: new Date().toISOString(),
+        unread: true
+    });
+    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+    localStorage.setItem(lastKey, String(now));
+    syncChannel.postMessage({ type: 'NEW_DOUBT', payload: { studentId } });
 }
 
 function promptStudentField(label, defaultValue = '', options = {}) {
@@ -1093,6 +1142,9 @@ function addStudentWorkoutBlock() {
     renderStudentWorkoutMain({ withSkeleton: false });
     renderWorkoutStartOptions(student);
     setProtocolStatus(true);
+    if (studentCanEditWorkout(student)) {
+        notifyTrainerWorkoutUpdate(student);
+    }
 }
 
 function renameStudentWorkoutBlock(blockIdx) {
@@ -1112,6 +1164,9 @@ function renameStudentWorkoutBlock(blockIdx) {
     if (!student || !didRename) return;
     renderStudentWorkoutMain({ withSkeleton: false });
     renderWorkoutStartOptions(student);
+    if (studentCanEditWorkout(student)) {
+        notifyTrainerWorkoutUpdate(student);
+    }
 }
 
 function removeStudentWorkoutBlock(blockIdx) {
@@ -1128,6 +1183,9 @@ function removeStudentWorkoutBlock(blockIdx) {
     if (!student) return;
     renderStudentWorkoutMain({ withSkeleton: false });
     renderWorkoutStartOptions(student);
+    if (studentCanEditWorkout(student)) {
+        notifyTrainerWorkoutUpdate(student);
+    }
 }
 
 function addStudentExerciseToCurrentBlock() {
@@ -1176,6 +1234,9 @@ function addStudentExerciseToBlock(blockIdx) {
     if (!student || !didAdd) return;
     renderStudentWorkoutMain({ withSkeleton: false });
     renderWorkoutStartOptions(student);
+    if (studentCanEditWorkout(student)) {
+        notifyTrainerWorkoutUpdate(student);
+    }
 }
 
 function editStudentExerciseInBlock(blockIdx, exIdx) {
@@ -1212,6 +1273,9 @@ function editStudentExerciseInBlock(blockIdx, exIdx) {
     if (!student || !didEdit) return;
     renderStudentWorkoutMain({ withSkeleton: false });
     renderWorkoutStartOptions(student);
+    if (studentCanEditWorkout(student)) {
+        notifyTrainerWorkoutUpdate(student);
+    }
 }
 
 function removeStudentExerciseFromBlock(blockIdx, exIdx) {
@@ -1226,6 +1290,9 @@ function removeStudentExerciseFromBlock(blockIdx, exIdx) {
     if (!student) return;
     renderStudentWorkoutMain({ withSkeleton: false });
     renderWorkoutStartOptions(student);
+    if (studentCanEditWorkout(student)) {
+        notifyTrainerWorkoutUpdate(student);
+    }
 }
 
 function renderStudentWorkoutMain(options = {}) {
@@ -3062,7 +3129,7 @@ function renderWorkoutStartOptions(student) {
         return;
     }
 
-    container.innerHTML = blocks.map((block, idx) => {
+    const startCards = blocks.map((block, idx) => {
         const exercises = Array.isArray(block.exercises) ? block.exercises : [];
         const muscles = getMuscleGroups(exercises);
         const title = getWorkoutBlockTitle(block, idx);
@@ -3079,6 +3146,19 @@ function renderWorkoutStartOptions(student) {
             <i class="ph-bold ph-caret-right" style="color: var(--primary-color); font-size: 1rem;"></i>
         </button> `;
     }).join('');
+
+    const editCard = canEditWorkout ? `
+        <button class="action-card" onclick="openStudentWorkoutEditor()"
+            style="background: rgba(59, 130, 246, 0.08); border-color: rgba(59, 130, 246, 0.25); padding: 1rem;">
+            <i class="ph-bold ph-pencil-simple" style="color: #60a5fa; font-size: 1.4rem;"></i>
+            <div style="flex:1; text-align: left;">
+                <span style="display: block; font-weight: 700; color: var(--text-main); font-size: 0.95rem;">Editar meu treino</span>
+                <span style="font-size: 0.72rem; color: rgba(96,165,250,0.9); font-weight: 500;">Adicionar ou remover exercícios</span>
+            </div>
+            <i class="ph-bold ph-caret-right" style="color: rgba(96,165,250,0.9); font-size: 1rem;"></i>
+        </button>` : '';
+
+    container.innerHTML = `${startCards}${editCard}`;
 }
 
 function setProtocolStatus(isReady) {
