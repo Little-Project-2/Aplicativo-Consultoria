@@ -404,6 +404,8 @@ function uiSvgIcon(name, className = '') {
         'trophy': '<path d="M8 4h8v2a4 4 0 0 1-4 4 4 4 0 0 1-4-4V4z" fill="none" stroke="currentColor" stroke-width="2"></path><path d="M8 6H5a2 2 0 0 0 2 3M16 6h3a2 2 0 0 1-2 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M12 10v4M9 18h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
         'timer': '<circle cx="12" cy="13" r="7.5" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M12 13V9m0 4 2.6 1.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M9 3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
         'x': '<path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"></path>',
+        'cloud': '<path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.7-1.5A4 4 0 0 1 18 18H7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>',
+        'warning': '<path d="M12 4l9 16H3l9-16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path><path d="M12 9v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><circle cx="12" cy="17" r="1.2" fill="currentColor"></circle>',
         'star': '<path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3z" fill="currentColor"></path>',
         'arrow-up-right': '<path d="M7 17L17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>',
         'protein': '<path d="M8 9.5c0-2.2 1.8-4 4-4h1.5c1.4 0 2.5 1.1 2.5 2.5V11c0 4.4-3.6 8-8 8-1.4 0-2.5-1.1-2.5-2.5V15c0-3 2.5-5.5 5.5-5.5h2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
@@ -697,6 +699,7 @@ function ensureAdminStudent() {
 }
 
 function goToHome() {
+    if (!confirmExitDuringWorkout()) return;
     // Keep remember-me token, clear only active session data.
     localStorage.removeItem('currentStudentId');
     localStorage.removeItem('connectedTrainerCode');
@@ -707,6 +710,7 @@ function goToHome() {
 }
 
 function logout() {
+    if (!confirmExitDuringWorkout()) return;
     if (confirm('Deseja realmente sair?')) {
         localStorage.clear();
         location.reload(); // Hard refresh to clear state
@@ -799,6 +803,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     optimizeMediaElements(document);
+
+    if (!window.__workoutUnloadGuard) {
+        window.__workoutUnloadGuard = true;
+        window.addEventListener('beforeunload', (event) => {
+            if (!isWorkoutSessionActive()) return;
+            event.preventDefault();
+            event.returnValue = '';
+        });
+    }
 
     // Fast path: remember-me token (auto-login instantâneo)
     if (tryAutoStudentLogin()) return;
@@ -1225,6 +1238,180 @@ function getWorkoutBlockTitle(block, idx) {
         return `Treino ${String.fromCharCode(65 + idx)}`;
     }
     return 'Treino';
+}
+
+function hasSetPR(set) {
+    const broken = set?.brokenPRs;
+    if (!broken) return false;
+    if (Array.isArray(broken)) return broken.length > 0;
+    if (typeof broken === 'object') {
+        return !!(broken.weight || broken.volume || broken.reps);
+    }
+    return false;
+}
+
+function countWorkoutPRs(workout) {
+    return (workout?.Exercicios || []).reduce((acc, ex) => {
+        return acc + (ex.sets || []).reduce((sum, set) => sum + (hasSetPR(set) ? 1 : 0), 0);
+    }, 0);
+}
+
+const REST_AUTO_START_KEY = 'rest_auto_start_v1';
+let workoutSaveIndicatorTimer = null;
+
+function getRestAutoStart() {
+    const stored = localStorage.getItem(REST_AUTO_START_KEY);
+    return stored !== 'false';
+}
+
+function updateRestAutoToggleUI() {
+    const btn = document.getElementById('rest-auto-toggle');
+    if (!btn) return;
+    const isOn = getRestAutoStart();
+    btn.classList.toggle('active', isOn);
+    btn.innerHTML = `${uiSvgIcon('timer')} Auto descanso: <strong>${isOn ? 'ON' : 'OFF'}</strong>`;
+}
+
+function toggleRestAutoStart() {
+    const next = !getRestAutoStart();
+    localStorage.setItem(REST_AUTO_START_KEY, next ? 'true' : 'false');
+    updateRestAutoToggleUI();
+}
+
+function showWorkoutSaveIndicator() {
+    const el = document.getElementById('workout-save-indicator');
+    if (!el) return;
+    const label = navigator.onLine ? 'Salvo' : 'Salvo local';
+    el.innerHTML = `${uiSvgIcon('cloud')} ${label}`;
+    el.classList.add('active');
+    if (workoutSaveIndicatorTimer) clearTimeout(workoutSaveIndicatorTimer);
+    workoutSaveIndicatorTimer = setTimeout(() => {
+        el.classList.remove('active');
+    }, 1200);
+}
+
+function isWorkoutSessionActive() {
+    const view = document.getElementById('view-student-log-workout');
+    const isVisible = view ? view.style.display !== 'none' : false;
+    return !!workoutState && (isVisible || !!workoutTimerInterval);
+}
+
+function confirmExitDuringWorkout() {
+    if (!isWorkoutSessionActive()) return true;
+    return confirm('Treino em andamento. Sair agora pode interromper o registro. Deseja continuar?');
+}
+
+function getPreviousSessionSets(studentId, exerciseName) {
+    const history = readStorageJSON('workoutHistory', []);
+    const lastSession = [...history].reverse().find(h =>
+        h.ID_Usuario === studentId && (h.Exercicios || h.exercises).some(ex => ex.nome === exerciseName)
+    );
+    if (!lastSession) return [];
+    const exs = lastSession.Exercicios || lastSession.exercises;
+    const ex = exs.find(e => e.nome === exerciseName);
+    if (!ex || !Array.isArray(ex.sets)) return [];
+    return ex.sets.map(s => {
+        const weight = parseFloat(s.peso ?? s.weight ?? 0) || 0;
+        const reps = parseInt(s.reps ?? 0, 10) || 0;
+        return { weight, reps, volume: weight * reps };
+    });
+}
+
+function getExerciseHistoryBest(studentId, exerciseName) {
+    const history = readStorageJSON('workoutHistory', []);
+    let maxWeight = 0;
+    let maxVolume = 0;
+    let maxReps = 0;
+    history.forEach(w => {
+        if (String(w.ID_Usuario) !== String(studentId)) return;
+        const ex = (w.Exercicios || w.exercises || []).find(e => e.nome === exerciseName);
+        if (!ex) return;
+        (ex.sets || []).forEach(s => {
+            const weight = parseFloat(s.peso ?? s.weight ?? 0) || 0;
+            const reps = parseInt(s.reps ?? 0, 10) || 0;
+            const volume = weight * reps;
+            if (weight > maxWeight) maxWeight = weight;
+            if (reps > maxReps) maxReps = reps;
+            if (volume > maxVolume) maxVolume = volume;
+        });
+    });
+    return { maxWeight, maxVolume, maxReps };
+}
+
+function formatPrevSetLabel(prevSet) {
+    if (!prevSet || !prevSet.weight || !prevSet.reps) return '-';
+    return `${formatMetricNumber(prevSet.weight)}kg x ${prevSet.reps}`;
+}
+
+function inferMovementPattern(name) {
+    const n = normalizeText(name);
+    if (/(supino|crucifixo|voador|peck|chest)/.test(n)) return 'empurrar-horizontal';
+    if (/(puxada|pulldown|barra fixa)/.test(n)) return 'puxar-vertical';
+    if (/(remada|row)/.test(n)) return 'puxar-horizontal';
+    if (/(desenvolvimento|militar|arnold)/.test(n)) return 'empurrar-vertical';
+    if (/(rosca|biceps)/.test(n)) return 'flexao-cotovelo';
+    if (/(triceps|tríceps)/.test(n)) return 'extensao-cotovelo';
+    if (/(agachamento|leg press|hack|afundo|passada|lunge)/.test(n)) return 'agachar';
+    if (/(stiff|terra|romeno|levantamento)/.test(n)) return 'hinge';
+    if (/(extensora)/.test(n)) return 'extensao-joelho';
+    if (/(flexora)/.test(n)) return 'flexao-joelho';
+    if (/(panturrilha)/.test(n)) return 'panturrilha';
+    if (/(abdominal|prancha|core)/.test(n)) return 'core';
+    if (/(elevacao lateral|ombro|deltoide)/.test(n)) return 'ombro';
+    return '';
+}
+
+function getExerciseProfile(name) {
+    const catalog = getExerciseCatalogData();
+    const normalized = normalizeText(name);
+    const item = catalog.find(ex => normalizeText(ex.name) === normalized);
+    const group = item?.group || '';
+    const movement = item?.movement || inferMovementPattern(name);
+    return { group, movement };
+}
+
+function getAutoSubstitutesForExercise(name) {
+    const profile = getExerciseProfile(name);
+    const catalog = getExerciseCatalogData();
+    if (!profile.group && !profile.movement) return [];
+    const normalized = normalizeText(name);
+    const matches = catalog.filter(ex => {
+        if (!ex?.name) return false;
+        if (normalizeText(ex.name) === normalized) return false;
+        const exProfile = getExerciseProfile(ex.name);
+        const groupMatch = profile.group && exProfile.group === profile.group;
+        const movementMatch = profile.movement && exProfile.movement === profile.movement;
+        return groupMatch && movementMatch;
+    });
+
+    const fallback = matches.length >= 3
+        ? matches
+        : catalog.filter(ex => {
+            if (!ex?.name) return false;
+            if (normalizeText(ex.name) === normalized) return false;
+            const exProfile = getExerciseProfile(ex.name);
+            return profile.group && exProfile.group === profile.group;
+        });
+
+    return fallback.slice(0, 4).map(ex => ex.name);
+}
+
+function getCoachAssistTip(ex) {
+    const sets = ex?.sets || [];
+    for (let i = sets.length - 1; i >= 0; i -= 1) {
+        const set = sets[i];
+        const rpe = Number(set?.rpe);
+        const exec = Number(set?.execucao);
+        if (!Number.isFinite(rpe) || !Number.isFinite(exec) || rpe <= 0 || exec <= 0) continue;
+        if (rpe <= 6 && exec >= 4) {
+            return { type: 'progress', message: 'PSE baixo + execução alta. Sugestão: aumentar carga na próxima série.' };
+        }
+        if (rpe >= 10 && exec <= 2) {
+            return { type: 'regress', message: 'PSE 10 e execução baixa. Sugestão: manter carga e focar técnica.' };
+        }
+        break;
+    }
+    return null;
 }
 
 function toggleStudentWorkoutEditMode(force) {
@@ -1688,6 +1875,10 @@ function switchTreinoSubview(view) {
 
     if (view === 'landing') {
         renderStudentDuvidas();
+        const studentId = localStorage.getItem('currentStudentId');
+        const students = readStorageJSON('trainerStudents', []);
+        const student = students.find(s => String(s.id) === String(studentId));
+        if (student) renderWorkoutStartOptions(student);
     }
     if (view === 'analise') {
         currentWorkoutTab = 0;
@@ -2263,8 +2454,9 @@ function renderWorkoutHistory() {
         const date = formatDate(w.Data_Treino);
         const durationMin = Math.floor((w.Duracao || 0) / 60);
         const exerciseCount = (w.Exercicios || []).length;
-        const totalSets = (w.Exercicios || []).reduce((s, ex) => s + ex.sets.length, 0);
-        const hasPRs = (w.Exercicios || []).some(ex => ex.sets.some(s => s.brokenPRs && s.brokenPRs.length > 0));
+        const totalSets = (w.Exercicios || []).reduce((s, ex) => s + (ex.sets || []).length, 0);
+        const prCount = countWorkoutPRs(w);
+        const hasPRs = prCount > 0;
         const originalIdx = history.length - 1 - idx;
 
         return `
@@ -2285,7 +2477,7 @@ function renderWorkoutHistory() {
                     <button class="btn-delete-history" onclick="event.stopPropagation(); confirmDeleteWorkout(${originalIdx})">
                         <i class="ph-bold ph-trash"></i>
                     </button>
-                    ${hasPRs ? '<span class="history-pr-badge"><i class="ph-fill ph-trophy"></i> PR</span>' : ''}
+                    ${hasPRs ? `<span class="history-pr-badge"><i class="ph-fill ph-trophy"></i> PR ${prCount}</span>` : ''}
                     <span class="history-volume">${w.Volume_Total >= 1000 ? (w.Volume_Total / 1000).toFixed(1) + 'k' : w.Volume_Total} kg</span>
                 </div>
             </div>
@@ -2395,7 +2587,8 @@ function renderTrainerWorkoutHistory(studentId) {
         const durationMin = Math.floor((w.Duracao || 0) / 60);
         const exerciseCount = (w.Exercicios || []).length;
         const totalSets = (w.Exercicios || []).reduce((s, ex) => s + (ex.sets || []).length, 0);
-        const hasPRs = (w.Exercicios || []).some(ex => (ex.sets || []).some(s => s.brokenPRs && s.brokenPRs.length > 0));
+        const prCount = countWorkoutPRs(w);
+        const hasPRs = prCount > 0;
         const originalIdx = history.length - 1 - idx;
 
         const feedback = w.Avaliacao_Geral || {};
@@ -2425,7 +2618,7 @@ function renderTrainerWorkoutHistory(studentId) {
                     </div>
                 </div>
                 <div class="history-workout-right">
-                    ${hasPRs ? '<span class="history-pr-badge"><i class="ph-fill ph-trophy"></i> PR</span>' : ''}
+                    ${hasPRs ? `<span class="history-pr-badge"><i class="ph-fill ph-trophy"></i> PR ${prCount}</span>` : ''}
                     <span class="history-volume">${w.Volume_Total >= 1000 ? (w.Volume_Total / 1000).toFixed(1) + 'k' : w.Volume_Total} kg</span>
                 </div>
             </div>
@@ -2450,6 +2643,7 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
 
     const durationMin = Math.floor((workout.Duracao || 0) / 60);
     const durationSec = (workout.Duracao || 0) % 60;
+    const prCount = countWorkoutPRs(workout);
     const feedback = workout.Avaliacao_Geral || {};
     const note = (feedback.comentario || '').trim();
     const intensityLabel = feedback.intensidade ? formatIntensityLabel(feedback.intensidade) : '--';
@@ -2475,6 +2669,11 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
                 <i class="ph-bold ph-stack"></i>
                 <span>${(workout.Exercicios || []).reduce((s, ex) => s + (ex.sets || []).length, 0)}</span>
                 <small>Séries</small>
+            </div>
+            <div class="hd-stat">
+                <i class="ph-bold ph-trophy"></i>
+                <span>${prCount}</span>
+                <small>Recordes</small>
             </div>
         </div>
 
@@ -2503,12 +2702,12 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
                             const execVal = Number(s.execucao);
                             const execText = Number.isFinite(execVal) && execVal > 0 ? `Exec ${execVal}` : 'Exec --';
                             return `
-                            <div class="hd-set-row ${s.brokenPRs && s.brokenPRs.length > 0 ? 'has-pr' : ''}">
+                            <div class="hd-set-row ${hasSetPR(s) ? 'has-pr' : ''}">
                                 <span class="hd-set-num">${si + 1}</span>
                                 <span>${s.peso || 0} kg</span>
                                 <span>×</span>
                                 <span>${s.reps || 0} reps</span>
-                                ${s.brokenPRs && s.brokenPRs.length > 0 ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
+                                ${hasSetPR(s) ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
                                 <span class="hd-set-rpe">${rpeText}</span>
                                 <span class="hd-set-exec">${execText}</span>
                             </div>
@@ -2564,8 +2763,13 @@ function openHistoryDetail(originalIdx) {
             </div>
             <div class="hd-stat">
                 <i class="ph-bold ph-stack"></i>
-                <span>${(workout.Exercicios || []).reduce((s, ex) => s + ex.sets.length, 0)}</span>
+                <span>${(workout.Exercicios || []).reduce((s, ex) => s + (ex.sets || []).length, 0)}</span>
                 <small>Séries</small>
+            </div>
+            <div class="hd-stat">
+                <i class="ph-bold ph-trophy"></i>
+                <span>${prCount}</span>
+                <small>Recordes</small>
             </div>
         </div>
 
@@ -2585,12 +2789,12 @@ function openHistoryDetail(originalIdx) {
                             const execVal = Number(s.execucao);
                             const execText = Number.isFinite(execVal) && execVal > 0 ? `Exec ${execVal}` : 'Exec --';
                             return `
-                            <div class="hd-set-row ${s.brokenPRs && s.brokenPRs.length > 0 ? 'has-pr' : ''}">
+                            <div class="hd-set-row ${hasSetPR(s) ? 'has-pr' : ''}">
                                 <span class="hd-set-num">${si + 1}</span>
                                 <span>${s.peso || 0} kg</span>
                                 <span>×</span>
                                 <span>${s.reps || 0} reps</span>
-                                ${s.brokenPRs && s.brokenPRs.length > 0 ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
+                                ${hasSetPR(s) ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
                                 <span class="hd-set-rpe">${rpeText}</span>
                                 <span class="hd-set-exec">${execText}</span>
                             </div>
@@ -3307,8 +3511,7 @@ function initStudentDashboard() {
         setProtocolStatus(false);
     }
 
-    // Attempt to restore active workout session
-    restoreWorkoutBackup();
+    // Keep backup available for "Continuar treino" (no auto-restore).
 }
 
 function renderWorkoutStartOptions(student) {
@@ -3316,7 +3519,26 @@ function renderWorkoutStartOptions(student) {
     if (!container) return;
     const canEditWorkout = studentCanEditWorkout(student);
     const blocks = Array.isArray(student?.workoutBlocks) ? student.workoutBlocks : [];
-    if (blocks.length === 0) {
+    const backup = getWorkoutBackupForStudent(student?.id);
+    const hasBackup = !!backup;
+
+    const continueCard = hasBackup ? (() => {
+        const totalSets = (backup.exercises || []).reduce((acc, ex) => acc + (ex.sets || []).length, 0);
+        const doneSets = (backup.exercises || []).reduce((acc, ex) => acc + (ex.sets || []).filter(s => s.completed).length, 0);
+        const elapsedMin = backup.startTime ? Math.max(1, Math.floor((Date.now() - backup.startTime) / 60000)) : 0;
+        return `
+        <button class="action-card highlight" onclick="resumeWorkoutFromBackup()"
+            style="background: rgba(250, 204, 21, 0.12); border-color: rgba(250, 204, 21, 0.3); padding: 1rem;">
+            <i class="ph-fill ph-play-circle" style="color: #facc15; font-size: 1.5rem;"></i>
+            <div style="flex:1; text-align: left;">
+                <span style="display: block; font-weight: 700; color: var(--text-main); font-size: 1rem;">Continuar treino</span>
+                <span style="font-size: 0.75rem; color: #fde68a; font-weight: 600;">${escHtml(backup.title || 'Treino em andamento')}</span>
+                <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${doneSets}/${totalSets} séries · ${elapsedMin} min</span>
+            </div>
+            <i class="ph-bold ph-caret-right" style="color: #facc15; font-size: 1rem;"></i>
+        </button>`;
+    })() : '';
+    if (blocks.length === 0 && !hasBackup) {
         if (canEditWorkout) {
             container.innerHTML = `
             <button class="action-card highlight" onclick="openStudentWorkoutEditor()"
@@ -3363,7 +3585,7 @@ function renderWorkoutStartOptions(student) {
             <i class="ph-bold ph-caret-right" style="color: rgba(96,165,250,0.9); font-size: 1rem;"></i>
         </button>` : '';
 
-    container.innerHTML = `${startCards}${editCard}`;
+    container.innerHTML = `${continueCard}${startCards}${editCard}`;
 }
 
 function setProtocolStatus(isReady) {
@@ -6395,6 +6617,7 @@ function normalizeSetType(type) {
 function saveWorkoutBackup() {
     if (workoutState) {
         localStorage.setItem('active_workout_backup', JSON.stringify(workoutState));
+        showWorkoutSaveIndicator();
     }
 }
 
@@ -6403,30 +6626,57 @@ function clearWorkoutBackup() {
 }
 
 function restoreWorkoutBackup() {
-    const backup = localStorage.getItem('active_workout_backup');
-    if (backup) {
-        try {
-            workoutState = JSON.parse(backup);
-            if (workoutState?.exercises) {
-                workoutState.exercises.forEach((ex) => {
-                    ex.sets?.forEach((set) => {
-                        set.type = normalizeSetType(set.type);
-                    });
+    return restoreWorkoutBackupWithOptions();
+}
+
+function getWorkoutBackupForStudent(studentId) {
+    const raw = localStorage.getItem('active_workout_backup');
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        const sid = String(parsed?.sessionId || '');
+        if (!sid || (studentId && !sid.startsWith(`${studentId}-`))) return null;
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+function restoreWorkoutBackupWithOptions(options = {}) {
+    const studentId = options.studentId || localStorage.getItem('currentStudentId');
+    const autoSwitch = options.autoSwitch !== false;
+    const backup = getWorkoutBackupForStudent(studentId);
+    if (!backup) return false;
+    try {
+        workoutState = backup;
+        if (workoutState?.exercises) {
+            workoutState.exercises.forEach((ex) => {
+                ex.sets?.forEach((set) => {
+                    set.type = normalizeSetType(set.type);
                 });
-            }
+            });
+        }
+        if (autoSwitch) {
             // Resume view
             switchStudentView('log-workout');
             // Resume Timer
             if (workoutTimerInterval) clearInterval(workoutTimerInterval);
             workoutTimerInterval = setInterval(updateWorkoutTimer, 1000);
             renderWorkoutLog();
-            return true;
-        } catch (e) {
-            console.error('Falha ao restaurar backup de treino', e);
-            clearWorkoutBackup();
         }
+        return true;
+    } catch (e) {
+        console.error('Falha ao restaurar backup de treino', e);
+        clearWorkoutBackup();
+        return false;
     }
-    return false;
+}
+
+function resumeWorkoutFromBackup() {
+    const restored = restoreWorkoutBackupWithOptions({ autoSwitch: true });
+    if (!restored) {
+        alert('Nenhum treino para continuar.');
+    }
 }
 
 function getPreviousSessionData(studentId, exerciseName) {
@@ -6556,31 +6806,47 @@ function startWorkoutSession(blockIdx = 0) {
         sessionId: `${studentId}-${Date.now()}`,
         startTime: Date.now(),
         title: blockTitle || 'Meu Treino',
-        exercises: block.exercises.map((ex, idx) => ({
-            id: `ex-${idx}`,
-            nome: ex.nome,
-            baseNome: ex.nome,
-            substitutes: Array.isArray(ex.substitutes) ? ex.substitutes.filter(Boolean) : [],
-            showSubstitutes: false,
-            supersetGroup: supersetGroups[idx] || 0,
-            notes: '',
-            prevMeta: getPreviousExerciseMeta(studentId, ex.nome),
-            best: personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxReps: 0 },
-                sets: Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => ({
-                    id: `set-${idx}-${sIdx}`,
-                    weight: ex.carga || '',
-                    reps: ex.reps || '',
-                    type: 'normal',
-                    intensityLevel: 0,
-                    rpe: '',
-                    rir: '',
-                    execucao: 0,
-                    logged: false,
-                completed: false,
-                brokenPRs: { weight: false, volume: false, reps: false },
-                prev: getPreviousSessionData(studentId, ex.nome)
-            }))
-        }))
+        exercises: block.exercises.map((ex, idx) => {
+            const prevSets = getPreviousSessionSets(studentId, ex.nome);
+            const prevLabelFallback = getPreviousSessionData(studentId, ex.nome);
+            const storedBest = personalRecords[ex.nome] || {};
+            const historyBest = getExerciseHistoryBest(studentId, ex.nome);
+            const mergedBest = {
+                maxWeight: Math.max(storedBest.maxWeight || 0, historyBest.maxWeight || 0),
+                maxVolume: Math.max(storedBest.maxVolume || 0, historyBest.maxVolume || 0),
+                maxReps: Math.max(storedBest.maxReps || 0, historyBest.maxReps || 0)
+            };
+            return {
+                id: `ex-${idx}`,
+                nome: ex.nome,
+                baseNome: ex.nome,
+                substitutes: Array.isArray(ex.substitutes) ? ex.substitutes.filter(Boolean) : [],
+                showSubstitutes: false,
+                supersetGroup: supersetGroups[idx] || 0,
+                notes: '',
+                prevMeta: getPreviousExerciseMeta(studentId, ex.nome),
+                prevSets,
+                best: mergedBest,
+                sets: Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => {
+                    const prevSet = prevSets[sIdx];
+                    const prevLabel = prevSet ? formatPrevSetLabel(prevSet) : prevLabelFallback;
+                    return {
+                        id: `set-${idx}-${sIdx}`,
+                        weight: ex.carga || '',
+                        reps: ex.reps || '',
+                        type: 'normal',
+                        intensityLevel: 0,
+                        rpe: '',
+                        rir: '',
+                        execucao: 0,
+                        logged: false,
+                        completed: false,
+                        brokenPRs: { weight: false, volume: false, reps: false },
+                        prev: prevLabel
+                    };
+                })
+            };
+        })
     };
 
     saveWorkoutBackup();
@@ -6607,12 +6873,17 @@ function renderWorkoutLog() {
 
     const titleEl = document.getElementById('log-workout-title');
     if (titleEl) titleEl.innerHTML = workoutState.title;
+    updateRestAutoToggleUI();
 
     container.innerHTML = workoutState.exercises.map((ex, exIdx) => {
         const completed = ex.sets.filter(s => s.completed).length;
         const total = ex.sets.length;
         const nextEx = workoutState.exercises[exIdx + 1];
         const linkedToNext = ex.supersetGroup > 0 && nextEx && nextEx.supersetGroup === ex.supersetGroup;
+        const bestWeight = Number(ex.best?.maxWeight || 0);
+        const bestWeightLabel = bestWeight > 0 ? `${formatMetricNumber(bestWeight)}kg` : '';
+        const coachTip = getCoachAssistTip(ex);
+        const coachIcon = coachTip?.type === 'progress' ? uiSvgIcon('lightning') : uiSvgIcon('warning');
 
         return `
         <div class="log-exercise-card ${ex.supersetGroup ? 'superset-card' : ''} ${linkedToNext ? 'superset-linked' : ''}">
@@ -6632,6 +6903,7 @@ function renderWorkoutLog() {
                     <div class="log-ex-meta">
                         <span class="meta-pill">${uiSvgIcon('check-circle')} ${completed}/${total} séries</span>
                         <span class="meta-pill muted">${uiSvgIcon('chart-line-up')} registrar carga</span>
+                        ${bestWeightLabel ? `<span class="meta-pill">${uiSvgIcon('trophy')} PR carga: ${bestWeightLabel}</span>` : ''}
                         ${ex.supersetGroup ? `<span class="meta-pill">${uiSvgIcon('lightning')} bi-set ${ex.supersetGroup}</span>` : ''}
                     </div>
                 </div>
@@ -6639,25 +6911,45 @@ function renderWorkoutLog() {
 
             ${renderExerciseThumb(ex)}
 
-            ${ex.showSubstitutes ? `
+            ${ex.showSubstitutes ? (() => {
+                const manualSubs = Array.isArray(ex.substitutes) ? ex.substitutes.filter(Boolean) : [];
+                const autoSubs = getAutoSubstitutesForExercise(ex.nome).filter(sub => !manualSubs.includes(sub));
+                const hasManual = manualSubs.length > 0;
+                const hasAuto = autoSubs.length > 0;
+                const emptyState = !hasManual && !hasAuto
+                    ? `<div class="log-substitute-empty">Sem substitutos disponíveis para este exercício.</div>`
+                    : '';
+                return `
                 <div class="log-substitute-box">
-                    <strong>Substitutos aprovados pelo coach:</strong>
+                    ${hasManual ? `
+                        <strong>Substitutos aprovados pelo coach:</strong>
+                        <div class="log-substitute-list">
+                            ${manualSubs.map(sub => `<button class="btn-substitute-ex" onclick="applyExerciseSubstituteEncoded(${exIdx}, '${encodeURIComponent(sub)}')">${escHtml(sub)}</button>`).join('')}
+                        </div>
+                    ` : ''}
+                    ${hasAuto ? `
+                        <strong class="muted">Sugestões automáticas:</strong>
+                        <div class="log-substitute-list">
+                            ${autoSubs.slice(0, 4).map(sub => `<button class="btn-substitute-ex auto" onclick="applyExerciseSubstituteEncoded(${exIdx}, '${encodeURIComponent(sub)}')">${escHtml(sub)}</button>`).join('')}
+                        </div>
+                    ` : ''}
+                    ${emptyState}
                     <div class="log-substitute-list">
-                        ${ex.substitutes.map(sub => `<button class="btn-substitute-ex" onclick="applyExerciseSubstituteEncoded(${exIdx}, '${encodeURIComponent(sub)}')">${escHtml(sub)}</button>`).join('')}
                         <button class="btn-substitute-ex muted" onclick="applyExerciseSubstituteEncoded(${exIdx}, '${encodeURIComponent(ex.baseNome)}')">Voltar original</button>
                     </div>
                 </div>
-            ` : ''}
+                `;
+            })() : ''}
 
             ${(() => {
-                const prevNote = ex.prevMeta?.notes ? `Última nota: ${ex.prevMeta.notes}` : '';
-                const placeholder = prevNote || 'Notas do exercício...';
-                const hasPrev = !!prevNote;
+                const prevNoteText = String(ex.prevMeta?.notes || '').trim();
+                const hasPrev = !!prevNoteText;
                 return `
                 <input type="text" class="exercise-notes-input ${hasPrev ? 'has-prev' : ''}"
-                    placeholder="${escHtml(placeholder)}"
+                    placeholder="Notas do exercício..."
                     value="${escHtml(ex.notes || '')}"
-                    oninput="updateExerciseNotes(${exIdx}, this.value)">`;
+                    oninput="updateExerciseNotes(${exIdx}, this.value)">
+                ${hasPrev ? `<div class="exercise-prev-note">${uiSvgIcon('timer')} Nota anterior: ${escHtml(prevNoteText)}</div>` : ''}`;
             })()}
 
             <div class="log-set-table">
@@ -6686,10 +6978,14 @@ function renderWorkoutLog() {
             const setNumberHtml = hasPR
                 ? `<span class="set-pr-icon" title="${prTooltip}">${uiSvgIcon('trophy')}</span>`
                 : `${typeShort || (setIdx + 1)}`;
+            const canChangeType = !hasPR;
+            const setNumberAttrs = canChangeType
+                ? `role="button" onclick="openSetTypePopover(event, ${exIdx}, ${setIdx})"`
+                : `role="img" aria-label="${escHtml(prTooltip)}"`;
 
             return `
                     <div class="log-set-row ${set.completed ? 'completed' : ''}" id="row-${exIdx}-${setIdx}">
-                        <div class="set-number ${hasPR ? 'has-pr' : ''} type-${setType}" title="${setTitle}" role="button" onclick="openSetTypePopover(event, ${exIdx}, ${setIdx})">${setNumberHtml}</div>
+                        <div class="set-number ${hasPR ? 'has-pr locked' : ''} type-${setType}" title="${setTitle}" ${setNumberAttrs}>${setNumberHtml}</div>
 
                         <div class="set-value-stack">
                             <div class="set-input-row">
@@ -6729,10 +7025,12 @@ function renderWorkoutLog() {
                                 ${set.completed ? uiSvgIcon('check') : uiSvgIcon('circle')}
                             </button>
                         </div>
+                        ${hasPR ? `<div class="set-pr-banner">${uiSvgIcon('trophy')} ${escHtml(prTooltip)}</div>` : ''}
                     </div>
                 `;
         }).join('')}
             </div>
+            ${coachTip ? `<div class="coach-assist-pill ${coachTip.type}">${coachIcon}<span>${escHtml(coachTip.message)}</span></div>` : ''}
             
             <div class="log-ex-footer">
                 <button class="btn-add-set" onclick="addSetToExercise(${exIdx})">
@@ -6789,42 +7087,32 @@ function updateExercisePRs(exIdx) {
         set.brokenPRs = { weight: false, reps: false, volume: false };
     });
 
-    // We only care about COMPLETED sets for the trophy (as per previous requirement)
-    // but the user wants to see it based on the values. 
-    // Actually, "renderPRTrophy" already checks for !set.completed.
-    // So we calculate PR status for all sets, and the UI handles the visibility.
-
-    let maxWeightIdx = -1;
-    let maxVolumeIdx = -1;
-    let maxRepsIdx = -1;
-
-    let sessionMaxWeight = best.maxWeight;
-    let sessionMaxVolume = best.maxVolume;
-    let sessionMaxReps = best.maxReps;
-
+    // Compare with personal bests and with the previous session (same series index).
     ex.sets.forEach((set, idx) => {
         const w = parseFloat(set.weight) || 0;
         const r = parseInt(set.reps) || 0;
         const v = w * r;
+        const prevSet = ex.prevSets?.[idx];
+        const prevVolume = prevSet ? (prevSet.volume || (prevSet.weight * prevSet.reps)) : 0;
 
-        if (w > sessionMaxWeight) {
-            sessionMaxWeight = w;
-            maxWeightIdx = idx;
+        if (w > 0 && best?.maxWeight > 0 && w > best.maxWeight) {
+            set.brokenPRs.weight = true;
+        } else if (w > 0 && (!best || !best.maxWeight) && prevSet?.weight) {
+            set.brokenPRs.weight = w > prevSet.weight;
         }
-        if (v > sessionMaxVolume) {
-            sessionMaxVolume = v;
-            maxVolumeIdx = idx;
+
+        if (r > 0 && best?.maxReps > 0 && r > best.maxReps) {
+            set.brokenPRs.reps = true;
         }
-        if (r > sessionMaxReps) {
-            sessionMaxReps = r;
-            maxRepsIdx = idx;
+
+        if (v > 0) {
+            if (prevVolume > 0 && v > prevVolume) {
+                set.brokenPRs.volume = true;
+            } else if (best?.maxVolume > 0 && v > best.maxVolume) {
+                set.brokenPRs.volume = true;
+            }
         }
     });
-
-    // Assign trophies only to the session champions
-    if (maxWeightIdx !== -1) ex.sets[maxWeightIdx].brokenPRs.weight = true;
-    if (maxVolumeIdx !== -1) ex.sets[maxVolumeIdx].brokenPRs.volume = true;
-    if (maxRepsIdx !== -1) ex.sets[maxRepsIdx].brokenPRs.reps = true;
 }
 
 function checkPRs(exIdx, setIdx) {
@@ -6858,7 +7146,9 @@ function toggleSetCompletion(exIdx, setIdx) {
     }
 
     if (set.completed) {
-        startRestTimer(60); // Default 60s
+        if (getRestAutoStart()) {
+            startRestTimer(60); // Default 60s
+        }
         if (!set.logged) {
             appendCompletedSetLog({
                 id: `${workoutState.sessionId}-${exIdx}-${setIdx}`,

@@ -4648,6 +4648,11 @@ body {
     color: var(--primary-color);
 }
 
+.set-number.locked {
+    cursor: default;
+    opacity: 0.9;
+}
+
 .set-number.type-warmup {
     background: rgba(59, 130, 246, 0.12);
     color: #60a5fa;
@@ -4692,6 +4697,26 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     text-align: center;
+}
+
+.set-pr-banner {
+    grid-column: 1 / -1;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.45rem;
+    border-radius: 999px;
+    background: rgba(250, 204, 21, 0.12);
+    color: #fde68a;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.set-pr-banner .ui-svg-icon {
+    width: 14px;
+    height: 14px;
 }
 
 .col-prev {
@@ -5141,6 +5166,22 @@ body {
 
 .exercise-notes-input.has-prev::placeholder {
     color: rgba(255, 255, 255, 0.35);
+}
+
+.exercise-prev-note {
+    margin-top: 0.35rem;
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.55);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    opacity: 0.7;
+}
+
+.exercise-prev-note .ui-svg-icon {
+    width: 12px;
+    height: 12px;
+    opacity: 0.7;
 }
 
 /* Workout Summary Styles */
@@ -6386,10 +6427,11 @@ body {
     display: flex;
     gap: 1rem;
     margin-bottom: 1.5rem;
+    flex-wrap: wrap;
 }
 
 .hd-stat {
-    flex: 1;
+    flex: 1 1 120px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -9290,6 +9332,18 @@ body {
     color: var(--text-muted);
 }
 
+.btn-substitute-ex.auto {
+    border-color: rgba(96, 165, 250, 0.35);
+    background: rgba(96, 165, 250, 0.12);
+    color: #93c5fd;
+}
+
+.log-substitute-empty {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 0.35rem;
+}
+
 .superset-card {
     position: relative;
 }
@@ -9302,6 +9356,36 @@ body {
     width: 2px;
     height: 16px;
     background: linear-gradient(180deg, rgba(163, 230, 53, 0.9), rgba(163, 230, 53, 0));
+}
+
+.coach-assist-pill {
+    margin-top: 0.5rem;
+    padding: 0.45rem 0.65rem;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    flex-wrap: wrap;
+}
+
+.coach-assist-pill .ui-svg-icon {
+    width: 14px;
+    height: 14px;
+}
+
+.coach-assist-pill.progress {
+    background: rgba(34, 197, 94, 0.12);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    color: #86efac;
+}
+
+.coach-assist-pill.regress {
+    background: rgba(248, 113, 113, 0.12);
+    border: 1px solid rgba(248, 113, 113, 0.28);
+    color: #fca5a5;
 }
 
 /* Exercise progress modal */
@@ -11193,6 +11277,56 @@ body {
     background: rgba(10, 10, 10, 0.9);
     border: 1px solid rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(12px);
+}
+
+#view-student-log-workout .log-workout-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.35rem;
+}
+
+.rest-auto-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.rest-auto-toggle.active {
+    border-color: rgba(163, 230, 53, 0.4);
+    color: var(--primary-color);
+    background: rgba(163, 230, 53, 0.12);
+}
+
+.workout-save-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid rgba(96, 165, 250, 0.3);
+    background: rgba(96, 165, 250, 0.12);
+    color: #93c5fd;
+    font-size: 0.68rem;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.workout-save-indicator.active {
+    opacity: 1;
+}
+
+.workout-save-indicator .ui-svg-icon {
+    width: 12px;
+    height: 12px;
 }
 
 #view-student-log-workout .log-content-list {
