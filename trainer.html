@@ -136,24 +136,24 @@
                     </div>
 
                     <nav class="sidebar-nav">
-                        <a href="#" class="nav-item active" id="nav-dashboard" onclick="switchDashView('dashboard')">
+                        <a href="#/dashboard" class="nav-item active" id="nav-dashboard" onclick="switchDashView('dashboard')">
                             <i class="ph-bold ph-squares-four"></i> Dashboard
                         </a>
-                        <a href="#" class="nav-item" id="nav-alunos" onclick="switchDashView('alunos')">
+                        <a href="#/alunos" class="nav-item" id="nav-alunos" onclick="switchDashView('alunos')">
                             <i class="ph-bold ph-users"></i> Alunos
                             <span class="nav-badge" id="pending-nav-badge" style="display:none">0</span>
                         </a>
-                        <a href="#" class="nav-item" id="nav-duvidas" onclick="switchDashView('duvidas')">
+                        <a href="#/duvidas" class="nav-item" id="nav-duvidas" onclick="switchDashView('duvidas')">
                             <i class="ph-bold ph-chat-circle-dots"></i> Dúvidas
                             <span class="nav-badge" id="duvidas-nav-badge" style="display:none">0</span>
                         </a>
-                        <a href="#" class="nav-item" id="nav-exercicios" onclick="switchDashView('exercicios')">
+                        <a href="#/exercicios" class="nav-item" id="nav-exercicios" onclick="switchDashView('exercicios')">
                             <i class="ph-bold ph-barbell"></i> Exercícios
                         </a>
                         <a href="#" class="nav-item">
                             <i class="ph-bold ph-file-text"></i> Avaliações
                         </a>
-                        <a href="#" class="nav-item">
+                        <a href="#/configuracoes" class="nav-item" id="nav-config" onclick="switchDashView('config')">
                             <i class="ph-bold ph-gear"></i> Configurações
                         </a>
                     </nav>
@@ -191,6 +191,39 @@
                             <div class="t-stat-card status-pending">
                                 <h3 id="stat-pendentes" class="text-warning">0</h3>
                                 <p>Pendentes</p>
+                            </div>
+                        </div>
+
+                        <div class="dashboard-insights">
+                            <div class="engagement-card">
+                                <div class="engagement-header">
+                                    <div>
+                                        <h3>Engajamento semanal</h3>
+                                        <p class="subtitle">Treinos concluidos nos ultimos 7 dias</p>
+                                    </div>
+                                    <div class="engagement-total">
+                                        <span>Total</span>
+                                        <strong id="engagement-total">0</strong>
+                                    </div>
+                                </div>
+                                <div class="engagement-chart">
+                                    <svg id="engagement-chart" viewBox="0 0 300 120" aria-hidden="true"></svg>
+                                    <div class="engagement-labels" id="engagement-labels"></div>
+                                </div>
+                            </div>
+                            <div class="quick-filters" id="dashboard-quick-filters">
+                                <button class="filter-chip active" data-filter="all" onclick="applyDashboardFilter('all')">
+                                    Todos <span class="filter-count" id="filter-count-all">0</span>
+                                </button>
+                                <button class="filter-chip" data-filter="sem-treino" onclick="applyDashboardFilter('sem-treino')">
+                                    Alunos sem treino montado <span class="filter-count" id="filter-count-sem-treino">0</span>
+                                </button>
+                                <button class="filter-chip" data-filter="avaliacoes" onclick="applyDashboardFilter('avaliacoes')">
+                                    Avaliacoes pendentes <span class="filter-count" id="filter-count-avaliacoes">0</span>
+                                </button>
+                                <button class="filter-chip" data-filter="duvidas" onclick="applyDashboardFilter('duvidas')">
+                                    Duvidas nao respondidas <span class="filter-count" id="filter-count-duvidas">0</span>
+                                </button>
                             </div>
                         </div>
 
@@ -401,38 +434,125 @@
                 </div>
             </div>
 
-            <!-- VIEW: EXERCÍCIOS (Catálogo de Exercícios) -->
-            <div id="view-exercicios" style="display:none">
-                <div class="ex-catalog">
-                    <!-- Search -->
-                    <div class="ex-catalog-search">
-                        <i class="ph-bold ph-magnifying-glass"></i>
-                        <input type="text" id="ex-catalog-search-input" placeholder="Pesquisar exercício..."
-                            oninput="searchExercises(this.value)" autocomplete="off">
-                    </div>
+            <!-- VIEW: CONFIGURACOES -->
+            <div id="view-config" style="display:none">
+                <div class="settings-grid">
+                    <section class="settings-card">
+                        <div class="settings-card-header">
+                            <h2>Perfil do Treinador</h2>
+                            <p class="subtitle">Edite sua bio, foto e especialidades exibidas aos alunos.</p>
+                        </div>
+                        <div class="settings-field">
+                            <label>Foto profissional</label>
+                            <div class="settings-upload">
+                                <div class="settings-avatar-preview" id="trainer-photo-preview">
+                                    <i class="ph-bold ph-user"></i>
+                                </div>
+                                <input type="file" id="trainer-photo-input" accept="image/*" onchange="handleTrainerPhotoUpload(event)">
+                            </div>
+                        </div>
+                        <div class="settings-field">
+                            <label>Bio e descricao</label>
+                            <textarea id="trainer-bio" class="q-input" rows="3" placeholder="Ex: Treinador focado em performance e emagrecimento."></textarea>
+                        </div>
+                        <div class="settings-field">
+                            <label>Especialidades</label>
+                            <div class="settings-tag-input">
+                                <input type="text" id="trainer-specialty-input" placeholder="Ex: Hipertrofia">
+                                <button class="btn-secondary btn-sm" onclick="addTrainerSpecialty()">Adicionar</button>
+                            </div>
+                            <div class="settings-tag-list" id="trainer-specialty-tags"></div>
+                        </div>
+                    </section>
 
-                    <!-- Filter Chips -->
-                    <div class="ex-chips-row">
-                        <button class="ex-chip active" data-group="todos"
-                            onclick="filterExercisesByGroup('todos')">Todos</button>
-                        <button class="ex-chip" data-group="Peito"
-                            onclick="filterExercisesByGroup('Peito')">Peito</button>
-                        <button class="ex-chip" data-group="Costas"
-                            onclick="filterExercisesByGroup('Costas')">Costas</button>
-                        <button class="ex-chip" data-group="Pernas"
-                            onclick="filterExercisesByGroup('Pernas')">Pernas</button>
-                        <button class="ex-chip" data-group="Ombros"
-                            onclick="filterExercisesByGroup('Ombros')">Ombros</button>
-                        <button class="ex-chip" data-group="Bracos"
-                            onclick="filterExercisesByGroup('Bracos')">Braços</button>
-                    </div>
+                    <section class="settings-card">
+                        <div class="settings-card-header">
+                            <h2>Gestao da Consultoria</h2>
+                            <p class="subtitle">Controle codigo de convite, limite de alunos e sua marca.</p>
+                        </div>
+                        <div class="settings-field">
+                            <label>Codigo de convite</label>
+                            <div class="settings-inline">
+                                <input type="text" id="trainer-invite-code" class="q-input code-input" readonly>
+                                <button class="btn-secondary btn-sm" onclick="generateTrainerInviteCode()">Gerar novo</button>
+                                <button class="btn-secondary btn-sm" onclick="resetTrainerInviteCode()">Resetar</button>
+                            </div>
+                        </div>
+                        <div class="settings-field">
+                            <label>Limite de alunos</label>
+                            <input type="number" id="trainer-student-limit" class="q-input" min="1" placeholder="Ex: 50">
+                        </div>
+                        <div class="settings-field">
+                            <label>Logo da consultoria</label>
+                            <div class="settings-upload">
+                                <div class="settings-logo-preview" id="trainer-logo-preview">
+                                    <i class="ph-bold ph-image"></i>
+                                </div>
+                                <input type="file" id="trainer-logo-input" accept="image/*" onchange="handleTrainerLogoUpload(event)">
+                            </div>
+                        </div>
+                    </section>
 
-                    <!-- Exercise List -->
-                    <div class="ex-catalog-list" id="ex-catalog-list">
-                        <!-- Injetado via JS -->
-                    </div>
+                    <section class="settings-card">
+                        <div class="settings-card-header">
+                            <h2>Preferencias de Protocolo</h2>
+                            <p class="subtitle">Defina unidades e formula padrao para macros.</p>
+                        </div>
+                        <div class="settings-field">
+                            <label>Unidades de medida</label>
+                            <div class="settings-radio-group">
+                                <label class="radio-card compact">
+                                    <input type="radio" name="unit-system" value="metric">
+                                    <div class="radio-content">
+                                        <span>kg/cm</span>
+                                    </div>
+                                </label>
+                                <label class="radio-card compact">
+                                    <input type="radio" name="unit-system" value="imperial">
+                                    <div class="radio-content">
+                                        <span>lb/in</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="settings-field">
+                            <label>Calculo padrao de macros</label>
+                            <select id="trainer-macro-formula" class="q-input">
+                                <option value="mifflin">Mifflin-St Jeor</option>
+                                <option value="harris">Harris-Benedict</option>
+                                <option value="katch">Katch-McArdle</option>
+                            </select>
+                        </div>
+                    </section>
+
+                    <section class="settings-card">
+                        <div class="settings-card-header">
+                            <h2>Notificacoes</h2>
+                            <p class="subtitle">Escolha como receber alertas de treino e duvidas.</p>
+                        </div>
+                        <div class="settings-field">
+                            <label class="toggle-row">
+                                <input type="checkbox" id="notif-email">
+                                <span>Receber e-mail quando um aluno concluir um treino</span>
+                            </label>
+                        </div>
+                        <div class="settings-field">
+                            <label class="toggle-row">
+                                <input type="checkbox" id="notif-push">
+                                <span>Receber push quando um aluno enviar uma duvida</span>
+                            </label>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="settings-footer">
+                    <button class="btn-secondary" onclick="resetTrainerSettings()">Restaurar padrao</button>
+                    <button class="btn-primary" onclick="saveTrainerSettings()">Salvar configuracoes</button>
                 </div>
             </div>
+
+            <!-- Exercises drawer (loaded from partial) -->
+            <div data-page="pages/trainer-exercicios.html"></div>
             </main>
         </div>
     </div>
@@ -780,7 +900,7 @@
                     <i class="ph-bold ph-share-network"></i>
                     <span>Compartilhar Código</span>
                 </button>
-                <button class="trainer-menu-item" onclick="switchDashView('dashboard'); closeTrainerProfileMenu();">
+                <button class="trainer-menu-item" onclick="switchDashView('config'); closeTrainerProfileMenu();">
                     <i class="ph-bold ph-gear"></i>
                     <span>Configurações</span>
                 </button>

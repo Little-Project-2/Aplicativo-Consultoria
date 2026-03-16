@@ -12,6 +12,11 @@ const SELF_TRAINING_STUDENT_NAME = 'Diego';
 const SELF_TRAINING_STUDENT_CODES = [SELF_TRAINING_STUDENT_CODE];
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const STUDENT_AUTH_TOKEN_KEY = 'student_access_token_v1';
+const TRAINER_SETTINGS_KEY = 'trainer_settings_v1';
+let activeDashboardFilter = 'all';
+let lastMainTrainerView = 'dashboard';
+let trainerDrawerOpen = false;
+let trainerRouteLock = false;
 
 const DEMO_WORKOUT_BLOCKS = [
     {
@@ -222,6 +227,170 @@ function optimizeMediaElements(root = document) {
     });
 }
 
+function getStartOfDay(date) {
+    const d = new Date(date);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function diffDays(fromDate, toDate) {
+    const a = getStartOfDay(fromDate);
+    const b = getStartOfDay(toDate);
+    return Math.round((b - a) / (1000 * 60 * 60 * 24));
+}
+
+function formatRelativeDays(days) {
+    if (days === 0) return 'hoje';
+    if (days === 1) return 'ha 1 dia';
+    return `ha ${days} dias`;
+}
+
+function getLastWorkoutDateForStudent(student) {
+    if (!student || !student.id) return null;
+    const studentId = String(student.id);
+    const history = readStorageJSON('workoutHistory', []);
+    let last = null;
+    history.forEach((entry) => {
+        if (String(entry.ID_Usuario) !== studentId) return;
+        const d = new Date(entry.Data_Treino || entry.date || entry.data);
+        if (Number.isNaN(d.getTime())) return;
+        if (!last || d > last) last = d;
+    });
+    if (student.lastWorkoutAt) {
+        const fallback = new Date(student.lastWorkoutAt);
+        if (!Number.isNaN(fallback.getTime())) {
+            if (!last || fallback > last) last = fallback;
+        }
+    }
+    return last;
+}
+
+function getStudentActivityMeta(student) {
+    const last = getLastWorkoutDateForStudent(student);
+    if (!last) {
+        return {
+            badgeClass: 'warning',
+            statusText: 'Sem treino',
+            lastWorkoutText: 'Ultimo treino: sem registros',
+            days: null
+        };
+    }
+    const days = Math.max(0, diffDays(last, new Date()));
+    const alert = days > 5;
+    return {
+        badgeClass: alert ? 'alert' : 'active',
+        statusText: alert ? 'Inativo/Alerta' : 'Ativo',
+        lastWorkoutText: `Ultimo treino: ${formatRelativeDays(days)}`,
+        days
+    };
+}
+
+function studentHasWorkoutPlan(student) {
+    if (!student || !Array.isArray(student.workoutBlocks)) return false;
+    return student.workoutBlocks.some((block) => Array.isArray(block.exercises) && block.exercises.length > 0);
+}
+
+function getPendingDuvidaStudentIds(notifications) {
+    const pendingSet = new Set();
+    (notifications || []).forEach((n) => {
+        if (n.type !== 'duvida') return;
+        const isPending = n.unread || !n.reply;
+        const sid = n.studentId || n.studentID || n.student || '';
+        if (isPending && sid) pendingSet.add(String(sid));
+    });
+    return pendingSet;
+}
+
+function applyDashboardFilterList(students, filterKey, pendingDuvidaSet) {
+    if (filterKey === 'sem-treino') {
+        return students.filter((s) => !studentHasWorkoutPlan(s));
+    }
+    if (filterKey === 'avaliacoes') {
+        return students.filter((s) => s.assessmentPending || s.pendingEvaluation);
+    }
+    if (filterKey === 'duvidas') {
+        return students.filter((s) => pendingDuvidaSet.has(String(s.id)));
+    }
+    return students;
+}
+
+function updateDashboardFilterUI(counts) {
+    const setCount = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+    setCount('filter-count-all', counts.all);
+    setCount('filter-count-sem-treino', counts.semTreino);
+    setCount('filter-count-avaliacoes', counts.avaliacoes);
+    setCount('filter-count-duvidas', counts.duvidas);
+
+    document.querySelectorAll('.filter-chip').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.filter === activeDashboardFilter);
+    });
+}
+
+function buildEngagementSeries() {
+    const now = new Date();
+    const days = [];
+    for (let i = 6; i >= 0; i -= 1) {
+        const d = new Date(now);
+        d.setDate(now.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        const label = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+        days.push({ key, label, date: d, count: 0 });
+    }
+    const history = readStorageJSON('workoutHistory', []);
+    history.forEach((entry) => {
+        const d = new Date(entry.Data_Treino || entry.date || entry.data);
+        if (Number.isNaN(d.getTime())) return;
+        const key = d.toISOString().slice(0, 10);
+        const match = days.find((x) => x.key === key);
+        if (match) match.count += 1;
+    });
+    return days;
+}
+
+function renderEngagementChart() {
+    const svg = document.getElementById('engagement-chart');
+    const labels = document.getElementById('engagement-labels');
+    const totalEl = document.getElementById('engagement-total');
+    if (!svg || !labels || !totalEl) return;
+
+    const series = buildEngagementSeries();
+    const counts = series.map((d) => d.count);
+    const total = counts.reduce((sum, val) => sum + val, 0);
+    totalEl.textContent = total;
+
+    const width = 300;
+    const height = 120;
+    const padding = 18;
+    const maxVal = Math.max(...counts, 1);
+    const xStep = (width - padding * 2) / (series.length - 1);
+    const yScale = (height - padding * 2) / maxVal;
+
+    const points = series.map((d, i) => {
+        const x = padding + i * xStep;
+        const y = height - padding - d.count * yScale;
+        return { x, y, value: d.count };
+    });
+
+    const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+    const areaPath = `${linePath} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`;
+
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.innerHTML = `
+        <path class="engagement-area" d="${areaPath}"></path>
+        <path class="engagement-line" d="${linePath}"></path>
+        ${points.map(p => `<circle class="engagement-dot" cx="${p.x}" cy="${p.y}" r="3"></circle>`).join('')}
+    `;
+
+    labels.innerHTML = series.map((d) => `
+        <div class="engagement-label">
+            <span>${d.label}</span>
+            <strong>${d.count}</strong>
+        </div>
+    `).join('');
+}
+
 function uiSvgIcon(name, className = '') {
     const icons = {
         'check-circle': '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M8 12.5l2.4 2.4L16 9.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
@@ -406,6 +575,8 @@ function studentCanEditWorkout(student) {
 function ensureSelfTrainingStudent() {
     const students = readStorageJSON('trainerStudents', []);
     const nowIso = new Date().toISOString();
+    const selfLastWorkout = new Date();
+    selfLastWorkout.setDate(selfLastWorkout.getDate() - 6);
     const baselineMetric = {
         date: nowIso,
         weight: 82,
@@ -430,6 +601,8 @@ function ensureSelfTrainingStudent() {
         trainerCode: '00001',
         workoutBlocks: defaultWorkoutBlocks,
         mealBlocks: JSON.parse(JSON.stringify(DEMO_MEAL_BLOCKS)),
+        lastWorkoutAt: selfLastWorkout.toISOString(),
+        assessmentPending: false,
         metricHistory: [baselineMetric],
         progressLogs: [{ date: new Date().toISOString().slice(0, 10), weight: 82, notes: 'Perfil Diego auto-treino.' }],
         personalRecords: {}
@@ -449,6 +622,8 @@ function ensureSelfTrainingStudent() {
             active: true,
             pending: false,
             trainerCode: current.trainerCode || '00001',
+            lastWorkoutAt: current.lastWorkoutAt || selfLastWorkout.toISOString(),
+            assessmentPending: current.assessmentPending ?? false,
             workoutBlocks: Array.isArray(current.workoutBlocks) && current.workoutBlocks.length > 0
                 ? current.workoutBlocks
                 : defaultWorkoutBlocks,
@@ -464,6 +639,8 @@ function ensureSelfTrainingStudent() {
 function ensureAdminStudent() {
     const students = readStorageJSON('trainerStudents', []);
     const nowIso = new Date().toISOString();
+    const adminLastWorkout = new Date();
+    adminLastWorkout.setDate(adminLastWorkout.getDate() - 3);
     const baselineMetric = {
         date: nowIso,
         weight: 78,
@@ -487,6 +664,8 @@ function ensureAdminStudent() {
         trainerCode: '00001',
         workoutBlocks: DEMO_WORKOUT_BLOCKS,
         mealBlocks: DEMO_MEAL_BLOCKS,
+        lastWorkoutAt: adminLastWorkout.toISOString(),
+        assessmentPending: true,
         metricHistory: [baselineMetric],
         progressLogs: [{ date: new Date().toISOString().slice(0, 10), weight: 78, notes: 'Perfil demo Beta inicial.' }],
         personalRecords: {}
@@ -506,6 +685,8 @@ function ensureAdminStudent() {
             active: true,
             pending: false,
             trainerCode: current.trainerCode || '00001',
+            lastWorkoutAt: current.lastWorkoutAt || adminLastWorkout.toISOString(),
+            assessmentPending: current.assessmentPending ?? true,
             workoutBlocks: Array.isArray(current.workoutBlocks) && current.workoutBlocks.length > 0 ? current.workoutBlocks : DEMO_WORKOUT_BLOCKS,
             mealBlocks: Array.isArray(current.mealBlocks) && current.mealBlocks.length > 0 ? current.mealBlocks : DEMO_MEAL_BLOCKS,
             metricHistory: Array.isArray(current.metricHistory) && current.metricHistory.length > 0 ? current.metricHistory : [baselineMetric]
@@ -598,6 +779,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupClientSideFormProtection();
     ensureAdminStudent();
     ensureSelfTrainingStudent();
+    applyTrainerBranding();
     upgradeSidebarNavIcons();
     setupInstallButton();
 
@@ -3947,6 +4129,9 @@ function initTrainerDashboard() {
     const trainerName = localStorage.getItem('trainerName') || 'Treinador';
     const trainerCode = localStorage.getItem('currentTrainerCode') || '00000';
     const canAutoEnterDashboard = !!sessionCode || (!!trainerCode && trainerCode !== '00000');
+    if (!localStorage.getItem('trainerCodeDefault') && trainerCode && trainerCode !== '00000') {
+        localStorage.setItem('trainerCodeDefault', trainerCode);
+    }
 
     if (canAutoEnterDashboard) {
         const dashboardScreen = document.getElementById('trainer-dashboard-screen');
@@ -3972,6 +4157,8 @@ function initTrainerDashboard() {
         const serviceMap = { 'treino': 'Treino', 'dieta': 'Nutrição', 'ambos': 'Treino + Dieta' };
         servicesLabel.textContent = serviceMap[currentTrainer.services] || 'Serviços Gerais';
     }
+
+    loadTrainerSettingsToUI();
 
     const root = document.getElementById('trainer-dashboard-screen');
     if (root && !root.dataset.menuInit) {
@@ -4096,7 +4283,7 @@ function initTrainerDashboard() {
             const maxVerticalMovement = 50;
 
             if (Math.abs(deltaX) > minSwipeDistance && Math.abs(deltaY) < maxVerticalMovement && !isPulling) {
-                const views = ['dashboard', 'alunos', 'duvidas', 'exercicios'];
+                const views = ['dashboard', 'alunos', 'duvidas', 'config'];
                 const currentView = views.find(v => document.getElementById(`view-${v}`)?.style.display !== 'none') || 'dashboard';
                 const currentIndex = views.indexOf(currentView);
 
@@ -4156,33 +4343,348 @@ function initTrainerDashboard() {
     setTimeout(showSwipeHint, 2000);
 
     updateTrainerStats();
+    initTrainerRoutes();
 }
 
-// â”€â”€ View switching (Dashboard / Alunos / Duvidas / Exercicios) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function switchDashView(view) {
-    const viewDash = document.getElementById('view-dashboard');
-    const viewAlunos = document.getElementById('view-alunos');
-    const viewDuvidas = document.getElementById('view-duvidas');
-    const viewExercicios = document.getElementById('view-exercicios');
+function loadTrainerSettings() {
+    const defaults = {
+        bio: '',
+        specialties: [],
+        unitSystem: 'metric',
+        macroFormula: 'mifflin',
+        notifyEmail: true,
+        notifyPush: true,
+        studentLimit: '',
+        profilePhoto: '',
+        brandLogo: ''
+    };
+    const stored = readStorageJSON(TRAINER_SETTINGS_KEY, {});
+    const specialties = Array.isArray(stored.specialties) ? stored.specialties : [];
+    return { ...defaults, ...stored, specialties };
+}
+
+function updateTrainerSettings(partial) {
+    const current = loadTrainerSettings();
+    const next = { ...current, ...partial };
+    localStorage.setItem(TRAINER_SETTINGS_KEY, JSON.stringify(next));
+    return next;
+}
+
+function renderTrainerSpecialties(tags) {
+    const container = document.getElementById('trainer-specialty-tags');
+    if (!container) return;
+    if (!tags || tags.length === 0) {
+        container.innerHTML = '<span class="settings-empty">Nenhuma especialidade adicionada.</span>';
+        return;
+    }
+    container.innerHTML = tags.map((tag) => `
+        <span class="settings-tag">
+            ${escapeHTML(tag)}
+            <button type="button" onclick="removeTrainerSpecialty('${tag.replace(/'/g, "\\'")}')">
+                <i class="ph-bold ph-x"></i>
+            </button>
+        </span>
+    `).join('');
+}
+
+function addTrainerSpecialty() {
+    const input = document.getElementById('trainer-specialty-input');
+    if (!input) return;
+    const value = sanitizeUserInput(input.value, { maxLen: 40 });
+    if (!value) return;
+    const settings = loadTrainerSettings();
+    if (settings.specialties.includes(value)) {
+        input.value = '';
+        return;
+    }
+    const next = updateTrainerSettings({ specialties: [...settings.specialties, value] });
+    renderTrainerSpecialties(next.specialties);
+    input.value = '';
+}
+
+function removeTrainerSpecialty(tag) {
+    const settings = loadTrainerSettings();
+    const nextTags = settings.specialties.filter((t) => t !== tag);
+    const next = updateTrainerSettings({ specialties: nextTags });
+    renderTrainerSpecialties(next.specialties);
+}
+
+function handleTrainerPhotoUpload(event) {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        const next = updateTrainerSettings({ profilePhoto: reader.result });
+        applyTrainerBranding(next);
+        loadTrainerSettingsToUI();
+    };
+    reader.readAsDataURL(file);
+}
+
+function handleTrainerLogoUpload(event) {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        const next = updateTrainerSettings({ brandLogo: reader.result });
+        applyTrainerBranding(next);
+        loadTrainerSettingsToUI();
+    };
+    reader.readAsDataURL(file);
+}
+
+function applyTrainerBranding(settings) {
+    const data = settings || loadTrainerSettings();
+    const photo = data.profilePhoto;
+    const logo = data.brandLogo;
+
+    const profileBtn = document.querySelector('.profile-avatar');
+    if (profileBtn) {
+        if (photo) {
+            profileBtn.style.backgroundImage = `url('${photo}')`;
+            profileBtn.classList.add('has-photo');
+        } else {
+            profileBtn.style.backgroundImage = '';
+            profileBtn.classList.remove('has-photo');
+        }
+    }
+
+    const photoPreview = document.getElementById('trainer-photo-preview');
+    if (photoPreview) {
+        if (photo) {
+            photoPreview.style.backgroundImage = `url('${photo}')`;
+            photoPreview.classList.add('has-image');
+        } else {
+            photoPreview.style.backgroundImage = '';
+            photoPreview.classList.remove('has-image');
+        }
+    }
+
+    const logoPreview = document.getElementById('trainer-logo-preview');
+    if (logoPreview) {
+        if (logo) {
+            logoPreview.style.backgroundImage = `url('${logo}')`;
+            logoPreview.classList.add('has-image');
+        } else {
+            logoPreview.style.backgroundImage = '';
+            logoPreview.classList.remove('has-image');
+        }
+    }
+
+    const studentLogo = document.getElementById('student-brand-logo');
+    if (studentLogo) {
+        if (logo) {
+            studentLogo.src = logo;
+            studentLogo.style.display = 'block';
+        } else {
+            studentLogo.removeAttribute('src');
+            studentLogo.style.display = 'none';
+        }
+    }
+    const studentLogoWrap = studentLogo?.closest('.logo-icon');
+    if (studentLogoWrap) {
+        studentLogoWrap.classList.toggle('has-brand-logo', !!logo);
+    }
+}
+
+function syncTrainerInviteCodeUI(code) {
+    const value = sanitizeCodeInput(code, 5);
+    const input = document.getElementById('trainer-invite-code');
+    if (input) input.value = value;
+    const dashCode = document.getElementById('dash-trainer-code');
+    if (dashCode) dashCode.innerText = value || '00000';
+}
+
+function setTrainerInviteCode(code) {
+    const sanitized = sanitizeCodeInput(code, 5);
+    if (!sanitized) return;
+    localStorage.setItem('currentTrainerCode', sanitized);
+    syncTrainerInviteCodeUI(sanitized);
+}
+
+function generateTrainerInviteCode() {
+    const code = String(Math.floor(10000 + Math.random() * 90000));
+    setTrainerInviteCode(code);
+}
+
+function resetTrainerInviteCode() {
+    const fallback = localStorage.getItem('trainerCodeDefault') || '00001';
+    setTrainerInviteCode(fallback);
+}
+
+function loadTrainerSettingsToUI() {
+    const settings = loadTrainerSettings();
+    const bio = document.getElementById('trainer-bio');
+    if (bio) bio.value = settings.bio || '';
+    const limit = document.getElementById('trainer-student-limit');
+    if (limit) limit.value = settings.studentLimit || '';
+    const unitInput = document.querySelector(`input[name="unit-system"][value="${settings.unitSystem}"]`);
+    if (unitInput) unitInput.checked = true;
+    const macro = document.getElementById('trainer-macro-formula');
+    if (macro) macro.value = settings.macroFormula || 'mifflin';
+    const emailToggle = document.getElementById('notif-email');
+    if (emailToggle) emailToggle.checked = !!settings.notifyEmail;
+    const pushToggle = document.getElementById('notif-push');
+    if (pushToggle) pushToggle.checked = !!settings.notifyPush;
+    renderTrainerSpecialties(settings.specialties);
+    syncTrainerInviteCodeUI(localStorage.getItem('currentTrainerCode') || '00000');
+    applyTrainerBranding(settings);
+}
+
+function saveTrainerSettings() {
+    const bio = document.getElementById('trainer-bio');
+    const limit = document.getElementById('trainer-student-limit');
+    const unit = document.querySelector('input[name="unit-system"]:checked');
+    const macro = document.getElementById('trainer-macro-formula');
+    const emailToggle = document.getElementById('notif-email');
+    const pushToggle = document.getElementById('notif-push');
+
+    const next = updateTrainerSettings({
+        bio: sanitizeUserInput(bio?.value || '', { allowNewlines: true, maxLen: 400 }),
+        studentLimit: sanitizeUserInput(limit?.value || '', { maxLen: 6 }),
+        unitSystem: unit?.value || 'metric',
+        macroFormula: macro?.value || 'mifflin',
+        notifyEmail: !!emailToggle?.checked,
+        notifyPush: !!pushToggle?.checked
+    });
+    applyTrainerBranding(next);
+}
+
+function resetTrainerSettings() {
+    localStorage.removeItem(TRAINER_SETTINGS_KEY);
+    loadTrainerSettingsToUI();
+}
+
+// â”€â”€ View switching + routes (Dashboard / Alunos / Duvidas / Exercicios) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function getTrainerViewFromHash() {
+    const hash = (location.hash || '').replace('#', '').replace(/^\/+/, '');
+    if (!hash) return null;
+    if (hash.startsWith('alunos')) return 'alunos';
+    if (hash.startsWith('duvidas')) return 'duvidas';
+    if (hash.startsWith('exercicios')) return 'exercicios';
+    if (hash.startsWith('config')) return 'config';
+    if (hash.startsWith('dashboard')) return 'dashboard';
+    return 'dashboard';
+}
+
+function setTrainerRoute(view) {
+    if (!document.getElementById('trainer-dashboard-screen')) return;
+    const map = {
+        dashboard: '#/dashboard',
+        alunos: '#/alunos',
+        duvidas: '#/duvidas',
+        exercicios: '#/exercicios',
+        config: '#/configuracoes'
+    };
+    const target = map[view] || '#/dashboard';
+    if (location.hash === target) return;
+    trainerRouteLock = true;
+    location.hash = target;
+    setTimeout(() => { trainerRouteLock = false; }, 0);
+}
+
+function handleTrainerHashChange() {
+    if (trainerRouteLock) return;
+    if (!document.getElementById('trainer-dashboard-screen')) return;
+    const view = getTrainerViewFromHash();
+    if (!view) return;
+    switchDashView(view, { fromHash: true });
+}
+
+function initTrainerRoutes() {
+    if (document.documentElement.dataset.trainerRoutesInit === '1') return;
+    if (!document.getElementById('trainer-dashboard-screen')) return;
+    document.documentElement.dataset.trainerRoutesInit = '1';
+    window.addEventListener('hashchange', handleTrainerHashChange);
+    const view = getTrainerViewFromHash();
+    if (view) {
+        switchDashView(view, { fromHash: true });
+    } else {
+        setTrainerRoute(lastMainTrainerView || 'dashboard');
+    }
+}
+
+function openExerciseDrawer() {
+    const overlay = document.getElementById('exercise-drawer-overlay');
+    const drawer = document.getElementById('exercise-drawer');
+    if (!overlay || !drawer) {
+        setTimeout(() => openExerciseDrawer(), 200);
+        return;
+    }
+    trainerDrawerOpen = true;
+    overlay.style.display = 'block';
+    drawer.style.display = 'block';
+    requestAnimationFrame(() => {
+        overlay.classList.add('active');
+        drawer.classList.add('active');
+    });
+    document.body.classList.add('drawer-open');
+    const navEx = document.getElementById('nav-exercicios');
+    if (navEx) navEx.classList.add('active');
     const navDash = document.getElementById('nav-dashboard');
     const navAlunos = document.getElementById('nav-alunos');
     const navDuvidas = document.getElementById('nav-duvidas');
-    const navExercicios = document.getElementById('nav-exercicios');
+    const navConfig = document.getElementById('nav-config');
+    if (navDash) navDash.classList.remove('active');
+    if (navAlunos) navAlunos.classList.remove('active');
+    if (navDuvidas) navDuvidas.classList.remove('active');
+    if (navConfig) navConfig.classList.remove('active');
+    renderExerciseCatalog();
+}
+
+function closeExerciseDrawer(options = {}) {
+    const overlay = document.getElementById('exercise-drawer-overlay');
+    const drawer = document.getElementById('exercise-drawer');
+    if (!overlay || !drawer) return;
+    overlay.classList.remove('active');
+    drawer.classList.remove('active');
+    setTimeout(() => {
+        overlay.style.display = 'none';
+        drawer.style.display = 'none';
+    }, 220);
+    document.body.classList.remove('drawer-open');
+    trainerDrawerOpen = false;
+    const navEx = document.getElementById('nav-exercicios');
+    if (navEx) navEx.classList.remove('active');
+    const navRestore = document.getElementById(`nav-${lastMainTrainerView}`);
+    if (navRestore) navRestore.classList.add('active');
+    if (!options.skipRoute && lastMainTrainerView) setTrainerRoute(lastMainTrainerView);
+}
+
+function switchDashView(view, options = {}) {
+    const fromHash = options.fromHash;
+    const viewDash = document.getElementById('view-dashboard');
+    const viewAlunos = document.getElementById('view-alunos');
+    const viewDuvidas = document.getElementById('view-duvidas');
+    const viewConfig = document.getElementById('view-config');
+    const navDash = document.getElementById('nav-dashboard');
+    const navAlunos = document.getElementById('nav-alunos');
+    const navDuvidas = document.getElementById('nav-duvidas');
+    const navConfig = document.getElementById('nav-config');
     const pageTitle = document.getElementById('main-page-title');
+
+    if (view === 'exercicios') {
+        openExerciseDrawer();
+        if (!fromHash) setTrainerRoute('exercicios');
+        return;
+    }
+
+    if (trainerDrawerOpen) closeExerciseDrawer({ skipRoute: true });
 
     // Reset visibility
     if (viewDash) viewDash.style.display = 'none';
     if (viewAlunos) viewAlunos.style.display = 'none';
     if (viewDuvidas) viewDuvidas.style.display = 'none';
-    if (viewExercicios) viewExercicios.style.display = 'none';
+    if (viewConfig) viewConfig.style.display = 'none';
 
     // Reset active states
     if (navDash) navDash.classList.remove('active');
     if (navAlunos) navAlunos.classList.remove('active');
     if (navDuvidas) navDuvidas.classList.remove('active');
-    if (navExercicios) navExercicios.classList.remove('active');
+    if (navConfig) navConfig.classList.remove('active');
 
     if (view === 'alunos') {
+        lastMainTrainerView = 'alunos';
         if (viewAlunos) viewAlunos.style.display = '';
         if (navAlunos) navAlunos.classList.add('active');
         if (pageTitle) {
@@ -4193,11 +4695,11 @@ function switchDashView(view) {
                 Gerenciar Alunos`;
         }
     } else if (view === 'duvidas') {
+        lastMainTrainerView = 'duvidas';
         if (viewDuvidas) viewDuvidas.style.display = '';
         if (navDuvidas) navDuvidas.classList.add('active');
-        if (pageTitle) pageTitle.textContent = 'Dúvidas dos Alunos';
+        if (pageTitle) pageTitle.textContent = 'Duvidas dos Alunos';
 
-        // Contextual search
         const globalSearch = document.getElementById('global-search');
         if (globalSearch) {
             globalSearch.oninput = (e) => filterChats(e.target.value);
@@ -4205,25 +4707,18 @@ function switchDashView(view) {
             globalSearch.value = "";
         }
         renderDuvidas();
-    } else if (view === 'exercicios') {
-        if (viewExercicios) viewExercicios.style.display = '';
-        if (navExercicios) navExercicios.classList.add('active');
-        if (pageTitle) pageTitle.textContent = 'Catálogo de Exercícios';
-
-        // Contextual search
-        const globalSearch = document.getElementById('global-search');
-        if (globalSearch) {
-            globalSearch.oninput = (e) => searchExercises(e.target.value);
-            globalSearch.placeholder = "Pesquisar exercício...";
-            globalSearch.value = "";
-        }
-        renderExerciseCatalog();
+    } else if (view === 'config') {
+        lastMainTrainerView = 'config';
+        if (viewConfig) viewConfig.style.display = '';
+        if (navConfig) navConfig.classList.add('active');
+        if (pageTitle) pageTitle.textContent = 'Configuracoes';
+        loadTrainerSettingsToUI();
     } else {
+        lastMainTrainerView = 'dashboard';
         if (viewDash) viewDash.style.display = '';
         if (navDash) navDash.classList.add('active');
         if (pageTitle) pageTitle.textContent = 'Painel de Controle';
 
-        // Reset search to student filtering
         const globalSearch = document.getElementById('global-search');
         if (globalSearch) {
             globalSearch.oninput = (e) => filterStudents(e.target.value);
@@ -4231,6 +4726,8 @@ function switchDashView(view) {
             globalSearch.value = "";
         }
     }
+
+    if (!fromHash) setTrainerRoute(lastMainTrainerView);
 }
 
 
@@ -4240,6 +4737,10 @@ function buildStudentRow(s, idx, options = {}) {
     const safeName = escHtml(s?.name || ('Aluno ' + (s?.id || '')));
     const safeGoalText = escHtml(s?.goal || 'Sem objetivo definido');
     const safeWeight = escHtml(s?.weight || '--');
+    const activity = getStudentActivityMeta(s);
+    const statusClass = activity.badgeClass;
+    const statusText = activity.statusText;
+    const lastWorkoutText = activity.lastWorkoutText;
     const w = parseFloat(s?.weight) || 70;
     const h = parseFloat(s?.height) || 175;
     const a = parseInt(s?.age) || 25;
@@ -4261,7 +4762,7 @@ function buildStudentRow(s, idx, options = {}) {
              onclick="openStudentProfile(${idx})">
             <div class="recent-student-top">
                 <h4>${safeName}</h4>
-                <span class="recent-status active">Ativo</span>
+                <span class="recent-status ${statusClass}">${statusText}</span>
             </div>
             <div class="recent-meta-lines">
                 <div class="recent-meta-row">
@@ -4269,6 +4770,18 @@ function buildStudentRow(s, idx, options = {}) {
                     <p><strong>Peso:</strong> ${safeWeight} kg</p>
                 </div>
                 <p><strong>Consumo:</strong> ${kcal} kcal/dia</p>
+                <p class="recent-last-workout">${lastWorkoutText}</p>
+            </div>
+            <div class="student-quick-actions compact">
+                <button class="quick-action-btn" title="Enviar mensagem" onclick="openWhatsAppForStudent(${idx}, event)">
+                    <i class="ph-fill ph-chat-circle-dots"></i>
+                </button>
+                <button class="quick-action-btn" title="Editar treino" onclick="openStudentProfileTab(${idx}, 'treino', event)">
+                    <i class="ph-bold ph-barbell"></i>
+                </button>
+                <button class="quick-action-btn" title="Ver dieta" onclick="openStudentProfileTab(${idx}, 'nutricao', event)">
+                    <i class="ph-bold ph-fork-knife"></i>
+                </button>
             </div>
         </div> `;
     }
@@ -4280,23 +4793,31 @@ function buildStudentRow(s, idx, options = {}) {
              onmouseout="this.style.background='transparent'"
              onclick="openStudentProfile(${idx})">
         <div class="sli-col" data-label="Status">
-            <span class="badge active"><div class="dot"></div> Ativo</span>
+            <span class="badge ${statusClass}"><div class="dot"></div> ${statusText}</span>
         </div>
         <div class="sli-col ident" data-label="Aluno">
             <div class="sli-avatar"><i class="ph-fill ph-user"></i></div>
             <div class="sli-info">
                 <h4>${safeName}</h4>
                 <span class="sli-sub">${timeDesc}</span>
+                <span class="sli-sub sli-last-workout">${lastWorkoutText}</span>
             </div>
         </div>
         <div class="sli-col font-bold" data-label="Objetivo">${safeGoalText}</div>
         <div class="sli-col font-medium" data-label="Peso">${safeWeight} kg</div>
         <div class="sli-col text-primary" data-label="Consumo">${kcal} kcal/dia</div>
         <div class="sli-col actions" data-label="Acoes">
-            <button class="btn-icon-minimal btn-whatsapp-quick" title="Enviar WhatsApp" onclick="openWhatsAppForStudent(${idx}, event)">
-                <i class="ph-fill ph-whatsapp-logo"></i>
-            </button>
-            <button class="btn-icon-minimal" title="Mais ações" onclick="event.stopPropagation()"><i class="ph-bold ph-dots-three-vertical"></i></button>
+            <div class="student-quick-actions">
+                <button class="quick-action-btn" title="Enviar mensagem" onclick="openWhatsAppForStudent(${idx}, event)">
+                    <i class="ph-fill ph-chat-circle-dots"></i>
+                </button>
+                <button class="quick-action-btn" title="Editar treino" onclick="openStudentProfileTab(${idx}, 'treino', event)">
+                    <i class="ph-bold ph-barbell"></i>
+                </button>
+                <button class="quick-action-btn" title="Ver dieta" onclick="openStudentProfileTab(${idx}, 'nutricao', event)">
+                    <i class="ph-bold ph-fork-knife"></i>
+                </button>
+            </div>
         </div>
     </div > `;
 }
@@ -4362,12 +4883,26 @@ function updateTrainerStats(filterText) {
     const activeStudents = students.filter(s => s.active && !s.pending);
     const pendingStudents = students.filter(s => s.pending);
     const pendingCount = pendingStudents.length;
+    const engagedCount = activeStudents.filter((s) => getStudentActivityMeta(s).badgeClass !== 'alert').length;
+    const notifications = readStorageJSON('trainerNotifications', []);
+    const pendingDuvidasSet = getPendingDuvidaStudentIds(notifications);
+
+    const filterCounts = {
+        all: activeStudents.length,
+        semTreino: activeStudents.filter((s) => !studentHasWorkoutPlan(s)).length,
+        avaliacoes: activeStudents.filter((s) => s.assessmentPending || s.pendingEvaluation).length,
+        duvidas: activeStudents.filter((s) => pendingDuvidasSet.has(String(s.id))).length
+    };
+    updateDashboardFilterUI(filterCounts);
+
+    const filteredActive = applyDashboardFilterList(activeStudents, activeDashboardFilter, pendingDuvidasSet);
+    const listBase = activeDashboardFilter === 'all' ? activeStudents : filteredActive;
 
     // â”€â”€ Stats cards â”€â”€
     const elTotal = document.getElementById('stat-total');
     if (elTotal) elTotal.innerText = activeStudents.length;
     const elAtivos = document.getElementById('stat-ativos');
-    if (elAtivos) elAtivos.innerText = activeStudents.length;
+    if (elAtivos) elAtivos.innerText = engagedCount;
     const elPendentes = document.getElementById('stat-pendentes');
     if (elPendentes) elPendentes.innerText = pendingCount;
 
@@ -4401,14 +4936,14 @@ function updateTrainerStats(filterText) {
             if (byId >= 0) return byId;
             return students.indexOf(student);
         };
-        const toShow = activeStudents
+        const toShow = listBase
             .filter(matchesStudent)
             .slice(0, 5);
         recentList.innerHTML = toShow.length === 0
             ? `<p style="text-align:center;color:var(--text-muted);padding:3rem 0;">Nenhum aluno ativo ainda.</p>`
             : toShow.map((s) => buildStudentRow(s, getStudentIndex(s), { recentCompact: true })).join('');
         const paginInfo = document.getElementById('pagination-info');
-        if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${activeStudents.length} alunos`;
+        if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${listBase.length} alunos`;
     }
 
     // â”€â”€ Pending requests list (view-alunos) â”€â”€
@@ -4425,7 +4960,7 @@ function updateTrainerStats(filterText) {
     const activeList = document.getElementById('alunos-active-list');
     if (activeList) {
         const query = (filterText || '').toLowerCase();
-        const toShow = activeStudents.filter((s) => {
+        const toShow = listBase.filter((s) => {
             const sid = String(s?.id || '').toLowerCase();
             const sname = String(s?.name || '').toLowerCase();
             const sgoal = String(s?.goal || '').toLowerCase();
@@ -4438,11 +4973,10 @@ function updateTrainerStats(filterText) {
                 return buildStudentRow(s, idx >= 0 ? idx : students.indexOf(s));
             }).join('');
         const paginInfo = document.getElementById('alunos-pagination-info');
-        if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${activeStudents.length} alunos`;
+        if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${listBase.length} alunos`;
     }
 
     // â”€â”€ Duvidas nav badge â”€â”€
-    const notifications = readStorageJSON('trainerNotifications', []);
     const unreadDuvidas = notifications.filter(n => n.type === 'duvida' && n.unread).length;
     const duvidasBadge = document.getElementById('duvidas-nav-badge');
     if (duvidasBadge) {
@@ -4456,6 +4990,8 @@ function updateTrainerStats(filterText) {
         chatTotalBadge.style.display = unreadDuvidas > 0 ? 'flex' : 'none';
         chatTotalBadge.textContent = unreadDuvidas;
     }
+
+    renderEngagementChart();
 }
 
 function backToChatList() {
@@ -5086,6 +5622,15 @@ function filterStudents(query) {
     updateTrainerStats(query);
 }
 
+function applyDashboardFilter(filterKey) {
+    if (activeDashboardFilter === filterKey) {
+        activeDashboardFilter = 'all';
+    } else {
+        activeDashboardFilter = filterKey || 'all';
+    }
+    updateTrainerStats();
+}
+
 function markNotifRead(index, btnElement) {
     let notifs = readStorageJSON('trainerNotifications', []);
     if (notifs[index]) {
@@ -5194,6 +5739,14 @@ function openStudentProfile(studentIndex) {
     renderMeals();
     switchProfileTab('treino');
     renderTrainerWorkoutHistory(currentTrainerStudentId);
+}
+
+function openStudentProfileTab(studentIndex, tabName, event) {
+    if (event) event.stopPropagation();
+    openStudentProfile(studentIndex);
+    setTimeout(() => {
+        if (tabName) switchProfileTab(tabName);
+    }, 0);
 }
 
 function closeStudentProfile() {
@@ -5380,7 +5933,7 @@ function searchExerciseLibrary(query) {
     if (!searchInput || !results) return;
 
     const q = normalizeText(query);
-    const filtered = EXERCISE_CATALOG_DATA.filter(ex => {
+    const filtered = getExerciseCatalogData().filter(ex => {
         const passMuscle = activeExerciseFilter === 'todos' || ex.group === activeExerciseFilter;
         const passEquipment = activeEquipmentFilter === 'todos' || ex.equipment === activeEquipmentFilter;
         const passSearch = !q || normalizeText(ex.name).includes(q) || normalizeText(GROUP_DISPLAY[ex.group] || ex.group).includes(q);
@@ -6659,6 +7212,7 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
     const sIdx = students.findIndex(s => s.id === studentId);
 
     if (sIdx !== -1) {
+        students[sIdx].lastWorkoutAt = workoutArchive.Data_Treino;
         if (!students[sIdx].personalRecords) students[sIdx].personalRecords = {};
 
         workoutState.exercises.forEach(ex => {
@@ -6813,6 +7367,12 @@ const EXERCISE_CATALOG_DATA = [
     { name: "Kettlebell Swing", group: "CorpoInteiro", equipment: "Kettlebell", icon: "ph-barbell", hasHistory: false }
 ];
 
+function getExerciseCatalogData() {
+    const custom = readStorageJSON('customExercises', []);
+    if (!Array.isArray(custom)) return [...EXERCISE_CATALOG_DATA];
+    return [...EXERCISE_CATALOG_DATA, ...custom];
+}
+
 // Display-friendly labels
 const GROUP_DISPLAY = {
     "todos": "Todos os Músculos",
@@ -6891,7 +7451,7 @@ function renderExerciseCatalog() {
     const container = document.getElementById("ex-catalog-list");
     if (!container) return;
 
-    let filtered = EXERCISE_CATALOG_DATA;
+    let filtered = getExerciseCatalogData();
 
     // Filter by group
     if (_exCatalogActiveGroup !== "todos") {
@@ -6947,6 +7507,42 @@ function filterExercisesByGroup(group) {
 
 function searchExercises(query) {
     _exCatalogSearchQuery = query.trim();
+    renderExerciseCatalog();
+}
+
+function addCustomExercise() {
+    const nameInput = document.getElementById('exercise-new-name');
+    const groupInput = document.getElementById('exercise-new-group');
+    const equipInput = document.getElementById('exercise-new-equipment');
+    if (!nameInput || !groupInput || !equipInput) return;
+
+    const name = sanitizeUserInput(nameInput.value, { maxLen: 80 });
+    if (!name) {
+        nameInput.focus();
+        return;
+    }
+
+    const group = groupInput.value || 'Peito';
+    const equipment = equipInput.value || 'Nenhum';
+    const catalog = getExerciseCatalogData();
+    const exists = catalog.some((ex) => normalizeText(ex.name) === normalizeText(name));
+    if (exists) {
+        alert('Exercicio ja existe no catalogo.');
+        return;
+    }
+
+    const custom = readStorageJSON('customExercises', []);
+    const next = Array.isArray(custom) ? custom.slice() : [];
+    next.push({
+        name,
+        group,
+        equipment,
+        icon: 'ph-barbell',
+        hasHistory: false,
+        custom: true
+    });
+    localStorage.setItem('customExercises', JSON.stringify(next));
+    nameInput.value = '';
     renderExerciseCatalog();
 }
 
