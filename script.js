@@ -5683,6 +5683,7 @@ let workoutBlocks = [];        // local state for workout blocks
 let mealBlocks = [];           // local state for meal blocks
 let pendingBlockIdx = null;    // which block an exercise is being added to
 let pendingMealIdx = null;    // which meal an item is being added to
+let workoutPlanAutosaveTimer = null;
 
 let activeExerciseFilter = 'todos';
 let activeEquipmentFilter = 'todos';
@@ -5791,6 +5792,12 @@ function switchProfileTab(tabName) {
 function renderWorkoutBlocks() {
     const container = document.getElementById('workout-blocks-container');
     if (!container) return;
+    if (!container.dataset.autosaveBound) {
+        const autoSaveHandler = () => queueWorkoutPlanAutosave();
+        container.addEventListener('input', autoSaveHandler);
+        container.addEventListener('change', autoSaveHandler);
+        container.dataset.autosaveBound = '1';
+    }
 
     workoutBlocks.forEach(block => {
         block.exercises.forEach(ex => {
@@ -5881,21 +5888,37 @@ function renderWorkoutBlocks() {
     updateSummaryBar();
 }
 
+function queueWorkoutPlanAutosave() {
+    if (currentStudentIdx === null) return;
+    if (workoutPlanAutosaveTimer) clearTimeout(workoutPlanAutosaveTimer);
+    workoutPlanAutosaveTimer = setTimeout(() => {
+        const students = readStorageJSON('trainerStudents', []);
+        const student = students[currentStudentIdx];
+        if (!student) return;
+        student.workoutBlocks = workoutBlocks;
+        students[currentStudentIdx] = student;
+        localStorage.setItem('trainerStudents', JSON.stringify(students));
+    }, 350);
+}
+
 function addWorkoutBlock() {
     const letter = String.fromCharCode(65 + workoutBlocks.length); // A, B, C ...
     workoutBlocks.push({ name: `Treino ${letter}`, exercises: [] });
     renderWorkoutBlocks();
+    queueWorkoutPlanAutosave();
 }
 
 function deleteWorkoutBlock(bIdx) {
     if (!confirm('Remover este bloco de treino?')) return;
     workoutBlocks.splice(bIdx, 1);
     renderWorkoutBlocks();
+    queueWorkoutPlanAutosave();
 }
 
 function deleteExercise(bIdx, eIdx) {
     workoutBlocks[bIdx].exercises.splice(eIdx, 1);
     renderWorkoutBlocks();
+    queueWorkoutPlanAutosave();
 }
 
 function updateExerciseSubstitute(bIdx, eIdx, subIdx, value) {
@@ -5903,6 +5926,7 @@ function updateExerciseSubstitute(bIdx, eIdx, subIdx, value) {
     if (!ex) return;
     if (!Array.isArray(ex.substitutes)) ex.substitutes = ['', ''];
     ex.substitutes[subIdx] = value;
+    queueWorkoutPlanAutosave();
 }
 
 function toggleSupersetWithNext(bIdx, eIdx, checked) {
@@ -5910,6 +5934,7 @@ function toggleSupersetWithNext(bIdx, eIdx, checked) {
     if (!ex) return;
     ex.supersetWithNext = !!checked;
     renderWorkoutBlocks();
+    queueWorkoutPlanAutosave();
 }
 
 function updateSummaryBar() {
@@ -5928,6 +5953,7 @@ function updateSummaryBar() {
     el('summary-tempo', `${minutes} min`);
     el('summary-kcal', `~${kcalBurned} kcal`);
     el('summary-intensidade', intensity);
+    queueWorkoutPlanAutosave();
 }
 
 // â”€â”€â”€ Exercise Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -6629,7 +6655,7 @@ function renderWorkoutLog() {
                     <span>Reps</span>
                     <span>PSE</span>
                     <span>Exec</span>
-                    <span>OK</span>
+                    <span>Ações</span>
                 </div>
                 ${ex.sets.map((set, setIdx) => {
             const prevMetrics = parsePreviousSetMetrics(set.prev);
@@ -6648,6 +6674,7 @@ function renderWorkoutLog() {
             const setNumberHtml = hasPR
                 ? `<span class="set-pr-icon" title="${prTooltip}">${uiSvgIcon('trophy')}</span>`
                 : `${typeShort || (setIdx + 1)}`;
+            const canRemoveSet = ex.sets.length > 1;
 
             return `
                     <div class="log-set-row ${set.completed ? 'completed' : ''}" id="row-${exIdx}-${setIdx}">
@@ -6689,6 +6716,10 @@ function renderWorkoutLog() {
                             <button class="btn-check-set ${set.completed ? 'active' : ''}" 
                                 onclick="toggleSetCompletion(${exIdx}, ${setIdx})">
                                 ${set.completed ? uiSvgIcon('check') : uiSvgIcon('circle')}
+                            </button>
+                            <button class="btn-remove-set" ${canRemoveSet ? '' : 'disabled'} title="${canRemoveSet ? 'Remover série' : 'Mínimo 1 série'}"
+                                onclick="removeSetFromExercise(${exIdx}, ${setIdx})">
+                                ${uiSvgIcon('x')}
                             </button>
                         </div>
                     </div>
@@ -7163,6 +7194,24 @@ function addSetToExercise(exIdx) {
         brokenPRs: { weight: false, volume: false, reps: false },
         prev: '-'
     });
+    saveWorkoutBackup();
+    renderWorkoutLog();
+}
+
+function removeSetFromExercise(exIdx, setIdx) {
+    if (!workoutState) return;
+    const ex = workoutState.exercises?.[exIdx];
+    if (!ex || !Array.isArray(ex.sets)) return;
+    if (ex.sets.length <= 1) {
+        alert('O exercício precisa ter ao menos 1 série.');
+        return;
+    }
+    const target = ex.sets[setIdx];
+    if (target?.completed) {
+        if (!confirm('Esta série já foi marcada como concluída. Remover mesmo assim?')) return;
+    }
+    ex.sets.splice(setIdx, 1);
+    updateExercisePRs(exIdx);
     saveWorkoutBackup();
     renderWorkoutLog();
 }

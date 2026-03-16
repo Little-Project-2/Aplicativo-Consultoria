@@ -668,6 +668,7 @@ body {
 .btn-icon:active,
 .btn-icon-minimal:active,
 .btn-check-set:active,
+.btn-remove-set:active,
 .btn-send-chat:active,
 .btn-attach-chat:active,
 .nav-item:active,
@@ -4740,6 +4741,37 @@ body {
     height: 0.95rem;
 }
 
+.btn-remove-set {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1.5px solid rgba(248, 113, 113, 0.35);
+    background: rgba(248, 113, 113, 0.08);
+    color: #f87171;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-remove-set:hover {
+    border-color: rgba(248, 113, 113, 0.6);
+    background: rgba(248, 113, 113, 0.16);
+}
+
+.btn-remove-set:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    border-color: rgba(248, 113, 113, 0.2);
+    background: rgba(248, 113, 113, 0.06);
+}
+
+.btn-remove-set .ui-svg-icon {
+    width: 0.9rem;
+    height: 0.9rem;
+}
+
 /* Rest Timer Pill */
 .rest-timer-pill {
     position: fixed;
@@ -8730,6 +8762,11 @@ body {
     gap: 0.2rem;
 }
 
+.set-check-wrap .btn-check-set,
+.set-check-wrap .btn-remove-set {
+    margin: 0;
+}
+
 .log-set-row.completed {
     border-radius: 8px;
     padding-inline: 0.2rem;
@@ -10454,7 +10491,8 @@ body {
     }
 
     .set-input,
-    .btn-check-set {
+    .btn-check-set,
+    .btn-remove-set {
         min-height: 40px;
     }
 
@@ -11015,6 +11053,7 @@ body {
     .btn-start-routine,
     .btn-duvida-treino,
     .btn-check-set,
+    .btn-remove-set,
     .btn-attach-chat,
     .btn-send-chat,
     .btn-icon,
@@ -11036,7 +11075,8 @@ body {
     .btn-copy-tiny,
     .btn-send-chat,
     .btn-attach-chat,
-    .btn-check-set {
+    .btn-check-set,
+    .btn-remove-set {
         min-width: var(--touch-target-min) !important;
         min-height: var(--touch-target-min) !important;
     }
@@ -11237,7 +11277,8 @@ body {
     height: 12px;
 }
 
-#view-student-log-workout .btn-check-set {
+#view-student-log-workout .btn-check-set,
+#view-student-log-workout .btn-remove-set {
     width: 30px;
     height: 30px;
 }
