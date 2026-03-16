@@ -6500,6 +6500,12 @@ body {
     font-weight: 700;
 }
 
+.hd-ex-chip.pr {
+    background: rgba(250, 204, 21, 0.12);
+    border-color: rgba(250, 204, 21, 0.35);
+    color: #facc15;
+}
+
 .hd-ex-note {
     flex: 1 1 100%;
     font-size: 0.78rem;
@@ -6553,6 +6559,63 @@ body {
     flex-shrink: 0;
 }
 
+.achievement-toast-container {
+    position: fixed;
+    left: 50%;
+    bottom: 96px;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    z-index: 9999;
+    pointer-events: none;
+}
+
+.achievement-toast {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.75rem 1rem;
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid rgba(250, 204, 21, 0.35);
+    color: #f8fafc;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    min-width: 220px;
+    max-width: min(90vw, 320px);
+}
+
+.achievement-toast.show {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+.achievement-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(250, 204, 21, 0.18);
+    color: #facc15;
+}
+
+.achievement-text strong {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.achievement-text span {
+    display: block;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.72);
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .history-evolution-grid {
@@ -6575,6 +6638,10 @@ body {
 
     .hd-stat {
         flex: 1 1 calc(33% - 0.67rem);
+    }
+
+    .achievement-toast-container {
+        bottom: 110px;
     }
 }
 

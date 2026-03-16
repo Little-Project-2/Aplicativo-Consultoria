@@ -1245,9 +1245,34 @@ function hasSetPR(set) {
     if (!broken) return false;
     if (Array.isArray(broken)) return broken.length > 0;
     if (typeof broken === 'object') {
-        return !!(broken.weight || broken.volume || broken.reps);
+        return !!(broken.weight || broken.volume || broken.reps || broken.oneRM);
     }
     return false;
+}
+
+function getPRTypesFromSet(set) {
+    const broken = set?.brokenPRs;
+    if (!broken) return [];
+    if (Array.isArray(broken)) {
+        return broken.map((t) => String(t || '').trim()).filter(Boolean);
+    }
+    if (typeof broken === 'object') {
+        const types = [];
+        if (broken.weight) types.push('Peso');
+        if (broken.volume) types.push('Volume');
+        if (broken.reps) types.push('Reps');
+        if (broken.oneRM) types.push('1RM');
+        return types;
+    }
+    return [];
+}
+
+function getExercisePRTypes(sets) {
+    const types = new Set();
+    (sets || []).forEach((set) => {
+        getPRTypesFromSet(set).forEach((t) => types.add(t));
+    });
+    return Array.from(types);
 }
 
 function countWorkoutPRs(workout) {
@@ -1317,11 +1342,19 @@ function getPreviousSessionSets(studentId, exerciseName) {
     });
 }
 
+function estimateOneRM(weight, reps) {
+    const w = Number(weight) || 0;
+    const r = Number(reps) || 0;
+    if (w <= 0 || r <= 0) return 0;
+    return w * (1 + r / 30);
+}
+
 function getExerciseHistoryBest(studentId, exerciseName) {
     const history = readStorageJSON('workoutHistory', []);
     let maxWeight = 0;
     let maxVolume = 0;
     let maxReps = 0;
+    let maxOneRM = 0;
     history.forEach(w => {
         if (String(w.ID_Usuario) !== String(studentId)) return;
         const ex = (w.Exercicios || w.exercises || []).find(e => e.nome === exerciseName);
@@ -1330,12 +1363,14 @@ function getExerciseHistoryBest(studentId, exerciseName) {
             const weight = parseFloat(s.peso ?? s.weight ?? 0) || 0;
             const reps = parseInt(s.reps ?? 0, 10) || 0;
             const volume = weight * reps;
+            const oneRM = estimateOneRM(weight, reps);
             if (weight > maxWeight) maxWeight = weight;
             if (reps > maxReps) maxReps = reps;
             if (volume > maxVolume) maxVolume = volume;
+            if (oneRM > maxOneRM) maxOneRM = oneRM;
         });
     });
-    return { maxWeight, maxVolume, maxReps };
+    return { maxWeight, maxVolume, maxReps, maxOneRM };
 }
 
 function formatPrevSetLabel(prevSet) {
@@ -2402,7 +2437,7 @@ function renderWorkoutHistory() {
     const student = students.find(s => s.id === studentId);
     const prs = student?.personalRecords || {};
     const totalPRs = Object.values(prs).reduce((sum, pr) => {
-        return sum + (pr.maxWeight > 0 ? 1 : 0);
+        return sum + ((pr.maxWeight > 0 || pr.maxVolume > 0 || pr.maxReps > 0 || pr.maxOneRM > 0) ? 1 : 0);
     }, 0);
 
     // Evolution cards
@@ -2689,10 +2724,15 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
         <div class="history-detail-exercises">
             ${(workout.Exercicios || []).map(ex => {
                 const exNote = (ex.nota || ex.notes || '').trim();
+                const prTypes = getExercisePRTypes(ex.sets || []);
+                const prChip = prTypes.length > 0
+                    ? `<span class="hd-ex-chip pr">${uiSvgIcon('trophy')} PR: ${prTypes.join(', ')}</span>`
+                    : '';
                 return `
                 <div class="hd-exercise">
                     <h4>${escHtml(ex.nome)}</h4>
                     <div class="hd-ex-meta">
+                        ${prChip}
                         <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exercício.'}</span>
                     </div>
                     <div class="hd-sets">
@@ -2746,6 +2786,7 @@ function openHistoryDetail(originalIdx) {
 
     const durationMin = Math.floor((workout.Duracao || 0) / 60);
     const durationSec = (workout.Duracao || 0) % 60;
+    const prCount = countWorkoutPRs(workout);
 
     title.textContent = `Treino — ${formatDate(workout.Data_Treino)}`;
 
@@ -2776,10 +2817,15 @@ function openHistoryDetail(originalIdx) {
         <div class="history-detail-exercises">
             ${(workout.Exercicios || []).map(ex => {
                 const exNote = (ex.nota || ex.notes || '').trim();
+                const prTypes = getExercisePRTypes(ex.sets || []);
+                const prChip = prTypes.length > 0
+                    ? `<span class="hd-ex-chip pr">${uiSvgIcon('trophy')} PR: ${prTypes.join(', ')}</span>`
+                    : '';
                 return `
                 <div class="hd-exercise">
                     <h4>${escHtml(ex.nome)}</h4>
                     <div class="hd-ex-meta">
+                        ${prChip}
                         <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exercício.'}</span>
                     </div>
                     <div class="hd-sets">
@@ -6814,7 +6860,8 @@ function startWorkoutSession(blockIdx = 0) {
             const mergedBest = {
                 maxWeight: Math.max(storedBest.maxWeight || 0, historyBest.maxWeight || 0),
                 maxVolume: Math.max(storedBest.maxVolume || 0, historyBest.maxVolume || 0),
-                maxReps: Math.max(storedBest.maxReps || 0, historyBest.maxReps || 0)
+                maxReps: Math.max(storedBest.maxReps || 0, historyBest.maxReps || 0),
+                maxOneRM: Math.max(storedBest.maxOneRM || 0, historyBest.maxOneRM || 0)
             };
             return {
                 id: `ex-${idx}`,
@@ -6841,7 +6888,7 @@ function startWorkoutSession(blockIdx = 0) {
                         execucao: 0,
                         logged: false,
                         completed: false,
-                        brokenPRs: { weight: false, volume: false, reps: false },
+                        brokenPRs: { weight: false, volume: false, reps: false, oneRM: false },
                         prev: prevLabel
                     };
                 })
@@ -6969,7 +7016,7 @@ function renderWorkoutLog() {
             const repsUp = Number.isFinite(currentReps) && prevMetrics.reps !== null && currentReps > prevMetrics.reps;
             const lastWeightLabel = prevMetrics.weight === null ? '--' : `${formatMetricNumber(prevMetrics.weight)}kg`;
             const lastRepsLabel = prevMetrics.reps === null ? '--' : `${prevMetrics.reps} reps`;
-            const hasPR = set.completed && set.brokenPRs && (set.brokenPRs.weight || set.brokenPRs.volume || set.brokenPRs.reps);
+            const hasPR = set.completed && hasSetPR(set);
             const prTooltip = hasPR ? getSetPRTooltip(set) : '';
             const setType = normalizeSetType(set.type);
             const typeOption = SET_TYPE_OPTIONS.find(t => t.value === setType) || SET_TYPE_OPTIONS[0];
@@ -7057,8 +7104,67 @@ function getSetPRTooltip(set) {
     if (set.brokenPRs.weight) types.push('Peso');
     if (set.brokenPRs.volume) types.push('Volume');
     if (set.brokenPRs.reps) types.push('Reps');
+    if (set.brokenPRs.oneRM) types.push('1RM');
     if (types.length === 0) return '';
     return `Recorde Batido: ${types.join(', ')}!`;
+}
+
+let achievementAudioContext = null;
+
+function playAchievementSound() {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        if (!achievementAudioContext) achievementAudioContext = new AudioCtx();
+        if (achievementAudioContext.state === 'suspended') {
+            achievementAudioContext.resume();
+        }
+        const ctx = achievementAudioContext;
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(880, now);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.18, now + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.5);
+    } catch (err) {
+        // Silent fail to avoid breaking workout flow
+    }
+}
+
+function ensureAchievementToastContainer() {
+    let container = document.getElementById('achievement-toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'achievement-toast-container';
+        container.className = 'achievement-toast-container';
+        document.body.appendChild(container);
+    }
+    return container;
+}
+
+function showAchievementToast({ title, subtitle }) {
+    const container = ensureAchievementToastContainer();
+    const toast = document.createElement('div');
+    toast.className = 'achievement-toast';
+    toast.innerHTML = `
+        <div class="achievement-icon">${uiSvgIcon('trophy')}</div>
+        <div class="achievement-text">
+            <strong>${escHtml(title || 'Recorde batido!')}</strong>
+            <span>${escHtml(subtitle || '')}</span>
+        </div>
+    `;
+    container.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 220);
+    }, 3200);
 }
 
 function updateSetData(exIdx, setIdx, field, value) {
@@ -7080,39 +7186,62 @@ function updateSetData(exIdx, setIdx, field, value) {
 
 function updateExercisePRs(exIdx) {
     const ex = workoutState.exercises[exIdx];
-    const best = ex.best;
+    if (!ex) return;
+    const best = ex.best || {};
 
-    // Reset all brokenPRs in this exercise
     ex.sets.forEach(set => {
-        set.brokenPRs = { weight: false, reps: false, volume: false };
+        set.brokenPRs = { weight: false, reps: false, volume: false, oneRM: false };
     });
 
-    // Compare with personal bests and with the previous session (same series index).
-    ex.sets.forEach((set, idx) => {
+    const completedSets = ex.sets.map((set, idx) => {
         const w = parseFloat(set.weight) || 0;
         const r = parseInt(set.reps) || 0;
         const v = w * r;
-        const prevSet = ex.prevSets?.[idx];
-        const prevVolume = prevSet ? (prevSet.volume || (prevSet.weight * prevSet.reps)) : 0;
+        const oneRM = estimateOneRM(w, r);
+        return { set, idx, w, r, v, oneRM };
+    }).filter(s => s.set.completed);
 
-        if (w > 0 && best?.maxWeight > 0 && w > best.maxWeight) {
-            set.brokenPRs.weight = true;
-        } else if (w > 0 && (!best || !best.maxWeight) && prevSet?.weight) {
-            set.brokenPRs.weight = w > prevSet.weight;
-        }
+    if (completedSets.length === 0) return;
 
-        if (r > 0 && best?.maxReps > 0 && r > best.maxReps) {
-            set.brokenPRs.reps = true;
-        }
+    const prevMax = (ex.prevSets || []).reduce((acc, prev) => {
+        const w = parseFloat(prev.weight) || 0;
+        const r = parseInt(prev.reps) || 0;
+        const v = prev.volume || (w * r);
+        const oneRM = estimateOneRM(w, r);
+        return {
+            weight: Math.max(acc.weight, w),
+            reps: Math.max(acc.reps, r),
+            volume: Math.max(acc.volume, v),
+            oneRM: Math.max(acc.oneRM, oneRM)
+        };
+    }, { weight: 0, reps: 0, volume: 0, oneRM: 0 });
 
-        if (v > 0) {
-            if (prevVolume > 0 && v > prevVolume) {
-                set.brokenPRs.volume = true;
-            } else if (best?.maxVolume > 0 && v > best.maxVolume) {
-                set.brokenPRs.volume = true;
-            }
+    const thresholds = {
+        weight: Math.max(best.maxWeight || 0, prevMax.weight || 0),
+        reps: Math.max(best.maxReps || 0, prevMax.reps || 0),
+        volume: Math.max(best.maxVolume || 0, prevMax.volume || 0),
+        oneRM: Math.max(best.maxOneRM || 0, prevMax.oneRM || 0)
+    };
+
+    const pickBestIndex = (key, threshold) => {
+        let maxVal = -Infinity;
+        completedSets.forEach(item => { if (item[key] > maxVal) maxVal = item[key]; });
+        if (!(maxVal > threshold)) return null;
+        for (let i = completedSets.length - 1; i >= 0; i -= 1) {
+            if (completedSets[i][key] === maxVal) return completedSets[i].idx;
         }
-    });
+        return null;
+    };
+
+    const bestWeightIdx = pickBestIndex('w', thresholds.weight);
+    const bestRepsIdx = pickBestIndex('r', thresholds.reps);
+    const bestVolumeIdx = pickBestIndex('v', thresholds.volume);
+    const bestOneRMIdx = pickBestIndex('oneRM', thresholds.oneRM);
+
+    if (bestWeightIdx !== null) ex.sets[bestWeightIdx].brokenPRs.weight = true;
+    if (bestRepsIdx !== null) ex.sets[bestRepsIdx].brokenPRs.reps = true;
+    if (bestVolumeIdx !== null) ex.sets[bestVolumeIdx].brokenPRs.volume = true;
+    if (bestOneRMIdx !== null) ex.sets[bestOneRMIdx].brokenPRs.oneRM = true;
 }
 
 function checkPRs(exIdx, setIdx) {
@@ -7171,6 +7300,15 @@ function toggleSetCompletion(exIdx, setIdx) {
         hideRestTimer();
     }
 
+    updateExercisePRs(exIdx);
+    if (willComplete && set.completed && hasSetPR(set)) {
+        const prTypes = getPRTypesFromSet(set);
+        showAchievementToast({
+            title: 'Recorde batido!',
+            subtitle: prTypes.length ? prTypes.join(', ') : 'Novo PR'
+        });
+        playAchievementSound();
+    }
     saveWorkoutBackup();
     renderWorkoutLog();
 }
@@ -7497,7 +7635,7 @@ function addSetToExercise(exIdx) {
         execucao: 0,
         logged: false,
         completed: false,
-        brokenPRs: { weight: false, volume: false, reps: false },
+        brokenPRs: { weight: false, volume: false, reps: false, oneRM: false },
         prev: '-'
     });
     saveWorkoutBackup();
@@ -7676,17 +7814,19 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
         if (!students[sIdx].personalRecords) students[sIdx].personalRecords = {};
 
         workoutState.exercises.forEach(ex => {
-            const currentMelhores = students[sIdx].personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxReps: 0 };
+            const currentMelhores = students[sIdx].personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxReps: 0, maxOneRM: 0 };
 
             ex.sets.forEach(set => {
                 if (!set.completed) return;
                 const w = parseFloat(set.weight) || 0;
                 const r = parseInt(set.reps) || 0;
                 const v = w * r;
+                const oneRM = estimateOneRM(w, r);
 
                 if (w > currentMelhores.maxWeight) currentMelhores.maxWeight = w;
                 if (r > currentMelhores.maxReps) currentMelhores.maxReps = r;
                 if (v > currentMelhores.maxVolume) currentMelhores.maxVolume = v;
+                if (oneRM > currentMelhores.maxOneRM) currentMelhores.maxOneRM = oneRM;
             });
 
             students[sIdx].personalRecords[ex.nome] = currentMelhores;
@@ -7713,7 +7853,7 @@ function showWorkoutSummary(archive) {
     let prCount = 0;
     archive.Exercicios.forEach(ex => {
         ex.sets.forEach(s => {
-            if (s.brokenPRs && (s.brokenPRs.weight || s.brokenPRs.volume)) prCount++;
+            if (hasSetPR(s)) prCount++;
         });
     });
 
@@ -7757,7 +7897,7 @@ function showWorkoutSummary(archive) {
             </div>
             <div class="summary-set-list">
                 ${ex.sets.map((s, idx) => {
-        const hasPR = s.brokenPRs && (s.brokenPRs.weight || s.brokenPRs.volume);
+        const hasPR = hasSetPR(s);
         return `
                         <div class="summary-set-pill ${hasPR ? 'has-pr' : ''}">
                             <span>${idx + 1}ª: <strong>${s.peso}kg</strong> x ${s.reps}</span>
