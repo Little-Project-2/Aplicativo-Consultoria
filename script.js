@@ -1,4 +1,4 @@
-function hideAllScreens() {
+﻿function hideAllScreens() {
     const screens = document.querySelectorAll('.screen');
     screens.forEach(screen => screen.classList.remove('active'));
     const app = document.getElementById('app');
@@ -7,6 +7,9 @@ function hideAllScreens() {
 
 const ADMIN_STUDENT_CODE = '12345';
 const ADMIN_STUDENT_NAME = 'Nicolas';
+const SELF_TRAINING_STUDENT_CODE = '77777';
+const SELF_TRAINING_STUDENT_NAME = 'Diego';
+const SELF_TRAINING_STUDENT_CODES = [SELF_TRAINING_STUDENT_CODE];
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const STUDENT_AUTH_TOKEN_KEY = 'student_access_token_v1';
 
@@ -395,6 +398,64 @@ function setupClientSideFormProtection() {
     }, true);
 }
 
+function studentCanEditWorkout(student) {
+    const id = String(student?.id || '');
+    return SELF_TRAINING_STUDENT_CODES.includes(id);
+}
+
+function ensureSelfTrainingStudent() {
+    const students = readStorageJSON('trainerStudents', []);
+    const nowIso = new Date().toISOString();
+    const baselineMetric = {
+        date: nowIso,
+        weight: 82,
+        bodyFat: 18,
+        height: 178
+    };
+
+    const selfStudent = {
+        id: SELF_TRAINING_STUDENT_CODE,
+        name: SELF_TRAINING_STUDENT_NAME,
+        age: '29',
+        gender: 'M',
+        goal: 'Auto Treino',
+        weight: '82',
+        height: '178',
+        bodyFat: '18',
+        status: 'Ativo',
+        active: true,
+        pending: false,
+        dailyKcal: 2600,
+        trainerCode: '00001',
+        workoutBlocks: [],
+        mealBlocks: [],
+        metricHistory: [baselineMetric],
+        progressLogs: [{ date: new Date().toISOString().slice(0, 10), weight: 82, notes: 'Perfil Diego auto-treino.' }],
+        personalRecords: {}
+    };
+    selfStudent.tmbBase = Math.round(calcTMBMifflin(selfStudent.weight, selfStudent.height, selfStudent.age, selfStudent.gender));
+
+    const idx = students.findIndex(s => s.id === SELF_TRAINING_STUDENT_CODE);
+    if (idx === -1) {
+        students.push(selfStudent);
+    } else {
+        const current = students[idx] || {};
+        students[idx] = {
+            ...selfStudent,
+            ...current,
+            id: SELF_TRAINING_STUDENT_CODE,
+            name: SELF_TRAINING_STUDENT_NAME,
+            active: true,
+            pending: false,
+            trainerCode: current.trainerCode || '00001',
+            workoutBlocks: Array.isArray(current.workoutBlocks) ? current.workoutBlocks : [],
+            mealBlocks: Array.isArray(current.mealBlocks) ? current.mealBlocks : []
+        };
+    }
+
+    localStorage.setItem('trainerStudents', JSON.stringify(students));
+}
+
 function ensureAdminStudent() {
     const students = readStorageJSON('trainerStudents', []);
     const nowIso = new Date().toISOString();
@@ -531,6 +592,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadSPAComponents();
     setupClientSideFormProtection();
     ensureAdminStudent();
+    ensureSelfTrainingStudent();
     upgradeSidebarNavIcons();
     setupInstallButton();
 
@@ -597,6 +659,13 @@ window.addEventListener('storage', (e) => {
                     renderMeals();
                 }
             }
+        }
+    }
+
+    if (e.key === 'workoutHistory') {
+        const profileScreen = document.getElementById('trainer-student-profile-screen');
+        if (profileScreen && profileScreen.classList.contains('active') && currentTrainerStudentId) {
+            renderTrainerWorkoutHistory(currentTrainerStudentId);
         }
     }
 
@@ -878,7 +947,7 @@ function processLogin(user) {
         localStorage.setItem('studentName', safeUserName);
         // Find if this user already has an ID, or generate one
         let studentId = localStorage.getItem('currentStudentId') || Math.floor(10000 + Math.random() * 90000).toString();
-        if (studentId === ADMIN_STUDENT_CODE) {
+        if (studentId === ADMIN_STUDENT_CODE || studentId === SELF_TRAINING_STUDENT_CODE) {
             studentId = Math.floor(10000 + Math.random() * 90000).toString();
         }
         localStorage.setItem('currentStudentId', studentId);
@@ -892,6 +961,7 @@ function processLogin(user) {
 }
 
 let currentWorkoutTab = 0;
+let studentWorkoutEditMode = false;
 let activeChatStudentId = null; // Track WhatsApp-style active chat
 let trainerPendingAttachment = null;
 let trainerAudioRecorder = null;
@@ -954,6 +1024,210 @@ function renderWorkoutAnalysisSkeleton() {
     `;
 }
 
+function getWorkoutBlockTitle(block, idx) {
+    const raw = String(block?.title || block?.name || '').trim();
+    if (raw) return raw;
+    if (Number.isFinite(idx)) {
+        return `Treino ${String.fromCharCode(65 + idx)}`;
+    }
+    return 'Treino';
+}
+
+function toggleStudentWorkoutEditMode(force) {
+    if (typeof force === 'boolean') {
+        studentWorkoutEditMode = force;
+    } else {
+        studentWorkoutEditMode = !studentWorkoutEditMode;
+    }
+    renderStudentWorkoutMain({ withSkeleton: false });
+}
+
+function openStudentWorkoutEditor() {
+    switchStudentView('treino');
+    switchTreinoSubview('analise');
+    toggleStudentWorkoutEditMode(true);
+}
+
+function updateStudentWorkoutBlocks(studentId, mutator) {
+    if (!studentId) return null;
+    const students = readStorageJSON('trainerStudents', []);
+    const idx = students.findIndex(s => String(s.id) === String(studentId));
+    if (idx < 0) return null;
+    const student = students[idx];
+    const blocks = Array.isArray(student.workoutBlocks) ? student.workoutBlocks : [];
+    mutator(blocks, student);
+    student.workoutBlocks = blocks;
+    if (studentCanEditWorkout(student)) {
+        student.active = true;
+        student.pending = false;
+    }
+    students[idx] = student;
+    saveStudentData(students);
+    return student;
+}
+
+function promptStudentField(label, defaultValue = '', options = {}) {
+    const raw = prompt(label, defaultValue ?? '');
+    if (raw === null) return null;
+    return sanitizeUserInput(raw, {
+        maxLen: Number.isFinite(options.maxLen) ? options.maxLen : 90,
+        allowNewlines: !!options.allowNewlines
+    });
+}
+
+function addStudentWorkoutBlock() {
+    const studentId = localStorage.getItem('currentStudentId');
+    let didAdd = false;
+    const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
+        const defaultTitle = `Treino ${String.fromCharCode(65 + blocks.length)}`;
+        const titleInput = promptStudentField('Nome do treino:', defaultTitle, { maxLen: 80 });
+        if (titleInput === null) return;
+        const title = titleInput || defaultTitle;
+        blocks.push({ title, name: title, exercises: [] });
+        currentWorkoutTab = blocks.length - 1;
+        didAdd = true;
+    });
+
+    if (!student || !didAdd) return;
+    studentWorkoutEditMode = true;
+    renderStudentWorkoutMain({ withSkeleton: false });
+    renderWorkoutStartOptions(student);
+    setProtocolStatus(true);
+}
+
+function renameStudentWorkoutBlock(blockIdx) {
+    const studentId = localStorage.getItem('currentStudentId');
+    let didRename = false;
+    const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
+        if (!blocks[blockIdx]) return;
+        const currentTitle = getWorkoutBlockTitle(blocks[blockIdx], blockIdx);
+        const nextTitle = promptStudentField('Novo nome do treino:', currentTitle, { maxLen: 80 });
+        if (nextTitle === null) return;
+        const title = nextTitle || currentTitle;
+        blocks[blockIdx].title = title;
+        blocks[blockIdx].name = title;
+        didRename = true;
+    });
+
+    if (!student || !didRename) return;
+    renderStudentWorkoutMain({ withSkeleton: false });
+    renderWorkoutStartOptions(student);
+}
+
+function removeStudentWorkoutBlock(blockIdx) {
+    if (!confirm('Remover este treino?')) return;
+    const studentId = localStorage.getItem('currentStudentId');
+    const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
+        if (!blocks[blockIdx]) return;
+        blocks.splice(blockIdx, 1);
+        if (currentWorkoutTab >= blocks.length) {
+            currentWorkoutTab = Math.max(0, blocks.length - 1);
+        }
+    });
+
+    if (!student) return;
+    renderStudentWorkoutMain({ withSkeleton: false });
+    renderWorkoutStartOptions(student);
+}
+
+function addStudentExerciseToCurrentBlock() {
+    addStudentExerciseToBlock(currentWorkoutTab);
+}
+
+function addStudentExerciseToBlock(blockIdx) {
+    const studentId = localStorage.getItem('currentStudentId');
+    let didAdd = false;
+    const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
+        const block = blocks[blockIdx];
+        if (!block) return;
+        const nome = promptStudentField('Nome do exercício:', '', { maxLen: 80 });
+        if (nome === null) return;
+        if (!nome) {
+            alert('Informe o nome do exercício.');
+            return;
+        }
+        const series = promptStudentField('Séries (ex: 4):', '4', { maxLen: 6 });
+        if (series === null) return;
+        const reps = promptStudentField('Reps (ex: 8-12):', '10-12', { maxLen: 12 });
+        if (reps === null) return;
+        const carga = promptStudentField('Carga (opcional):', '', { maxLen: 12 });
+        if (carga === null) return;
+        const descanso = promptStudentField('Descanso (opcional):', '60s', { maxLen: 12 });
+        if (descanso === null) return;
+        const observacao = promptStudentField('Observação (opcional):', '', { maxLen: 160 });
+        if (observacao === null) return;
+
+        const note = observacao || '';
+        block.exercises = Array.isArray(block.exercises) ? block.exercises : [];
+        block.exercises.push({
+            nome,
+            series: series || '3',
+            reps: reps || '',
+            carga: carga || '',
+            descanso: descanso || '',
+            observacao: note,
+            obs: note,
+            substitutes: [],
+            supersetWithNext: false
+        });
+        didAdd = true;
+    });
+
+    if (!student || !didAdd) return;
+    renderStudentWorkoutMain({ withSkeleton: false });
+    renderWorkoutStartOptions(student);
+}
+
+function editStudentExerciseInBlock(blockIdx, exIdx) {
+    const studentId = localStorage.getItem('currentStudentId');
+    let didEdit = false;
+    const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
+        const block = blocks[blockIdx];
+        const ex = block?.exercises?.[exIdx];
+        if (!ex) return;
+        const nome = promptStudentField('Nome do exercício:', ex.nome || '', { maxLen: 80 });
+        if (nome === null) return;
+        const series = promptStudentField('Séries (ex: 4):', ex.series || '', { maxLen: 6 });
+        if (series === null) return;
+        const reps = promptStudentField('Reps (ex: 8-12):', ex.reps || '', { maxLen: 12 });
+        if (reps === null) return;
+        const carga = promptStudentField('Carga (opcional):', ex.carga || '', { maxLen: 12 });
+        if (carga === null) return;
+        const descanso = promptStudentField('Descanso (opcional):', ex.descanso || '', { maxLen: 12 });
+        if (descanso === null) return;
+        const observacao = promptStudentField('Observação (opcional):', ex.observacao || ex.obs || '', { maxLen: 160 });
+        if (observacao === null) return;
+
+        const note = observacao || '';
+        ex.nome = nome || ex.nome;
+        ex.series = series || ex.series;
+        ex.reps = reps || ex.reps;
+        ex.carga = carga || ex.carga;
+        ex.descanso = descanso || ex.descanso;
+        ex.observacao = note;
+        ex.obs = note;
+        didEdit = true;
+    });
+
+    if (!student || !didEdit) return;
+    renderStudentWorkoutMain({ withSkeleton: false });
+    renderWorkoutStartOptions(student);
+}
+
+function removeStudentExerciseFromBlock(blockIdx, exIdx) {
+    if (!confirm('Remover este exercício?')) return;
+    const studentId = localStorage.getItem('currentStudentId');
+    const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
+        const block = blocks[blockIdx];
+        if (!block || !Array.isArray(block.exercises)) return;
+        block.exercises.splice(exIdx, 1);
+    });
+
+    if (!student) return;
+    renderStudentWorkoutMain({ withSkeleton: false });
+    renderWorkoutStartOptions(student);
+}
+
 function renderStudentWorkoutMain(options = {}) {
     const withSkeleton = !!options.withSkeleton;
     const delayMs = Number.isFinite(options.delayMs) ? options.delayMs : 240;
@@ -961,6 +1235,8 @@ function renderStudentWorkoutMain(options = {}) {
     const studentId = localStorage.getItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
+    const canEditWorkout = studentCanEditWorkout(student);
+    const blocks = Array.isArray(student?.workoutBlocks) ? student.workoutBlocks : [];
 
     const tabsNav = document.getElementById('workout-tabs-nav');
     const mainContent = document.getElementById('student-workout-content-main');
@@ -978,37 +1254,86 @@ function renderStudentWorkoutMain(options = {}) {
 
     workoutAnalysisRenderNonce += 1;
 
-    if (!student || !student.active || !student.workoutBlocks || student.workoutBlocks.length === 0) {
+    if (!student || (!student.active && !canEditWorkout) || blocks.length === 0) {
         tabsNav.innerHTML = '';
-        mainContent.innerHTML = `<div class="empty-state-card" style="margin-top:2rem;">
-            <i class="ph-fill ph-hourglass-high"></i>
-            <div class="empty-info">
-                <h3>Treino em analise</h3>
-                <p>Seu treinador ainda nao liberou sua ficha de treinos.</p>
-            </div>
-        </div>`;
+        if (student && canEditWorkout) {
+            mainContent.innerHTML = `<div class="empty-state-card" style="margin-top:2rem;">
+                <i class="ph-fill ph-pencil-simple"></i>
+                <div class="empty-info">
+                    <h3>Monte seu treino</h3>
+                    <p>Crie o primeiro bloco e adicione exercícios para treinar amanhã.</p>
+                </div>
+                <div style="display:flex; gap:0.8rem; flex-wrap:wrap; margin-top:1rem;">
+                    <button class="btn-primary" onclick="addStudentWorkoutBlock()"><i class="ph-bold ph-plus"></i> Criar Treino</button>
+                    <button class="btn-secondary" onclick="openStudentWorkoutEditor()">Modo Edição</button>
+                </div>
+            </div>`;
+        } else {
+            mainContent.innerHTML = `<div class="empty-state-card" style="margin-top:2rem;">
+                <i class="ph-fill ph-hourglass-high"></i>
+                <div class="empty-info">
+                    <h3>Treino em analise</h3>
+                    <p>Seu treinador ainda nao liberou sua ficha de treinos.</p>
+                </div>
+            </div>`;
+        }
         return;
     }
 
-    if (currentWorkoutTab >= student.workoutBlocks.length) {
+    if (currentWorkoutTab >= blocks.length) {
         currentWorkoutTab = 0;
     }
 
-    tabsNav.innerHTML = student.workoutBlocks.map((block, idx) => `
+    tabsNav.innerHTML = blocks.map((block, idx) => {
+        const blockTitle = getWorkoutBlockTitle(block, idx);
+        const tabLabel = blockTitle.split(' ').slice(0, 2).join(' ');
+        return `
         <button class="tab-btn ${idx === currentWorkoutTab ? 'active' : ''}" onclick="switchWorkoutTab(${idx})">
-            ${escHtml((block.title || `Treino ${idx + 1}`).split(' ').slice(0, 2).join(' '))}
+            ${escHtml(tabLabel)}
         </button>
-    `).join('');
+    `;
+    }).join('');
 
-    const block = student.workoutBlocks[currentWorkoutTab];
+    const block = blocks[currentWorkoutTab];
     const exercises = Array.isArray(block.exercises) ? block.exercises : [];
     const muscleGroups = getMuscleGroups(exercises);
     const totalSets = exercises.reduce((acc, ex) => acc + Number(ex.series || 0), 0);
     const estDuration = Math.max(25, Math.round(totalSets * 2.2));
-    const lastPerformed = getLatestPerformanceDate(student.id, block.title);
-    const exercisesWithObs = exercises.filter(ex => ex.observacao && ex.observacao.trim().length > 0).length;
+    const blockTitle = getWorkoutBlockTitle(block, currentWorkoutTab);
+    const lastPerformed = getLatestPerformanceDate(student.id, blockTitle);
+    const exercisesWithObs = exercises.filter(ex => (ex.observacao || ex.obs) && String(ex.observacao || ex.obs).trim().length > 0).length;
     const totalSupersets = exercises.filter(ex => ex.supersetWithNext).length;
     const totalWithSubs = exercises.filter(ex => Array.isArray(ex.substitutes) && ex.substitutes.filter(Boolean).length > 0).length;
+    const editMode = canEditWorkout && studentWorkoutEditMode;
+    const exerciseListHtml = exercises.length
+        ? exercises.map((ex, idx) => {
+            const substitutes = Array.isArray(ex.substitutes) ? ex.substitutes.filter(Boolean) : [];
+            const note = ex.observacao || ex.obs || '';
+            return `
+                            <div class="routine-ex-item exercise-clarity-card ${ex.supersetWithNext ? 'has-superset' : ''}">
+                                <div class="exercise-order-badge">${idx + 1}</div>
+                                <div class="ex-name-box">
+                                    <span>${escHtml(ex.nome)}</span>
+                                    <div class="ex-sets-mini">${ex.series} series • ${ex.reps} reps ${ex.descanso ? `• ${escHtml(ex.descanso)} descanso` : ''}</div>
+                                    ${note ? `<p class="exercise-note"><i class="ph-bold ph-info"></i> ${escHtml(note)}</p>` : ''}
+                                    ${substitutes.length ? `<div class="analysis-substitute-chips">${substitutes.map(s => `<span>${escHtml(s)}</span>`).join('')}</div>` : ''}
+                                    ${ex.supersetWithNext ? `<p class="exercise-note"><i class="ph-bold ph-lightning"></i> Super serie com o proximo exercicio</p>` : ''}
+                                    ${editMode ? `
+                                    <div class="exercise-edit-row">
+                                        <button class="btn-icon-tiny action-edit" onclick="editStudentExerciseInBlock(${currentWorkoutTab}, ${idx})" title="Editar exercício">
+                                            <i class="ph-bold ph-pencil-simple"></i>
+                                        </button>
+                                        <button class="btn-icon-tiny action-trash" onclick="removeStudentExerciseFromBlock(${currentWorkoutTab}, ${idx})" title="Remover exercício">
+                                            <i class="ph-bold ph-trash"></i>
+                                        </button>
+                                    </div>` : ''}
+                                </div>
+                                <button class="btn-icon-tiny analysis-chart-btn" onclick="openExerciseProgressModalEncoded('${encodeURIComponent(ex.nome)}')" title="Ver historico de carga">
+                                    <i class="ph-bold ph-chart-line-up"></i>
+                                </button>
+                            </div>`;
+        }).join('')
+        : `<div class="student-ex-empty">${editMode ? 'Nenhum exercício ainda. Use "Adicionar exercício" para começar.' : 'Nenhum exercício cadastrado neste treino.'}</div>`;
 
     mainContent.innerHTML = `
         <div class="routine-card workout-analysis-layout clean-analysis">
@@ -1035,7 +1360,7 @@ function renderStudentWorkoutMain(options = {}) {
                 <div class="analysis-main">
                     <div class="routine-header">
                         <div class="routine-title-box">
-                            <h2>${escHtml(block.title || `Treino ${currentWorkoutTab + 1}`)}</h2>
+                            <h2>${escHtml(blockTitle)}</h2>
                             <div class="routine-meta">
                                 <span><i class="ph-bold ph-barbell"></i> ${exercises.length} exercicios</span>
                                 <span><i class="ph-bold ph-arrows-clockwise"></i> ${totalWithSubs} com substituicao</span>
@@ -1055,27 +1380,28 @@ function renderStudentWorkoutMain(options = {}) {
                     </div>
 
                     <div class="routine-exercise-list">
-                        ${exercises.map((ex, idx) => {
-        const substitutes = Array.isArray(ex.substitutes) ? ex.substitutes.filter(Boolean) : [];
-        return `
-                            <div class="routine-ex-item exercise-clarity-card ${ex.supersetWithNext ? 'has-superset' : ''}">
-                                <div class="exercise-order-badge">${idx + 1}</div>
-                                <div class="ex-name-box">
-                                    <span>${escHtml(ex.nome)}</span>
-                                    <div class="ex-sets-mini">${ex.series} series • ${ex.reps} reps ${ex.descanso ? `• ${escHtml(ex.descanso)} descanso` : ''}</div>
-                                    ${ex.observacao ? `<p class="exercise-note"><i class="ph-bold ph-info"></i> ${escHtml(ex.observacao)}</p>` : ''}
-                                    ${substitutes.length ? `<div class="analysis-substitute-chips">${substitutes.map(s => `<span>${escHtml(s)}</span>`).join('')}</div>` : ''}
-                                    ${ex.supersetWithNext ? `<p class="exercise-note"><i class="ph-bold ph-lightning"></i> Super serie com o proximo exercicio</p>` : ''}
-                                </div>
-                                <button class="btn-icon-tiny analysis-chart-btn" onclick="openExerciseProgressModalEncoded('${encodeURIComponent(ex.nome)}')" title="Ver historico de carga">
-                                    <i class="ph-bold ph-chart-line-up"></i>
-                                </button>
-                            </div>`;
-    }).join('')}
+                        ${exerciseListHtml}
                     </div>
                 </div>
 
                 <aside class="analysis-side">
+                    ${canEditWorkout ? `
+                    <div class="student-edit-card ${editMode ? 'active' : ''}">
+                        <div class="student-edit-head">
+                            <strong>Seu Treino</strong>
+                            <button class="btn-secondary-outline" onclick="toggleStudentWorkoutEditMode()">
+                                ${editMode ? 'Concluir edição' : 'Editar treino'}
+                            </button>
+                        </div>
+                        <p class="student-edit-hint">${editMode ? 'Use os botões abaixo para montar o treino.' : 'Ative o modo edição para criar e ajustar seu treino.'}</p>
+                        ${editMode ? `
+                        <div class="student-edit-actions">
+                            <button class="btn-secondary" onclick="addStudentWorkoutBlock()"><i class="ph-bold ph-plus"></i> Adicionar treino</button>
+                            <button class="btn-secondary" onclick="renameStudentWorkoutBlock(${currentWorkoutTab})"><i class="ph-bold ph-pencil-simple"></i> Renomear treino</button>
+                            <button class="btn-secondary" onclick="addStudentExerciseToCurrentBlock()"><i class="ph-bold ph-plus-circle"></i> Adicionar exercício</button>
+                            <button class="btn-secondary-outline btn-danger-outline" onclick="removeStudentWorkoutBlock(${currentWorkoutTab})"><i class="ph-bold ph-trash"></i> Remover treino</button>
+                        </div>` : ''}
+                    </div>` : ''}
                     <div class="coach-help-card">
                         <div class="coach-help-text">
                             <strong>Dicas para executar melhor</strong>
@@ -1718,6 +2044,236 @@ function renderWorkoutHistory() {
     }).join('');
 }
 
+function getWorkoutRpeStats(workout) {
+    const values = [];
+    (workout?.Exercicios || []).forEach(ex => {
+        (ex.sets || []).forEach(s => {
+            const v = Number(s.rpe);
+            if (Number.isFinite(v)) values.push(v);
+        });
+    });
+    if (values.length === 0) return { avg: null, max: null, count: 0 };
+    const sum = values.reduce((acc, v) => acc + v, 0);
+    return { avg: sum / values.length, max: Math.max(...values), count: values.length };
+}
+
+function formatIntensityLabel(value) {
+    if (!value) return '--';
+    return String(value)
+        .split('-')
+        .map(word => word ? word[0].toUpperCase() + word.slice(1) : '')
+        .join(' ');
+}
+
+function truncateText(value, maxLen = 140) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    if (text.length <= maxLen) return text;
+    return text.slice(0, maxLen).trim() + '...';
+}
+
+function renderTrainerWorkoutHistory(studentId) {
+    const listEl = document.getElementById('trainer-history-workout-list');
+    const evoGrid = document.getElementById('trainer-history-evolution-cards');
+    if (!listEl) return;
+
+    if (!studentId) {
+        listEl.innerHTML = `
+            <div class="perfil-history-empty">
+                <i class="ph-bold ph-barbell"></i>
+                <p>Nenhum aluno selecionado.</p>
+            </div>
+        `;
+        if (evoGrid) evoGrid.innerHTML = '';
+        return;
+    }
+
+    const history = readStorageJSON('workoutHistory', [])
+        .filter(w => String(w.ID_Usuario) === String(studentId))
+        .reverse();
+
+    if (evoGrid) {
+        const totalSessions = history.length;
+        const totalVolume = history.reduce((sum, w) => sum + (w.Volume_Total || 0), 0);
+        const totalDuration = history.reduce((sum, w) => sum + (w.Duracao || 0), 0);
+        let rpeSum = 0;
+        let rpeCount = 0;
+        history.forEach(w => {
+            const stats = getWorkoutRpeStats(w);
+            if (stats.count > 0 && stats.avg) {
+                rpeSum += stats.avg;
+                rpeCount += 1;
+            }
+        });
+        const avgRpeAll = rpeCount > 0 ? (rpeSum / rpeCount) : 0;
+
+        evoGrid.innerHTML = `
+            <div class="evo-card">
+                <div class="evo-icon"><i class="ph-bold ph-calendar-check"></i></div>
+                <div class="evo-value">${totalSessions}</div>
+                <div class="evo-label">Treinos</div>
+            </div>
+            <div class="evo-card">
+                <div class="evo-icon"><i class="ph-bold ph-barbell"></i></div>
+                <div class="evo-value">${totalVolume >= 1000 ? (totalVolume / 1000).toFixed(1) + 'k' : totalVolume}</div>
+                <div class="evo-label">Volume Total (kg)</div>
+            </div>
+            <div class="evo-card">
+                <div class="evo-icon"><i class="ph-bold ph-timer"></i></div>
+                <div class="evo-value">${Math.round(totalDuration / 60)}</div>
+                <div class="evo-label">Minutos</div>
+            </div>
+            <div class="evo-card">
+                <div class="evo-icon"><i class="ph-bold ph-gauge"></i></div>
+                <div class="evo-value">${avgRpeAll ? avgRpeAll.toFixed(1) : '--'}</div>
+                <div class="evo-label">RPE Médio</div>
+            </div>
+        `;
+    }
+
+    if (history.length === 0) {
+        listEl.innerHTML = `
+            <div class="perfil-history-empty">
+                <i class="ph-bold ph-barbell"></i>
+                <p>Este aluno ainda não completou nenhum treino.</p>
+            </div>
+        `;
+        return;
+    }
+
+    listEl.innerHTML = history.map((w, idx) => {
+        const date = formatDate(w.Data_Treino);
+        const durationMin = Math.floor((w.Duracao || 0) / 60);
+        const exerciseCount = (w.Exercicios || []).length;
+        const totalSets = (w.Exercicios || []).reduce((s, ex) => s + (ex.sets || []).length, 0);
+        const hasPRs = (w.Exercicios || []).some(ex => (ex.sets || []).some(s => s.brokenPRs && s.brokenPRs.length > 0));
+        const originalIdx = history.length - 1 - idx;
+
+        const feedback = w.Avaliacao_Geral || {};
+        const note = (feedback.comentario || '').trim();
+        const notePreview = note ? truncateText(note, 140) : '';
+        const intensityLabel = feedback.intensidade ? formatIntensityLabel(feedback.intensidade) : '--';
+        const qualityLabel = feedback.qualidade ? `${feedback.qualidade}/5` : '--';
+        const rpeStats = getWorkoutRpeStats(w);
+        const rpeLabel = rpeStats.avg ? rpeStats.avg.toFixed(1) : '--';
+
+        return `
+            <div class="history-workout-card" onclick="openTrainerHistoryDetail(${JSON.stringify(String(studentId))}, ${originalIdx})">
+                <div class="history-workout-left">
+                    <div class="history-workout-date">${date}</div>
+                    <div class="history-workout-meta">
+                        <span><i class="ph-bold ph-barbell"></i> ${exerciseCount} exercícios</span>
+                        <span><i class="ph-bold ph-stack"></i> ${totalSets} séries</span>
+                        <span><i class="ph-bold ph-timer"></i> ${durationMin} min</span>
+                    </div>
+                    <div class="history-feedback">
+                        <div class="history-feedback-badges">
+                            <span class="history-feedback-chip"><i class="ph-bold ph-smiley"></i> Qualidade: ${qualityLabel}</span>
+                            <span class="history-feedback-chip"><i class="ph-bold ph-lightning"></i> Intensidade: ${intensityLabel}</span>
+                            <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> RPE médio: ${rpeLabel}</span>
+                        </div>
+                        ${notePreview ? `<div class="history-feedback-note">${escHtml(notePreview)}</div>` : ''}
+                    </div>
+                </div>
+                <div class="history-workout-right">
+                    ${hasPRs ? '<span class="history-pr-badge"><i class="ph-fill ph-trophy"></i> PR</span>' : ''}
+                    <span class="history-volume">${w.Volume_Total >= 1000 ? (w.Volume_Total / 1000).toFixed(1) + 'k' : w.Volume_Total} kg</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function openTrainerHistoryDetail(studentId, originalIdx) {
+    const resolvedId = studentId || currentTrainerStudentId;
+    if (!resolvedId && resolvedId !== 0) return;
+
+    const history = readStorageJSON('workoutHistory', [])
+        .filter(w => String(w.ID_Usuario) === String(resolvedId));
+
+    const workout = history[originalIdx];
+    if (!workout) return;
+
+    const modal = document.getElementById('trainer-history-detail-modal');
+    const title = document.getElementById('trainer-history-detail-title');
+    const body = document.getElementById('trainer-history-detail-body');
+    if (!modal || !body) return;
+
+    const durationMin = Math.floor((workout.Duracao || 0) / 60);
+    const durationSec = (workout.Duracao || 0) % 60;
+    const feedback = workout.Avaliacao_Geral || {};
+    const note = (feedback.comentario || '').trim();
+    const intensityLabel = feedback.intensidade ? formatIntensityLabel(feedback.intensidade) : '--';
+    const qualityLabel = feedback.qualidade ? `${feedback.qualidade}/5` : '--';
+    const rpeStats = getWorkoutRpeStats(workout);
+    const rpeLabel = rpeStats.avg ? rpeStats.avg.toFixed(1) : '--';
+
+    title.textContent = `Treino — ${formatDate(workout.Data_Treino)}`;
+
+    body.innerHTML = `
+        <div class="history-detail-stats">
+            <div class="hd-stat">
+                <i class="ph-bold ph-timer"></i>
+                <span>${durationMin}:${durationSec.toString().padStart(2, '0')}</span>
+                <small>Duração</small>
+            </div>
+            <div class="hd-stat">
+                <i class="ph-bold ph-barbell"></i>
+                <span>${workout.Volume_Total} kg</span>
+                <small>Volume</small>
+            </div>
+            <div class="hd-stat">
+                <i class="ph-bold ph-stack"></i>
+                <span>${(workout.Exercicios || []).reduce((s, ex) => s + (ex.sets || []).length, 0)}</span>
+                <small>Séries</small>
+            </div>
+        </div>
+
+        <div class="history-feedback">
+            <div class="history-feedback-badges">
+                <span class="history-feedback-chip"><i class="ph-bold ph-smiley"></i> Qualidade: ${qualityLabel}</span>
+                <span class="history-feedback-chip"><i class="ph-bold ph-lightning"></i> Intensidade: ${intensityLabel}</span>
+                <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> RPE médio: ${rpeLabel}</span>
+            </div>
+            ${note ? `<div class="history-feedback-note">${escHtml(note)}</div>` : `<div class="history-feedback-note">Sem notas registradas.</div>`}
+        </div>
+
+        <div class="history-detail-exercises">
+            ${(workout.Exercicios || []).map(ex => `
+                <div class="hd-exercise">
+                    <h4>${escHtml(ex.nome)}</h4>
+                    <div class="hd-sets">
+                        ${(ex.sets || []).map((s, si) => {
+                            const rpeVal = Number(s.rpe);
+                            const rpeText = Number.isFinite(rpeVal) ? `RPE ${rpeVal.toFixed(1)}` : 'RPE --';
+                            return `
+                            <div class="hd-set-row ${s.brokenPRs && s.brokenPRs.length > 0 ? 'has-pr' : ''}">
+                                <span class="hd-set-num">${si + 1}</span>
+                                <span>${s.peso || 0} kg</span>
+                                <span>×</span>
+                                <span>${s.reps || 0} reps</span>
+                                ${s.brokenPRs && s.brokenPRs.length > 0 ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
+                                <span class="hd-set-rpe">${rpeText}</span>
+                            </div>
+                        `;
+                        }).join('')}
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+}
+
+function closeTrainerHistoryDetailModal() {
+    const modal = document.getElementById('trainer-history-detail-modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => { modal.style.display = 'none'; }, 180);
+}
+
 function openHistoryDetail(originalIdx) {
     const studentId = localStorage.getItem('currentStudentId');
     const history = readStorageJSON('workoutHistory', [])
@@ -2226,6 +2782,19 @@ function handleUnifiedLogin() {
         return;
     }
 
+    // 1.1 Aluno auto treino (Diego)
+    if (code === SELF_TRAINING_STUDENT_CODE) {
+        ensureSelfTrainingStudent();
+        const students = readStorageJSON('trainerStudents', []);
+        const selfStudent = students.find(s => s.id === SELF_TRAINING_STUDENT_CODE);
+        openStudentDashboardSession(selfStudent || {
+            id: SELF_TRAINING_STUDENT_CODE,
+            name: SELF_TRAINING_STUDENT_NAME,
+            trainerCode: '00001'
+        });
+        return;
+    }
+
     // 2. Check Trainer (Admin or allTrainers)
     const trainers = readStorageJSON('allTrainers', []);
     const isTrainer = trainers.some(t => t.code === code) || code === '00001';
@@ -2269,6 +2838,18 @@ function connectStudent() {
         openStudentDashboardSession(adminStudent || {
             id: ADMIN_STUDENT_CODE,
             name: ADMIN_STUDENT_NAME,
+            trainerCode: '00001'
+        });
+        return;
+    }
+
+    if (code === SELF_TRAINING_STUDENT_CODE) {
+        ensureSelfTrainingStudent();
+        const students = readStorageJSON('trainerStudents', []);
+        const selfStudent = students.find(s => s.id === SELF_TRAINING_STUDENT_CODE);
+        openStudentDashboardSession(selfStudent || {
+            id: SELF_TRAINING_STUDENT_CODE,
+            name: SELF_TRAINING_STUDENT_NAME,
             trainerCode: '00001'
         });
         return;
@@ -2365,7 +2946,7 @@ function submitQuestionnaire() {
 
     let id = Math.floor(10000 + Math.random() * 90000).toString();
     const usedIds = new Set((readStorageJSON('trainerStudents', [])).map(s => String(s.id)));
-    while (id === ADMIN_STUDENT_CODE || usedIds.has(id)) {
+    while (id === ADMIN_STUDENT_CODE || id === SELF_TRAINING_STUDENT_CODE || usedIds.has(id)) {
         id = Math.floor(10000 + Math.random() * 90000).toString();
     }
     const newStudent = {
@@ -2460,11 +3041,32 @@ function initStudentDashboard() {
 
 function renderWorkoutStartOptions(student) {
     const container = document.getElementById('student-workout-start-options');
-    if (!container || !student.workoutBlocks) return;
+    if (!container) return;
+    const canEditWorkout = studentCanEditWorkout(student);
+    const blocks = Array.isArray(student?.workoutBlocks) ? student.workoutBlocks : [];
+    if (blocks.length === 0) {
+        if (canEditWorkout) {
+            container.innerHTML = `
+            <button class="action-card highlight" onclick="openStudentWorkoutEditor()"
+                style="background: rgba(163, 230, 53, 0.1); border-color: rgba(163, 230, 53, 0.3); padding: 1rem;">
+                <i class="ph-fill ph-plus-circle" style="color: var(--primary-color); font-size: 1.5rem;"></i>
+                <div style="flex:1; text-align: left;">
+                    <span style="display: block; font-weight: 700; color: var(--text-main); font-size: 1rem;">Montar meu treino</span>
+                    <span style="font-size: 0.75rem; color: var(--primary-color); font-weight: 500;">Crie o primeiro bloco agora</span>
+                </div>
+                <i class="ph-bold ph-caret-right" style="color: var(--primary-color); font-size: 1rem;"></i>
+            </button>`;
+        } else {
+            container.innerHTML = '';
+        }
+        return;
+    }
 
-    container.innerHTML = student.workoutBlocks.map((block, idx) => {
-        const muscles = getMuscleGroups(block.exercises);
-        const title = block.title || `Treino ${String.fromCharCode(65 + idx)} `;
+    container.innerHTML = blocks.map((block, idx) => {
+        const exercises = Array.isArray(block.exercises) ? block.exercises : [];
+        const muscles = getMuscleGroups(exercises);
+        const title = getWorkoutBlockTitle(block, idx);
+        const exCount = exercises.length;
         return `
         <button class="action-card highlight" onclick="startWorkoutSession(${idx})"
             style="background: rgba(163, 230, 53, 0.1); border-color: rgba(163, 230, 53, 0.3); padding: 1rem;">
@@ -2472,7 +3074,7 @@ function renderWorkoutStartOptions(student) {
             <div style="flex:1; text-align: left;">
                 <span style="display: block; font-weight: 700; color: var(--text-main); font-size: 1rem;">${escHtml(title)}</span>
                 <span style="font-size: 0.75rem; color: var(--primary-color); font-weight: 500;">${muscles.join(' • ')}</span>
-                <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${block.exercises.length} exercícios</span>
+                <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${exCount} exercícios</span>
             </div>
             <i class="ph-bold ph-caret-right" style="color: var(--primary-color); font-size: 1rem;"></i>
         </button> `;
@@ -2525,17 +3127,19 @@ function openStudentWorkout() {
     const container = document.getElementById('student-workout-content');
     if (!container) return;
 
-    container.innerHTML = student.workoutBlocks.map(block => `
+    container.innerHTML = student.workoutBlocks.map((block, idx) => `
         <div class="workout-day-block">
             <div class="block-header">
-                <h3>${escHtml(block.title)}</h3>
+                <h3>${escHtml(getWorkoutBlockTitle(block, idx))}</h3>
             </div>
             <div class="ex-list">
-                ${block.exercises.map(ex => `
+                ${(block.exercises || []).map(ex => {
+        const note = ex.observacao || ex.obs;
+        return `
                     <div class="ex-row">
                         <div class="ex-main-info">
                             <span class="ex-name">${escHtml(ex.nome)}</span>
-                            ${ex.obs ? `<span class="ex-obs">${escHtml(ex.obs)}</span>` : ''}
+                            ${note ? `<span class="ex-obs">${escHtml(note)}</span>` : ''}
                         </div>
                         <div class="ex-stats">
                             <div class="st-item"><span>Séries</span><strong>${ex.series}</strong></div>
@@ -2544,7 +3148,8 @@ function openStudentWorkout() {
                             <div class="st-item"><span>Desc.</span><strong>${ex.descanso}</strong></div>
                         </div>
                     </div>
-                `).join('')}
+                `;
+    }).join('')}
             </div>
         </div>
         `).join('');
@@ -4425,6 +5030,7 @@ function markNotifRead(index, btnElement) {
 
 // â”€â”€â”€ Profile open / close / tab switch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let currentStudentIdx = null; // tracks which student is being edited
+let currentTrainerStudentId = null; // tracks current student id for trainer history
 let workoutBlocks = [];        // local state for workout blocks
 let mealBlocks = [];           // local state for meal blocks
 let pendingBlockIdx = null;    // which block an exercise is being added to
@@ -4460,6 +5066,7 @@ function openStudentProfile(studentIndex) {
     if (!s) return;
 
     currentStudentIdx = studentIndex;
+    currentTrainerStudentId = s.id || null;
 
     // Load existing plan data
     workoutBlocks = s.workoutBlocks ? JSON.parse(JSON.stringify(s.workoutBlocks)) : [];
@@ -4493,6 +5100,10 @@ function openStudentProfile(studentIndex) {
     dm('diet-protein-meta', diet.protein);
     dm('diet-carb-meta', diet.carb);
     dm('diet-fat-meta', diet.fat);
+    const tmbEl = document.getElementById('diet-tmb-value');
+    if (tmbEl) tmbEl.textContent = tmbCalc > 0 ? `${Math.round(tmbCalc)} kcal` : '--';
+    const gastoEl = document.getElementById('diet-gasto-value');
+    if (gastoEl) gastoEl.textContent = kcalCalc > 0 ? `${kcalCalc} kcal` : '--';
 
     // Switch screens
     document.getElementById('trainer-dashboard-screen').classList.remove('active');
@@ -4502,12 +5113,14 @@ function openStudentProfile(studentIndex) {
     renderWorkoutBlocks();
     renderMeals();
     switchProfileTab('treino');
+    renderTrainerWorkoutHistory(currentTrainerStudentId);
 }
 
 function closeStudentProfile() {
     document.getElementById('trainer-student-profile-screen').classList.remove('active');
     document.getElementById('trainer-dashboard-screen').classList.add('active');
     currentStudentIdx = null;
+    currentTrainerStudentId = null;
 }
 
 function switchProfileTab(tabName) {
@@ -4831,11 +5444,16 @@ function renderMeals() {
                 ${meal.items.map((item, iIdx) => `
                 <div class="food-row">
                     <span class="font-medium">${escHtml(item.nome)}</span>
-                    <span class="text-muted">${escHtml(item.qtd || '--')}</span>
-                    <span class="text-primary">${item.kcal || 0} kcal</span>
-                    <span>${item.prot || 0}g</span>
-                    <span>${item.carb || 0}g</span>
-                    <span>${item.gord || 0}g</span>
+                    <input type="text" class="food-input food-qty-input" value="${escHtml(item.qtd || '')}" placeholder="150g"
+                        oninput="updateMealItemField(${mIdx}, ${iIdx}, 'qtd', this.value)">
+                    <input type="number" class="food-input" value="${item.kcal ?? ''}" placeholder="0"
+                        oninput="updateMealItemField(${mIdx}, ${iIdx}, 'kcal', this.value)">
+                    <input type="number" class="food-input" value="${item.prot ?? ''}" placeholder="0"
+                        oninput="updateMealItemField(${mIdx}, ${iIdx}, 'prot', this.value)">
+                    <input type="number" class="food-input" value="${item.carb ?? ''}" placeholder="0"
+                        oninput="updateMealItemField(${mIdx}, ${iIdx}, 'carb', this.value)">
+                    <input type="number" class="food-input" value="${item.gord ?? ''}" placeholder="0"
+                        oninput="updateMealItemField(${mIdx}, ${iIdx}, 'gord', this.value)">
                     <button class="btn-icon-minimal" onclick="deleteFoodItem(${mIdx},${iIdx})">
                         <i class="ph-bold ph-trash" style="color:#ef4444;font-size:0.85rem;"></i>
                     </button>
@@ -4861,6 +5479,23 @@ function deleteMeal(mIdx) {
 function deleteFoodItem(mIdx, iIdx) {
     mealBlocks[mIdx].items.splice(iIdx, 1);
     renderMeals();
+}
+
+function updateMealItemField(mIdx, iIdx, field, value) {
+    const meal = mealBlocks?.[mIdx];
+    const item = meal?.items?.[iIdx];
+    if (!item) return;
+
+    let normalized = value;
+    if (['kcal', 'prot', 'carb', 'gord'].includes(field)) {
+        normalized = String(value ?? '').replace(',', '.').replace(/[^\d.]/g, '');
+        const num = parseFloat(normalized);
+        normalized = Number.isFinite(num) ? num : '';
+    } else if (field === 'qtd') {
+        normalized = String(value ?? '');
+    }
+
+    item[field] = normalized;
 }
 
 function openFoodModal(mealIdx) {
@@ -5057,6 +5692,17 @@ let restEndAt = 0;
 let workoutFeedbackRating = 0;
 let workoutFeedbackIntensity = 'moderado';
 let pendingSetCompletion = null;
+let activeSetTypePopover = null;
+
+const SET_TYPE_OPTIONS = [
+    { value: 'normal', label: 'Normal', short: '' },
+    { value: 'warmup', label: 'Aquecimento', short: 'A' },
+    { value: 'drop', label: 'Drop-set', short: 'D' },
+    { value: 'failure', label: 'Falha', short: 'F' },
+    { value: 'restpause', label: 'Rest-pause', short: 'R' },
+    { value: 'tempo', label: 'Tempo', short: 'T' },
+    { value: 'cluster', label: 'Cluster', short: 'C' }
+];
 
 function saveWorkoutBackup() {
     if (workoutState) {
@@ -5182,11 +5828,12 @@ function startWorkoutSession(blockIdx = 0) {
     const block = student.workoutBlocks[blockIdx];
     const personalRecords = student.personalRecords || {};
     const supersetGroups = computeSupersetGroups(block.exercises || []);
+    const blockTitle = getWorkoutBlockTitle(block, blockIdx);
 
     workoutState = {
         sessionId: `${studentId}-${Date.now()}`,
         startTime: Date.now(),
-        title: block.title || 'Meu Treino',
+        title: blockTitle || 'Meu Treino',
         exercises: block.exercises.map((ex, idx) => ({
             id: `ex-${idx}`,
             nome: ex.nome,
@@ -5196,14 +5843,15 @@ function startWorkoutSession(blockIdx = 0) {
             supersetGroup: supersetGroups[idx] || 0,
             notes: '',
             best: personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxReps: 0 },
-            sets: Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => ({
-                id: `set-${idx}-${sIdx}`,
-                weight: ex.carga || '',
-                reps: ex.reps || '',
-                intensityLevel: 0,
-                rpe: '',
-                rir: '',
-                logged: false,
+                sets: Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => ({
+                    id: `set-${idx}-${sIdx}`,
+                    weight: ex.carga || '',
+                    reps: ex.reps || '',
+                    type: 'normal',
+                    intensityLevel: 0,
+                    rpe: '',
+                    rir: '',
+                    logged: false,
                 completed: false,
                 brokenPRs: { weight: false, volume: false, reps: false },
                 prev: getPreviousSessionData(studentId, ex.nome)
@@ -5287,7 +5935,7 @@ function renderWorkoutLog() {
                     <span>Série</span>
                     <span>Kg</span>
                     <span>Reps</span>
-                    <span>Intens.</span>
+                    <span>PSE</span>
                     <span>OK</span>
                 </div>
                 ${ex.sets.map((set, setIdx) => {
@@ -5298,10 +5946,19 @@ function renderWorkoutLog() {
             const repsUp = Number.isFinite(currentReps) && prevMetrics.reps !== null && currentReps > prevMetrics.reps;
             const lastWeightLabel = prevMetrics.weight === null ? '--' : `${formatMetricNumber(prevMetrics.weight)}kg`;
             const lastRepsLabel = prevMetrics.reps === null ? '--' : `${prevMetrics.reps} reps`;
+            const hasPR = set.completed && set.brokenPRs && (set.brokenPRs.weight || set.brokenPRs.volume || set.brokenPRs.reps);
+            const prTooltip = hasPR ? getSetPRTooltip(set) : '';
+            const setType = set.type || 'normal';
+            const typeOption = SET_TYPE_OPTIONS.find(t => t.value === setType) || SET_TYPE_OPTIONS[0];
+            const typeShort = typeOption.short || '';
+            const setTitle = hasPR ? prTooltip : `Série ${setIdx + 1} · ${typeOption.label}`;
+            const setNumberHtml = hasPR
+                ? `<span class="set-pr-icon" title="${prTooltip}">${uiSvgIcon('trophy')}</span>`
+                : `${typeShort || (setIdx + 1)}`;
 
             return `
                     <div class="log-set-row ${set.completed ? 'completed' : ''}" id="row-${exIdx}-${setIdx}">
-                        <div class="set-number">${setIdx + 1}</div>
+                        <div class="set-number ${hasPR ? 'has-pr' : ''} type-${setType}" title="${setTitle}" role="button" onclick="openSetTypePopover(event, ${exIdx}, ${setIdx})">${setNumberHtml}</div>
 
                         <div class="set-value-stack">
                             <div class="set-input-row">
@@ -5327,8 +5984,8 @@ function renderWorkoutLog() {
                             <div class="set-prev-line" style="text-align: center;">Ant: ${lastRepsLabel}</div>
                         </div>
 
-                        <div class="set-intensity-visual" title="${getIntensityLabel(set.intensityLevel)}">
-                            ${renderIntensitySelector(exIdx, setIdx, set.intensityLevel)}
+                        <div class="set-pse-visual" title="${getPseLabel(set.rpe)}">
+                            ${renderPseSelector(exIdx, setIdx, set.rpe)}
                         </div>
 
                         <div class="set-check-wrap">
@@ -5336,7 +5993,6 @@ function renderWorkoutLog() {
                                 onclick="toggleSetCompletion(${exIdx}, ${setIdx})">
                                 ${set.completed ? uiSvgIcon('check') : uiSvgIcon('circle')}
                             </button>
-                            ${renderPRTrophy(set)}
                         </div>
                     </div>
                 `;
@@ -5361,22 +6017,14 @@ function updateExerciseNotes(exIdx, notes) {
     saveWorkoutBackup();
 }
 
-function renderPRTrophy(set) {
-    if (!set.brokenPRs || !set.completed) return '';
-    const isBroken = set.brokenPRs.weight || set.brokenPRs.volume;
-    if (!isBroken) return '';
-
-    let tooltip = 'Recorde Batido: ';
+function getSetPRTooltip(set) {
+    if (!set || !set.brokenPRs) return '';
     const types = [];
     if (set.brokenPRs.weight) types.push('Peso');
     if (set.brokenPRs.volume) types.push('Volume');
-    tooltip += types.join(', ') + '!';
-
-    return `
-        <div class="pr-trophy-container">
-            <span class="pr-trophy" title="${tooltip}">${uiSvgIcon('trophy')}</span>
-        </div>
-    `;
+    if (set.brokenPRs.reps) types.push('Reps');
+    if (types.length === 0) return '';
+    return `Recorde Batido: ${types.join(', ')}!`;
 }
 
 function updateSetData(exIdx, setIdx, field, value) {
@@ -5412,9 +6060,11 @@ function updateExercisePRs(exIdx) {
 
     let maxWeightIdx = -1;
     let maxVolumeIdx = -1;
+    let maxRepsIdx = -1;
 
     let sessionMaxWeight = best.maxWeight;
     let sessionMaxVolume = best.maxVolume;
+    let sessionMaxReps = best.maxReps;
 
     ex.sets.forEach((set, idx) => {
         const w = parseFloat(set.weight) || 0;
@@ -5429,11 +6079,16 @@ function updateExercisePRs(exIdx) {
             sessionMaxVolume = v;
             maxVolumeIdx = idx;
         }
+        if (r > sessionMaxReps) {
+            sessionMaxReps = r;
+            maxRepsIdx = idx;
+        }
     });
 
     // Assign trophies only to the session champions
     if (maxWeightIdx !== -1) ex.sets[maxWeightIdx].brokenPRs.weight = true;
     if (maxVolumeIdx !== -1) ex.sets[maxVolumeIdx].brokenPRs.volume = true;
+    if (maxRepsIdx !== -1) ex.sets[maxRepsIdx].brokenPRs.reps = true;
 }
 
 function checkPRs(exIdx, setIdx) {
@@ -5446,8 +6101,8 @@ function toggleSetCompletion(exIdx, setIdx) {
     const exercise = workoutState.exercises[exIdx];
     const set = exercise.sets[setIdx];
 
-    if (!set.completed && !set.intensityLevel) {
-        pendingSetCompletion = { exIdx, setIdx };
+    if (!set.completed && !set.rpe) {
+        pendingSetCompletion = { exIdx, setIdx, completeAfter: true };
         openSetEffortQuickModal();
         return;
     }
@@ -5508,11 +6163,15 @@ function computeSupersetGroups(exercises) {
     return groups;
 }
 
-function openSetEffortQuickModal() {
+function openSetEffortQuickModal(exIdx, setIdx, completeAfter = false) {
+    if (Number.isInteger(exIdx) && Number.isInteger(setIdx)) {
+        pendingSetCompletion = { exIdx, setIdx, completeAfter: !!completeAfter };
+    }
     const modal = document.getElementById('set-effort-quick-modal');
     if (!modal) return;
     modal.style.display = 'flex';
     setTimeout(() => modal.classList.add('active'), 10);
+    applyPseColorStyles();
 }
 
 function closeSetEffortQuickModal() {
@@ -5523,14 +6182,72 @@ function closeSetEffortQuickModal() {
     setTimeout(() => { modal.style.display = 'none'; }, 180);
 }
 
-function chooseQuickSetEffort(level) {
+function chooseQuickSetPse(pse) {
     if (!pendingSetCompletion) return;
-    const { exIdx, setIdx } = pendingSetCompletion;
-    setSetIntensity(exIdx, setIdx, level);
+    const { exIdx, setIdx, completeAfter } = pendingSetCompletion;
+    setSetPse(exIdx, setIdx, pse);
     pendingSetCompletion = null;
     closeSetEffortQuickModal();
-    toggleSetCompletion(exIdx, setIdx);
-    triggerHaptic(20);
+    if (completeAfter) {
+        toggleSetCompletion(exIdx, setIdx);
+        triggerHaptic(20);
+    }
+}
+
+function applyPseColorStyles() {
+    document.querySelectorAll('.pse-color-btn').forEach(btn => {
+        const value = Number(btn.dataset.pse || 0);
+        if (!value) return;
+        btn.style.cssText = getPseButtonStyle(value);
+    });
+}
+
+function openSetTypePopover(event, exIdx, setIdx) {
+    if (!workoutState) return;
+    if (event) event.stopPropagation();
+    closeSetTypePopover();
+
+    const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
+    if (!set) return;
+    const currentType = set.type || 'normal';
+
+    const popover = document.createElement('div');
+    popover.className = 'set-type-popover';
+    popover.innerHTML = SET_TYPE_OPTIONS.map(opt => {
+        const active = opt.value === currentType ? 'active' : '';
+        const chip = opt.short ? `<span class="set-type-chip">${opt.short}</span>` : '';
+        return `<button type="button" class="set-type-option ${active}" onclick="selectSetType(${exIdx}, ${setIdx}, '${opt.value}')">${chip}<span>${opt.label}</span></button>`;
+    }).join('');
+
+    popover.addEventListener('click', (e) => e.stopPropagation());
+    document.body.appendChild(popover);
+
+    const rect = event?.currentTarget?.getBoundingClientRect?.() || { left: 0, bottom: 0 };
+    const margin = 8;
+    const top = Math.min(rect.bottom + 6, window.innerHeight - popover.offsetHeight - margin);
+    const left = Math.min(rect.left, window.innerWidth - popover.offsetWidth - margin);
+    popover.style.top = `${Math.max(margin, top)}px`;
+    popover.style.left = `${Math.max(margin, left)}px`;
+
+    activeSetTypePopover = popover;
+    document.addEventListener('click', closeSetTypePopover, { once: true });
+}
+
+function closeSetTypePopover() {
+    if (!activeSetTypePopover) return;
+    activeSetTypePopover.remove();
+    activeSetTypePopover = null;
+}
+
+function selectSetType(exIdx, setIdx, type) {
+    if (!workoutState) return;
+    const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
+    if (!set) return;
+    const allowed = SET_TYPE_OPTIONS.some(opt => opt.value === type);
+    set.type = allowed ? type : 'normal';
+    saveWorkoutBackup();
+    renderWorkoutLog();
+    closeSetTypePopover();
 }
 // â”€â”€â”€ REST TIMER LOGIC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function startRestTimer(seconds) {
@@ -5702,6 +6419,7 @@ function addSetToExercise(exIdx) {
         id: `set-${exIdx}-${ex.sets.length}`,
         weight: lastSet ? lastSet.weight : '',
         reps: lastSet ? lastSet.reps : '',
+        type: 'normal',
         intensityLevel: 0,
         rpe: '',
         rir: '',
@@ -6153,52 +6871,71 @@ function searchExercises(query) {
 }
 
 
-function mapIntensityToMetrics(level) {
-    const map = {
-        1: { rpe: 6.0, rir: 4 },
-        2: { rpe: 7.0, rir: 3 },
-        3: { rpe: 8.0, rir: 2 },
-        4: { rpe: 9.0, rir: 1 },
-        5: { rpe: 10.0, rir: 0 }
+function mapPseToMetrics(pse) {
+    const rpe = Number(pse) || 0;
+    if (!rpe) return { rpe: null, rir: null, intensityLevel: 0 };
+    const intensityLevel = Math.min(5, Math.max(1, Math.round(rpe)));
+    const rir = Math.max(0, Math.round(5 - rpe));
+    return { rpe, rir, intensityLevel };
+}
+
+function getPseLabel(rpe) {
+    if (!rpe) return 'PSE --';
+    const value = Number(rpe);
+    if (!Number.isFinite(value)) return 'PSE --';
+    const text = value % 1 === 0 ? String(value) : value.toFixed(1);
+    return `PSE ${text}`;
+}
+
+function getPseRgb(rpe) {
+    const value = Math.max(1, Math.min(5, Number(rpe) || 0));
+    if (!value) return { r: 163, g: 163, b: 163 };
+    const green = { r: 34, g: 197, b: 94 };
+    const yellow = { r: 250, g: 204, b: 21 };
+    const red = { r: 239, g: 68, b: 68 };
+    if (value <= 3) {
+        const t = (value - 1) / 2;
+        return {
+            r: Math.round(green.r + (yellow.r - green.r) * t),
+            g: Math.round(green.g + (yellow.g - green.g) * t),
+            b: Math.round(green.b + (yellow.b - green.b) * t)
+        };
+    }
+    const t = (value - 3) / 2;
+    return {
+        r: Math.round(yellow.r + (red.r - yellow.r) * t),
+        g: Math.round(yellow.g + (red.g - yellow.g) * t),
+        b: Math.round(yellow.b + (red.b - yellow.b) * t)
     };
-    return map[level] || { rpe: null, rir: null };
 }
 
-function getIntensityLabel(level) {
-    const labels = {
-        0: 'Sem intensidade',
-        1: 'Leve',
-        2: 'Confortavel',
-        3: 'No ponto',
-        4: 'Pesado',
-        5: 'Falha total'
-    };
-    return labels[level] || labels[0];
+function getPseButtonStyle(rpe) {
+    const { r, g, b } = getPseRgb(rpe);
+    return `background: rgba(${r}, ${g}, ${b}, 0.12); border-color: rgba(${r}, ${g}, ${b}, 0.35); color: rgb(${r}, ${g}, ${b});`;
 }
 
-function renderIntensitySelector(exIdx, setIdx, selectedLevel) {
-    return Array.from({ length: 5 }, (_, idx) => {
-        const level = idx + 1;
-        const active = level <= (Number(selectedLevel) || 0) ? 'active' : '';
-        return `<button type="button" class="set-intensity-dot ${active}" onclick="setSetIntensity(${exIdx}, ${setIdx}, ${level})"></button>`;
-    }).join('');
+function renderPseSelector(exIdx, setIdx, rpe) {
+    const value = Number(rpe);
+    const label = Number.isFinite(value) && value > 0 ? (value % 1 === 0 ? String(value) : value.toFixed(1)) : '--';
+    const hasValue = Number.isFinite(value) && value > 0;
+    const style = hasValue ? ` style="${getPseButtonStyle(value)}"` : '';
+    return `<button type="button" class="set-pse-btn ${hasValue ? 'has-value' : ''}"${style} onclick="openSetEffortQuickModal(${exIdx}, ${setIdx}, false)">${label}</button>`;
 }
 
-function setSetIntensity(exIdx, setIdx, level) {
+function setSetPse(exIdx, setIdx, pse) {
     if (!workoutState) return;
     const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
-    if (!set || set.completed) return;
+    if (!set) return;
 
-    const l = Number(level) || 0;
-    const mapped = mapIntensityToMetrics(l);
-
-    set.intensityLevel = l;
+    const mapped = mapPseToMetrics(pse);
     set.rpe = mapped.rpe;
     set.rir = mapped.rir;
+    set.intensityLevel = mapped.intensityLevel;
 
     saveWorkoutBackup();
     renderWorkoutLog();
 }
+
 
 
 
