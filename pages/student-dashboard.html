@@ -557,6 +557,32 @@
                             </div>
                         </div>
 
+                        <!-- Modal rapido: Execucao da serie -->
+                        <div id="set-exec-quick-modal" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal set-effort-quick-card">
+                                <div class="perfil-modal-header">
+                                    <h3>Como foi a execução dessa série</h3>
+                                    <button class="btn-icon" onclick="closeSetExecutionQuickModal()">
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true"
+                                            focusable="false">
+                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+                                                stroke-width="2.2" stroke-linecap="round"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body">
+                                    <div class="seqm-options pse-grid">
+                                        <button type="button" class="seqm-btn pse-btn" onclick="chooseQuickSetExecution(1)">1</button>
+                                        <button type="button" class="seqm-btn pse-btn" onclick="chooseQuickSetExecution(2)">2</button>
+                                        <button type="button" class="seqm-btn pse-btn" onclick="chooseQuickSetExecution(3)">3</button>
+                                        <button type="button" class="seqm-btn pse-btn" onclick="chooseQuickSetExecution(4)">4</button>
+                                        <button type="button" class="seqm-btn pse-btn" onclick="chooseQuickSetExecution(5)">5</button>
+                                    </div>
+                                    <p class="pse-hint">1 = ruim / 3 = ok / 5 = perfeita</p>
+                                </div>
+                            </div>
+                        </div>
+
                         <div id="exercise-progress-modal-overlay" class="perfil-modal-overlay" style="display:none;">
                             <div class="perfil-modal" style="max-width:680px;">
                                 <div class="perfil-modal-header">

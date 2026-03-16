@@ -84,6 +84,10 @@ async function staleWhileRevalidate(request) {
 }
 
 async function navigationResponse(request) {
+  const precache = await caches.open(PRECACHE_CACHE);
+  const precached = await precache.match(request, { ignoreSearch: true });
+  if (precached) return precached;
+
   const cache = await caches.open(RUNTIME_CACHE);
   const cached =
     (await cache.match(request, { ignoreSearch: true })) ||

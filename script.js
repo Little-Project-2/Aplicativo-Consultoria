@@ -2419,7 +2419,7 @@ function renderTrainerWorkoutHistory(studentId) {
                         <div class="history-feedback-badges">
                             <span class="history-feedback-chip"><i class="ph-bold ph-smiley"></i> Qualidade: ${qualityLabel}</span>
                             <span class="history-feedback-chip"><i class="ph-bold ph-lightning"></i> Intensidade: ${intensityLabel}</span>
-                            <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> RPE médio: ${rpeLabel}</span>
+                            <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> PSE médio: ${rpeLabel}</span>
                         </div>
                         ${notePreview ? `<div class="history-feedback-note">${escHtml(notePreview)}</div>` : ''}
                     </div>
@@ -2482,19 +2482,26 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
             <div class="history-feedback-badges">
                 <span class="history-feedback-chip"><i class="ph-bold ph-smiley"></i> Qualidade: ${qualityLabel}</span>
                 <span class="history-feedback-chip"><i class="ph-bold ph-lightning"></i> Intensidade: ${intensityLabel}</span>
-                <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> RPE médio: ${rpeLabel}</span>
+                <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> PSE médio: ${rpeLabel}</span>
             </div>
             ${note ? `<div class="history-feedback-note">${escHtml(note)}</div>` : `<div class="history-feedback-note">Sem notas registradas.</div>`}
         </div>
 
         <div class="history-detail-exercises">
-            ${(workout.Exercicios || []).map(ex => `
+            ${(workout.Exercicios || []).map(ex => {
+                const exNote = (ex.nota || ex.notes || '').trim();
+                return `
                 <div class="hd-exercise">
                     <h4>${escHtml(ex.nome)}</h4>
+                    <div class="hd-ex-meta">
+                        <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exercício.'}</span>
+                    </div>
                     <div class="hd-sets">
                         ${(ex.sets || []).map((s, si) => {
                             const rpeVal = Number(s.rpe);
-                            const rpeText = Number.isFinite(rpeVal) ? `RPE ${rpeVal.toFixed(1)}` : 'RPE --';
+                            const rpeText = Number.isFinite(rpeVal) ? `PSE ${rpeVal.toFixed(1)}` : 'PSE --';
+                            const execVal = Number(s.execucao);
+                            const execText = Number.isFinite(execVal) && execVal > 0 ? `Exec ${execVal}` : 'Exec --';
                             return `
                             <div class="hd-set-row ${s.brokenPRs && s.brokenPRs.length > 0 ? 'has-pr' : ''}">
                                 <span class="hd-set-num">${si + 1}</span>
@@ -2503,12 +2510,14 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
                                 <span>${s.reps || 0} reps</span>
                                 ${s.brokenPRs && s.brokenPRs.length > 0 ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
                                 <span class="hd-set-rpe">${rpeText}</span>
+                                <span class="hd-set-exec">${execText}</span>
                             </div>
                         `;
                         }).join('')}
                     </div>
                 </div>
-            `).join('')}
+            `;
+            }).join('')}
         </div>
     `;
 
@@ -2561,22 +2570,36 @@ function openHistoryDetail(originalIdx) {
         </div>
 
         <div class="history-detail-exercises">
-            ${(workout.Exercicios || []).map(ex => `
+            ${(workout.Exercicios || []).map(ex => {
+                const exNote = (ex.nota || ex.notes || '').trim();
+                return `
                 <div class="hd-exercise">
                     <h4>${escHtml(ex.nome)}</h4>
+                    <div class="hd-ex-meta">
+                        <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exercício.'}</span>
+                    </div>
                     <div class="hd-sets">
-                        ${ex.sets.map((s, si) => `
+                        ${(ex.sets || []).map((s, si) => {
+                            const rpeVal = Number(s.rpe);
+                            const rpeText = Number.isFinite(rpeVal) ? `PSE ${rpeVal.toFixed(1)}` : 'PSE --';
+                            const execVal = Number(s.execucao);
+                            const execText = Number.isFinite(execVal) && execVal > 0 ? `Exec ${execVal}` : 'Exec --';
+                            return `
                             <div class="hd-set-row ${s.brokenPRs && s.brokenPRs.length > 0 ? 'has-pr' : ''}">
                                 <span class="hd-set-num">${si + 1}</span>
                                 <span>${s.peso || 0} kg</span>
                                 <span>×</span>
                                 <span>${s.reps || 0} reps</span>
                                 ${s.brokenPRs && s.brokenPRs.length > 0 ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
+                                <span class="hd-set-rpe">${rpeText}</span>
+                                <span class="hd-set-exec">${execText}</span>
                             </div>
-                        `).join('')}
+                        `;
+                        }).join('')}
                     </div>
                 </div>
-            `).join('')}
+            `;
+            }).join('')}
         </div>
     `;
 
@@ -6325,6 +6348,7 @@ let restEndAt = 0;
 let workoutFeedbackRating = 0;
 let workoutFeedbackIntensity = 'moderado';
 let pendingSetCompletion = null;
+let pendingExecCompletion = null;
 let activeSetTypePopover = null;
 
 const SET_TYPE_OPTIONS = [
@@ -6389,6 +6413,33 @@ function getPreviousSessionData(studentId, exerciseName) {
     }
     return '-';
 }
+
+function getPreviousExerciseMeta(studentId, exerciseName) {
+    const history = readStorageJSON('workoutHistory', []);
+    const lastSession = [...history].reverse().find(h =>
+        h.ID_Usuario === studentId && (h.Exercicios || h.exercises).some(ex => ex.nome === exerciseName)
+    );
+
+    if (!lastSession) return { notes: '' };
+    const exs = lastSession.Exercicios || lastSession.exercises;
+    const ex = exs.find(e => e.nome === exerciseName);
+    if (!ex) return { notes: '' };
+    return {
+        notes: sanitizeUserInput(ex.nota || ex.notes || ex.observacao || ex.obs || '', { allowNewlines: false, maxLen: 300 })
+    };
+}
+
+function getExecutionLabel(score) {
+    const map = {
+        1: 'Ruim',
+        2: 'Ok',
+        3: 'Boa',
+        4: 'Ótima',
+        5: 'Perfeita'
+    };
+    return map[score] || '--';
+}
+
 
 function parsePreviousSetMetrics(prevText) {
     const raw = String(prevText || '').trim().toLowerCase();
@@ -6475,6 +6526,7 @@ function startWorkoutSession(blockIdx = 0) {
             showSubstitutes: false,
             supersetGroup: supersetGroups[idx] || 0,
             notes: '',
+            prevMeta: getPreviousExerciseMeta(studentId, ex.nome),
             best: personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxReps: 0 },
                 sets: Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => ({
                     id: `set-${idx}-${sIdx}`,
@@ -6484,6 +6536,7 @@ function startWorkoutSession(blockIdx = 0) {
                     intensityLevel: 0,
                     rpe: '',
                     rir: '',
+                    execucao: 0,
                     logged: false,
                 completed: false,
                 brokenPRs: { weight: false, volume: false, reps: false },
@@ -6558,17 +6611,24 @@ function renderWorkoutLog() {
                 </div>
             ` : ''}
 
-            <input type="text" class="exercise-notes-input" 
-                placeholder="Notas do exercício..." 
-                value="${escHtml(ex.notes || '')}"
-                oninput="updateExerciseNotes(${exIdx}, this.value)">
-            
+            ${(() => {
+                const prevNote = ex.prevMeta?.notes ? `Última nota: ${ex.prevMeta.notes}` : '';
+                const placeholder = prevNote || 'Notas do exercício...';
+                const hasPrev = !!prevNote;
+                return `
+                <input type="text" class="exercise-notes-input ${hasPrev ? 'has-prev' : ''}"
+                    placeholder="${escHtml(placeholder)}"
+                    value="${escHtml(ex.notes || '')}"
+                    oninput="updateExerciseNotes(${exIdx}, this.value)">`;
+            })()}
+
             <div class="log-set-table">
                 <div class="log-set-header">
                     <span>Série</span>
                     <span>Kg</span>
                     <span>Reps</span>
                     <span>PSE</span>
+                    <span>Exec</span>
                     <span>OK</span>
                 </div>
                 ${ex.sets.map((set, setIdx) => {
@@ -6621,6 +6681,10 @@ function renderWorkoutLog() {
                             ${renderPseSelector(exIdx, setIdx, set.rpe)}
                         </div>
 
+                        <div class="set-exec-visual" title="${getExecutionLabel(set.execucao)}">
+                            ${renderExecSelector(exIdx, setIdx, set.execucao)}
+                        </div>
+
                         <div class="set-check-wrap">
                             <button class="btn-check-set ${set.completed ? 'active' : ''}" 
                                 onclick="toggleSetCompletion(${exIdx}, ${setIdx})">
@@ -6649,6 +6713,7 @@ function updateExerciseNotes(exIdx, notes) {
     workoutState.exercises[exIdx].notes = notes;
     saveWorkoutBackup();
 }
+
 
 function getSetPRTooltip(set) {
     if (!set || !set.brokenPRs) return '';
@@ -6739,6 +6804,11 @@ function toggleSetCompletion(exIdx, setIdx) {
         openSetEffortQuickModal();
         return;
     }
+    if (!set.completed && !set.execucao) {
+        pendingExecCompletion = { exIdx, setIdx, completeAfter: true };
+        openSetExecutionQuickModal();
+        return;
+    }
 
     const willComplete = !set.completed;
     set.completed = willComplete;
@@ -6764,6 +6834,7 @@ function toggleSetCompletion(exIdx, setIdx) {
                 intensidade: set.intensityLevel || 0,
                 rpe: set.rpe ?? null,
                 rir: set.rir ?? null,
+                execucao: set.execucao ?? null,
                 completedAt: new Date().toISOString()
             });
             set.logged = true;
@@ -6815,12 +6886,42 @@ function closeSetEffortQuickModal() {
     setTimeout(() => { modal.style.display = 'none'; }, 180);
 }
 
+function openSetExecutionQuickModal(exIdx, setIdx, completeAfter = false) {
+    if (Number.isInteger(exIdx) && Number.isInteger(setIdx)) {
+        pendingExecCompletion = { exIdx, setIdx, completeAfter: !!completeAfter };
+    }
+    const modal = document.getElementById('set-exec-quick-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+}
+
+function closeSetExecutionQuickModal() {
+    const modal = document.getElementById('set-exec-quick-modal');
+    if (!modal) return;
+    pendingExecCompletion = null;
+    modal.classList.remove('active');
+    setTimeout(() => { modal.style.display = 'none'; }, 180);
+}
+
 function chooseQuickSetPse(pse) {
     if (!pendingSetCompletion) return;
     const { exIdx, setIdx, completeAfter } = pendingSetCompletion;
     setSetPse(exIdx, setIdx, pse);
     pendingSetCompletion = null;
     closeSetEffortQuickModal();
+    if (completeAfter) {
+        toggleSetCompletion(exIdx, setIdx);
+        triggerHaptic(20);
+    }
+}
+
+function chooseQuickSetExecution(value) {
+    if (!pendingExecCompletion) return;
+    const { exIdx, setIdx, completeAfter } = pendingExecCompletion;
+    setSetExecution(exIdx, setIdx, value);
+    pendingExecCompletion = null;
+    closeSetExecutionQuickModal();
     if (completeAfter) {
         toggleSetCompletion(exIdx, setIdx);
         triggerHaptic(20);
@@ -7056,6 +7157,7 @@ function addSetToExercise(exIdx) {
         intensityLevel: 0,
         rpe: '',
         rir: '',
+        execucao: 0,
         logged: false,
         completed: false,
         brokenPRs: { weight: false, volume: false, reps: false },
@@ -7184,6 +7286,7 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
         Volume_Total: totalVolume,
         Exercicios: workoutState.exercises.map(ex => ({
             nome: ex.nome,
+            nota: ex.notes || '',
             sets: ex.sets
                 .filter(s => s.completed)
                 .map(s => ({
@@ -7192,9 +7295,10 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
                     intensidade: s.intensityLevel || null,
                     rpe: s.rpe ? parseFloat(s.rpe) : null,
                     rir: s.rir ? parseInt(s.rir) : null,
+                    execucao: s.execucao ? parseInt(s.execucao) : null,
                     brokenPRs: s.brokenPRs // Keep this for summary visualization
                 }))
-        })).filter(ex => ex.sets.length > 0),
+        })).filter(ex => ex.sets.length > 0 || ex.nota),
         Avaliacao_Geral: {
             qualidade: Number(feedback.quality) || 0,
             intensidade: feedback.intensity || 'moderado',
@@ -7598,6 +7702,13 @@ function renderPseSelector(exIdx, setIdx, rpe) {
     return `<button type="button" class="set-pse-btn ${hasValue ? 'has-value' : ''}"${style} onclick="openSetEffortQuickModal(${exIdx}, ${setIdx}, false)">${label}</button>`;
 }
 
+function renderExecSelector(exIdx, setIdx, execValue) {
+    const value = Number(execValue);
+    const label = Number.isFinite(value) && value > 0 ? String(value) : '--';
+    const hasValue = Number.isFinite(value) && value > 0;
+    return `<button type="button" class="set-exec-btn ${hasValue ? 'has-value' : ''}" onclick="openSetExecutionQuickModal(${exIdx}, ${setIdx}, false)">${label}</button>`;
+}
+
 function setSetPse(exIdx, setIdx, pse) {
     if (!workoutState) return;
     const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
@@ -7608,6 +7719,16 @@ function setSetPse(exIdx, setIdx, pse) {
     set.rir = mapped.rir;
     set.intensityLevel = mapped.intensityLevel;
 
+    saveWorkoutBackup();
+    renderWorkoutLog();
+}
+
+function setSetExecution(exIdx, setIdx, execValue) {
+    if (!workoutState) return;
+    const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
+    if (!set) return;
+    const normalized = Math.min(5, Math.max(1, Number(execValue) || 0));
+    set.execucao = normalized || 0;
     saveWorkoutBackup();
     renderWorkoutLog();
 }
