@@ -4601,6 +4601,35 @@ body {
     color: var(--primary-color);
 }
 
+.set-type-option.danger {
+    border-color: rgba(248, 113, 113, 0.25);
+    background: rgba(248, 113, 113, 0.08);
+    color: #f87171;
+}
+
+.set-type-option.danger:hover {
+    border-color: rgba(248, 113, 113, 0.5);
+    background: rgba(248, 113, 113, 0.18);
+}
+
+.set-type-option.disabled,
+.set-type-option:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.set-type-option .ui-svg-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.set-type-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 0.2rem 0.2rem;
+}
+
 .set-type-chip {
     display: inline-flex;
     align-items: center;
@@ -4643,6 +4672,7 @@ body {
     border: 1px solid rgba(14, 165, 233, 0.3);
 }
 
+.set-number.type-preparatoria,
 .set-number.type-tempo {
     background: rgba(234, 88, 12, 0.12);
     color: #fdba74;

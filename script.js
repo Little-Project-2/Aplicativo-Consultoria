@@ -6383,9 +6383,14 @@ const SET_TYPE_OPTIONS = [
     { value: 'drop', label: 'Drop-set', short: 'D' },
     { value: 'failure', label: 'Falha', short: 'F' },
     { value: 'restpause', label: 'Rest-pause', short: 'R' },
-    { value: 'tempo', label: 'Tempo', short: 'T' },
+    { value: 'preparatoria', label: 'Preparatoria', short: 'P' },
     { value: 'cluster', label: 'Cluster', short: 'C' }
 ];
+
+function normalizeSetType(type) {
+    if (type === 'tempo') return 'preparatoria';
+    return type || 'normal';
+}
 
 function saveWorkoutBackup() {
     if (workoutState) {
@@ -6402,6 +6407,13 @@ function restoreWorkoutBackup() {
     if (backup) {
         try {
             workoutState = JSON.parse(backup);
+            if (workoutState?.exercises) {
+                workoutState.exercises.forEach((ex) => {
+                    ex.sets?.forEach((set) => {
+                        set.type = normalizeSetType(set.type);
+                    });
+                });
+            }
             // Resume view
             switchStudentView('log-workout');
             // Resume Timer
@@ -6655,7 +6667,7 @@ function renderWorkoutLog() {
                     <span>Reps</span>
                     <span>PSE</span>
                     <span>Exec</span>
-                    <span>Ações</span>
+                    <span>OK</span>
                 </div>
                 ${ex.sets.map((set, setIdx) => {
             const prevMetrics = parsePreviousSetMetrics(set.prev);
@@ -6667,14 +6679,13 @@ function renderWorkoutLog() {
             const lastRepsLabel = prevMetrics.reps === null ? '--' : `${prevMetrics.reps} reps`;
             const hasPR = set.completed && set.brokenPRs && (set.brokenPRs.weight || set.brokenPRs.volume || set.brokenPRs.reps);
             const prTooltip = hasPR ? getSetPRTooltip(set) : '';
-            const setType = set.type || 'normal';
+            const setType = normalizeSetType(set.type);
             const typeOption = SET_TYPE_OPTIONS.find(t => t.value === setType) || SET_TYPE_OPTIONS[0];
             const typeShort = typeOption.short || '';
             const setTitle = hasPR ? prTooltip : `Série ${setIdx + 1} · ${typeOption.label}`;
             const setNumberHtml = hasPR
                 ? `<span class="set-pr-icon" title="${prTooltip}">${uiSvgIcon('trophy')}</span>`
                 : `${typeShort || (setIdx + 1)}`;
-            const canRemoveSet = ex.sets.length > 1;
 
             return `
                     <div class="log-set-row ${set.completed ? 'completed' : ''}" id="row-${exIdx}-${setIdx}">
@@ -6716,10 +6727,6 @@ function renderWorkoutLog() {
                             <button class="btn-check-set ${set.completed ? 'active' : ''}" 
                                 onclick="toggleSetCompletion(${exIdx}, ${setIdx})">
                                 ${set.completed ? uiSvgIcon('check') : uiSvgIcon('circle')}
-                            </button>
-                            <button class="btn-remove-set" ${canRemoveSet ? '' : 'disabled'} title="${canRemoveSet ? 'Remover série' : 'Mínimo 1 série'}"
-                                onclick="removeSetFromExercise(${exIdx}, ${setIdx})">
-                                ${uiSvgIcon('x')}
                             </button>
                         </div>
                     </div>
@@ -6972,17 +6979,26 @@ function openSetTypePopover(event, exIdx, setIdx) {
     if (event) event.stopPropagation();
     closeSetTypePopover();
 
-    const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
+    const ex = workoutState.exercises?.[exIdx];
+    const set = ex?.sets?.[setIdx];
     if (!set) return;
-    const currentType = set.type || 'normal';
+    const currentType = normalizeSetType(set.type);
+    const canRemoveSet = ex?.sets?.length > 1;
 
     const popover = document.createElement('div');
     popover.className = 'set-type-popover';
-    popover.innerHTML = SET_TYPE_OPTIONS.map(opt => {
+    const optionsHtml = SET_TYPE_OPTIONS.map(opt => {
         const active = opt.value === currentType ? 'active' : '';
         const chip = opt.short ? `<span class="set-type-chip">${opt.short}</span>` : '';
         return `<button type="button" class="set-type-option ${active}" onclick="selectSetType(${exIdx}, ${setIdx}, '${opt.value}')">${chip}<span>${opt.label}</span></button>`;
     }).join('');
+    const removeHtml = `
+        <div class="set-type-divider"></div>
+        <button type="button" class="set-type-option danger ${canRemoveSet ? '' : 'disabled'}" ${canRemoveSet ? `onclick="removeSetFromExercise(${exIdx}, ${setIdx})"` : 'disabled'}>
+            ${uiSvgIcon('trash')}<span>${canRemoveSet ? 'Remover serie' : 'Minimo 1 serie'}</span>
+        </button>
+    `;
+    popover.innerHTML = `${optionsHtml}${removeHtml}`;
 
     popover.addEventListener('click', (e) => e.stopPropagation());
     document.body.appendChild(popover);
@@ -7214,6 +7230,7 @@ function removeSetFromExercise(exIdx, setIdx) {
     updateExercisePRs(exIdx);
     saveWorkoutBackup();
     renderWorkoutLog();
+    closeSetTypePopover();
 }
 
 function removeExerciseFromLog(exIdx) {
