@@ -108,13 +108,126 @@ function stopAllRealtimeListeners() {
         window.supabase.removeChannel(_mensagensChannel);
         _mensagensChannel = null;
     }
-    console.log('⛔ Todos os canais Realtime encerrados.');
+    console.log('⛔ Todos os canais Realtime (treinador) encerrados.');
+}
+
+// ─── REALTIME DO ALUNO ─────────────────────────────────────────────────────────
+
+let _alunoTreinoChannel = null;
+let _alunoDietaChannel = null;
+
+/**
+ * Inicia o ouvinte de treinos planejados em tempo real para o aluno.
+ * Quando o treinador alterar o treino deste aluno, o dashboard é atualizado automaticamente.
+ * @param {string} alunoId - UUID do aluno logado
+ */
+function startStudentWorkoutRealtimeListener(alunoId) {
+    if (_alunoTreinoChannel) {
+        window.supabase.removeChannel(_alunoTreinoChannel);
+    }
+
+    _alunoTreinoChannel = window.supabase
+        .channel('aluno-treinos-' + alunoId)
+        .on(
+            'postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'treinos_planejados',
+                filter: `aluno_id=eq.${alunoId}`
+            },
+            (payload) => {
+                console.log('🔄 Treino atualizado pelo treinador!', payload);
+
+                // Mostra toast visual
+                if (typeof showToast === 'function') {
+                    showToast('🔄 Seu treino foi atualizado pelo treinador!', 'info');
+                } else {
+                    console.log('📢 Treino atualizado pelo treinador!');
+                }
+
+                // Recarrega o treino no dashboard do aluno
+                if (typeof openStudentWorkout === 'function') {
+                    openStudentWorkout();
+                }
+                // Também tenta atualizar as opções de treino se disponível
+                if (typeof renderWorkoutStartOptions === 'function') {
+                    const student = typeof getCurrentStudent === 'function' ? getCurrentStudent() : null;
+                    if (student) renderWorkoutStartOptions(student);
+                }
+            }
+        )
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                console.log('✅ Realtime ativo: ouvindo treinos planejados para aluno', alunoId);
+            }
+        });
+}
+
+/**
+ * Inicia o ouvinte de dieta em tempo real para o aluno.
+ * Quando o treinador alterar a dieta deste aluno, o dashboard é atualizado automaticamente.
+ * @param {string} alunoId - UUID do aluno logado
+ */
+function startStudentDietRealtimeListener(alunoId) {
+    if (_alunoDietaChannel) {
+        window.supabase.removeChannel(_alunoDietaChannel);
+    }
+
+    _alunoDietaChannel = window.supabase
+        .channel('aluno-dieta-' + alunoId)
+        .on(
+            'postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'dieta',
+                filter: `aluno_id=eq.${alunoId}`
+            },
+            (payload) => {
+                console.log('🍽️ Dieta atualizada pelo treinador!', payload);
+
+                if (typeof showToast === 'function') {
+                    showToast('🍽️ Sua dieta foi atualizada pelo treinador!', 'info');
+                } else {
+                    console.log('📢 Dieta atualizada pelo treinador!');
+                }
+
+                // Recarrega a dieta se a função existir
+                if (typeof openStudentNutrition === 'function') {
+                    openStudentNutrition();
+                }
+            }
+        )
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                console.log('✅ Realtime ativo: ouvindo dieta para aluno', alunoId);
+            }
+        });
+}
+
+/**
+ * Para todos os ouvintes Realtime do aluno.
+ */
+function stopStudentRealtimeListeners() {
+    if (_alunoTreinoChannel) {
+        window.supabase.removeChannel(_alunoTreinoChannel);
+        _alunoTreinoChannel = null;
+    }
+    if (_alunoDietaChannel) {
+        window.supabase.removeChannel(_alunoDietaChannel);
+        _alunoDietaChannel = null;
+    }
+    console.log('⛔ Canais Realtime do aluno encerrados.');
 }
 
 window.RealtimeService = {
     startTrainerRealtimeListener,
     startMessagesRealtimeListener,
-    stopAllRealtimeListeners
+    stopAllRealtimeListeners,
+    startStudentWorkoutRealtimeListener,
+    startStudentDietRealtimeListener,
+    stopStudentRealtimeListeners
 };
 
 console.log('✅ services/realtime.js carregado!');
