@@ -1,4 +1,4 @@
-﻿function hideAllScreens() {
+function hideAllScreens() {
     const screens = document.querySelectorAll('.screen');
     screens.forEach(screen => screen.classList.remove('active'));
     const app = document.getElementById('app');
@@ -75,6 +75,372 @@ function readStorageJSON(key, fallback = []) {
     }
 }
 
+
+function getSupabaseClient() {
+    if (typeof window === 'undefined') return null;
+    return window.supabase && typeof window.supabase.from === 'function' ? window.supabase : null;
+}
+
+function isSupabaseReady() {
+    return !!getSupabaseClient();
+}
+
+function generateUID() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+const SUPABASE_TABLES = {
+    trainers: 'trainers',
+    students: 'students',
+    workoutHistory: 'workout_history',
+    trainerSettings: 'trainer_settings',
+    trainerNotifications: 'trainer_notifications',
+    exerciseCatalog: 'exercise_catalog',
+    messages: 'messages'
+};
+
+let supabaseStudentsSyncTimer = null;
+let supabaseTrainersSyncTimer = null;
+let supabaseSettingsSyncTimer = null;
+let supabaseNotificationsSyncTimer = null;
+let supabaseSyncInitialized = false;
+let supabaseRealtimeChannel = null;
+
+function ensureNotificationIds(list) {
+    (list || []).forEach((n) => {
+        if (!n.id) n.id = generateUID();
+    });
+}
+
+function ensureWorkoutHistoryIds(list) {
+    (list || []).forEach((h) => {
+        if (!h.id) h.id = generateUID();
+    });
+}
+
+function normalizeTrainerRow(row) {
+    if (!row) return null;
+    return {
+        name: row.name || '',
+        code: row.code || '',
+        consultoriaName: row.consultoria_name || row.consultoriaName || '',
+        services: row.services || 'treino'
+    };
+}
+
+function normalizeStudentRow(row) {
+    if (!row) return null;
+    const student = row.data && typeof row.data === 'object' ? row.data : {};
+    student.id = student.id || row.id || '';
+    student.trainerCode = student.trainerCode || row.trainer_code || '';
+    return student;
+}
+
+async function syncTrainersFromSupabase() {
+    const sb = getSupabaseClient();
+    if (!sb) return;
+    const { data, error } = await sb.from(SUPABASE_TABLES.trainers).select('*');
+    if (error) {
+        console.warn('Supabase trainers sync failed', error.message);
+        return;
+    }
+    if (!data) return;
+    const trainers = data.map(normalizeTrainerRow).filter(Boolean);
+    saveTrainersData(trainers, { skipSync: true });
+}
+
+async function syncStudentsFromSupabase({ trainerCode, studentId } = {}) {
+    const sb = getSupabaseClient();
+    if (!sb) return;
+    let query = sb.from(SUPABASE_TABLES.students).select('*');
+    if (trainerCode) query = query.eq('trainer_code', trainerCode);
+    if (studentId) query = query.eq('id', studentId);
+    const { data, error } = await query;
+    if (error) {
+        console.warn('Supabase students sync failed', error.message);
+        return;
+    }
+    if (!data) return;
+    const students = data.map(normalizeStudentRow).filter(Boolean);
+    saveStudentData(students, { skipSync: true });
+}
+
+async function syncWorkoutHistoryFromSupabase(studentId) {
+    const sb = getSupabaseClient();
+    if (!sb || !studentId) return;
+    const { data, error } = await sb
+        .from(SUPABASE_TABLES.workoutHistory)
+        .select('*')
+        .eq('student_id', String(studentId))
+        .order('created_at', { ascending: true });
+    if (error) {
+        console.warn('Supabase workout history sync failed', error.message);
+        return;
+    }
+    if (!data) return;
+    const history = data.map((row) => {
+        const entry = row.data && typeof row.data === 'object' ? row.data : {};
+        entry.id = entry.id || row.id || generateUID();
+        return entry;
+    });
+    saveWorkoutHistory(history, { skipSync: true });
+}
+
+async function syncTrainerNotificationsFromSupabase(trainerCode) {
+    const sb = getSupabaseClient();
+    if (!sb || !trainerCode) return;
+    const { data, error } = await sb
+        .from(SUPABASE_TABLES.trainerNotifications)
+        .select('*')
+        .eq('trainer_code', String(trainerCode))
+        .order('created_at', { ascending: false });
+    if (error) {
+        console.warn('Supabase notifications sync failed', error.message);
+        return;
+    }
+    if (!data) return;
+    const notifs = data.map((row) => {
+        const entry = row.data && typeof row.data === 'object' ? row.data : {};
+        entry.id = entry.id || row.id || generateUID();
+        return entry;
+    });
+    saveTrainerNotifications(notifs, { skipSync: true });
+}
+
+async function syncTrainerSettingsFromSupabase(trainerCode) {
+    const sb = getSupabaseClient();
+    if (!sb || !trainerCode) return;
+    const { data, error } = await sb
+        .from(SUPABASE_TABLES.trainerSettings)
+        .select('*')
+        .eq('trainer_code', String(trainerCode))
+        .maybeSingle();
+    if (error) {
+        console.warn('Supabase trainer settings sync failed', error.message);
+        return;
+    }
+    if (!data) return;
+    localStorage.setItem(TRAINER_SETTINGS_KEY, JSON.stringify(data.data || {}));
+    applyTrainerBranding(data.data || {});
+    loadTrainerSettingsToUI();
+}
+
+function queueSupabaseStudentsSync(students) {
+    if (!isSupabaseReady()) return;
+    if (supabaseStudentsSyncTimer) clearTimeout(supabaseStudentsSyncTimer);
+    const payload = JSON.parse(JSON.stringify(students || []));
+    supabaseStudentsSyncTimer = setTimeout(async () => {
+        const sb = getSupabaseClient();
+        if (!sb) return;
+        const rows = payload.map((student) => ({
+            id: String(student.id || ''),
+            trainer_code: String(student.trainerCode || student.trainer_code || ''),
+            data: student,
+            updated_at: new Date().toISOString()
+        })).filter((row) => row.id);
+        if (rows.length === 0) return;
+        const { error } = await sb.from(SUPABASE_TABLES.students).upsert(rows, { onConflict: 'id' });
+        if (error) console.warn('Supabase students upsert failed', error.message);
+    }, 400);
+}
+
+function queueSupabaseTrainersSync(trainers) {
+    if (!isSupabaseReady()) return;
+    if (supabaseTrainersSyncTimer) clearTimeout(supabaseTrainersSyncTimer);
+    const payload = JSON.parse(JSON.stringify(trainers || []));
+    supabaseTrainersSyncTimer = setTimeout(async () => {
+        const sb = getSupabaseClient();
+        if (!sb) return;
+        const rows = payload.map((trainer) => ({
+            code: String(trainer.code || ''),
+            name: trainer.name || '',
+            consultoria_name: trainer.consultoriaName || trainer.consultoria_name || '',
+            services: trainer.services || 'treino',
+            updated_at: new Date().toISOString()
+        })).filter((row) => row.code);
+        if (rows.length === 0) return;
+        const { error } = await sb.from(SUPABASE_TABLES.trainers).upsert(rows, { onConflict: 'code' });
+        if (error) console.warn('Supabase trainers upsert failed', error.message);
+    }, 400);
+}
+
+function queueSupabaseSettingsSync(trainerCode, settings) {
+    if (!isSupabaseReady() || !trainerCode) return;
+    if (supabaseSettingsSyncTimer) clearTimeout(supabaseSettingsSyncTimer);
+    const payload = JSON.parse(JSON.stringify(settings || {}));
+    supabaseSettingsSyncTimer = setTimeout(async () => {
+        const sb = getSupabaseClient();
+        if (!sb) return;
+        const row = {
+            trainer_code: String(trainerCode),
+            data: payload,
+            updated_at: new Date().toISOString()
+        };
+        const { error } = await sb.from(SUPABASE_TABLES.trainerSettings).upsert(row, { onConflict: 'trainer_code' });
+        if (error) console.warn('Supabase trainer settings upsert failed', error.message);
+    }, 400);
+}
+
+function queueSupabaseNotificationsSync(trainerCode, notifs) {
+    if (!isSupabaseReady() || !trainerCode) return;
+    if (supabaseNotificationsSyncTimer) clearTimeout(supabaseNotificationsSyncTimer);
+    const payload = JSON.parse(JSON.stringify(notifs || []));
+    supabaseNotificationsSyncTimer = setTimeout(async () => {
+        const sb = getSupabaseClient();
+        if (!sb) return;
+        const rows = payload.map((n) => ({
+            id: n.id || generateUID(),
+            trainer_code: String(trainerCode),
+            data: n,
+            created_at: n.time || n.created_at || new Date().toISOString()
+        }));
+        if (rows.length === 0) return;
+        const { error } = await sb.from(SUPABASE_TABLES.trainerNotifications).upsert(rows, { onConflict: 'id' });
+        if (error) console.warn('Supabase notifications upsert failed', error.message);
+    }, 500);
+}
+
+async function insertWorkoutHistoryRemote(entry) {
+    const sb = getSupabaseClient();
+    if (!sb || !entry) return;
+    const row = {
+        id: entry.id || generateUID(),
+        student_id: String(entry.ID_Usuario || entry.student_id || ''),
+        trainer_code: String(entry.trainerCode || localStorage.getItem('connectedTrainerCode') || ''),
+        data: entry,
+        created_at: entry.Data_Treino || new Date().toISOString()
+    };
+    if (!row.student_id) return;
+    const { error } = await sb.from(SUPABASE_TABLES.workoutHistory).upsert(row, { onConflict: 'id' });
+    if (error) console.warn('Supabase workout history insert failed', error.message);
+}
+
+async function deleteWorkoutHistoryRemote(entryId) {
+    const sb = getSupabaseClient();
+    if (!sb || !entryId) return;
+    const { error } = await sb.from(SUPABASE_TABLES.workoutHistory).delete().eq('id', entryId);
+    if (error) console.warn('Supabase workout history delete failed', error.message);
+}
+
+async function deleteStudentRemote(studentId) {
+    const sb = getSupabaseClient();
+    if (!sb || !studentId) return;
+    const { error } = await sb.from(SUPABASE_TABLES.students).delete().eq('id', String(studentId));
+    if (error) console.warn('Supabase student delete failed', error.message);
+}
+
+async function getTrainerByCodeRemote(code) {
+    const sb = getSupabaseClient();
+    if (!sb || !code) return null;
+    const { data, error } = await sb.from(SUPABASE_TABLES.trainers).select('*').eq('code', String(code)).maybeSingle();
+    if (error) {
+        console.warn('Supabase trainer fetch failed', error.message);
+        return null;
+    }
+    return normalizeTrainerRow(data);
+}
+
+async function getStudentByIdRemote(id) {
+    const sb = getSupabaseClient();
+    if (!sb || !id) return null;
+    const { data, error } = await sb.from(SUPABASE_TABLES.students).select('*').eq('id', String(id)).maybeSingle();
+    if (error) {
+        console.warn('Supabase student fetch failed', error.message);
+        return null;
+    }
+    return normalizeStudentRow(data);
+}
+
+function initSupabaseRealtime() {
+    if (!isSupabaseReady() || supabaseRealtimeChannel) return;
+    const sb = getSupabaseClient();
+    supabaseRealtimeChannel = sb.channel('consultoria_realtime');
+
+    supabaseRealtimeChannel.on('postgres_changes', { event: '*', schema: 'public', table: SUPABASE_TABLES.students }, (payload) => {
+        const row = payload.new || payload.old;
+        if (!row) return;
+        const student = normalizeStudentRow(row);
+        if (!student || !student.id) return;
+        let students = readStorageJSON('trainerStudents', []);
+        if (payload.eventType === 'DELETE') {
+            students = students.filter((s) => String(s.id) !== String(student.id));
+        } else {
+            const idx = students.findIndex((s) => String(s.id) === String(student.id));
+            if (idx >= 0) students[idx] = { ...students[idx], ...student };
+            else students.push(student);
+        }
+        saveStudentData(students, { skipSync: true });
+
+        const currentStudentId = localStorage.getItem('currentStudentId');
+        if (currentStudentId && String(currentStudentId) === String(student.id)) {
+            handleStudentDataUpdate({ studentId: student.id, reason: 'workout_plan_updated' });
+        }
+    });
+
+    supabaseRealtimeChannel.on('postgres_changes', { event: '*', schema: 'public', table: SUPABASE_TABLES.trainers }, (payload) => {
+        const row = payload.new || payload.old;
+        if (!row) return;
+        const trainer = normalizeTrainerRow(row);
+        if (!trainer || !trainer.code) return;
+        let trainers = readStorageJSON('allTrainers', []);
+        if (payload.eventType === 'DELETE') {
+            trainers = trainers.filter((t) => String(t.code) !== String(trainer.code));
+        } else {
+            const idx = trainers.findIndex((t) => String(t.code) === String(trainer.code));
+            if (idx >= 0) trainers[idx] = { ...trainers[idx], ...trainer };
+            else trainers.push(trainer);
+        }
+        saveTrainersData(trainers, { skipSync: true });
+    });
+
+    supabaseRealtimeChannel.on('postgres_changes', { event: '*', schema: 'public', table: SUPABASE_TABLES.trainerNotifications }, (payload) => {
+        const row = payload.new || payload.old;
+        if (!row) return;
+        const notif = row.data && typeof row.data === 'object' ? row.data : {};
+        notif.id = notif.id || row.id || generateUID();
+        const trainerCode = row.trainer_code || notif.trainerCode;
+        const currentTrainer = localStorage.getItem('currentTrainerCode');
+        if (trainerCode && currentTrainer && String(trainerCode) !== String(currentTrainer)) return;
+        let notifs = readStorageJSON('trainerNotifications', []);
+        if (payload.eventType === 'DELETE') {
+            notifs = notifs.filter((n) => String(n.id) !== String(notif.id));
+        } else {
+            const idx = notifs.findIndex((n) => String(n.id) === String(notif.id));
+            if (idx >= 0) notifs[idx] = { ...notifs[idx], ...notif };
+            else notifs.unshift(notif);
+        }
+        saveTrainerNotifications(notifs, { skipSync: true });
+        if (typeof renderDuvidas === 'function') renderDuvidas();
+    });
+
+    supabaseRealtimeChannel.on('postgres_changes', { event: '*', schema: 'public', table: SUPABASE_TABLES.workoutHistory }, (payload) => {
+        const row = payload.new || payload.old;
+        if (!row) return;
+        const entry = row.data && typeof row.data === 'object' ? row.data : {};
+        entry.id = entry.id || row.id || generateUID();
+        let history = readStorageJSON('workoutHistory', []);
+        if (payload.eventType === 'DELETE') {
+            history = history.filter((h) => String(h.id) !== String(entry.id));
+        } else {
+            const idx = history.findIndex((h) => String(h.id) === String(entry.id));
+            if (idx >= 0) history[idx] = { ...history[idx], ...entry };
+            else history.push(entry);
+        }
+        saveWorkoutHistory(history, { skipSync: true });
+    });
+
+    supabaseRealtimeChannel.subscribe();
+}
+
+async function initSupabaseSync() {
+    if (supabaseSyncInitialized || !isSupabaseReady()) return;
+    supabaseSyncInitialized = true;
+    await syncTrainersFromSupabase();
+    initSupabaseRealtime();
+}
 function readStudentAuthToken() {
     return readStorageJSON(STUDENT_AUTH_TOKEN_KEY, null);
 }
@@ -107,6 +473,11 @@ function openStudentDashboardSession(student, opts = {}) {
         saveStudentAuthToken(student);
     }
 
+    if (isSupabaseReady()) {
+        syncStudentsFromSupabase({ studentId: String(student.id) });
+        syncWorkoutHistoryFromSupabase(String(student.id));
+    }
+
     hideAllScreens();
     const app = document.getElementById('app');
     if (app) app.classList.add('wide');
@@ -116,12 +487,21 @@ function openStudentDashboardSession(student, opts = {}) {
     return true;
 }
 
-function tryAutoStudentLogin() {
+async function tryAutoStudentLogin() {
     const token = readStudentAuthToken();
     if (!token || !token.studentId) return false;
 
-    const students = readStorageJSON('trainerStudents', []);
-    const student = students.find(s => String(s.id) === String(token.studentId));
+    let students = readStorageJSON('trainerStudents', []);
+    let student = students.find(s => String(s.id) === String(token.studentId));
+
+    if (!student && isSupabaseReady()) {
+        student = await getStudentByIdRemote(token.studentId);
+        if (student) {
+            students.push(student);
+            saveStudentData(students);
+        }
+    }
+
     if (!student) {
         clearStudentAuthToken();
         return false;
@@ -431,7 +811,7 @@ function triggerHaptic(durationMs = 20) {
             window.navigator.vibrate(durationMs);
         }
     } catch {
-        // ignora erros de vibração
+        // ignora erros de vibra��o
     }
 }
 
@@ -537,7 +917,7 @@ function validateFormFields(form) {
         const value = sanitizeEmailInput(emailField.value);
         emailField.value = value;
         if (value && !EMAIL_REGEX.test(value)) {
-            emailField.setCustomValidity('Informe um e-mail válido.');
+            emailField.setCustomValidity('Informe um e-mail v�lido.');
             emailField.reportValidity();
             return false;
         }
@@ -635,7 +1015,7 @@ function ensureSelfTrainingStudent() {
         };
     }
 
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
 }
 
 function ensureAdminStudent() {
@@ -695,7 +1075,7 @@ function ensureAdminStudent() {
         };
     }
 
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
 }
 
 function goToHome() {
@@ -717,7 +1097,7 @@ function logout() {
     }
 }
 
-// â”€â”€â”€ Real-Time Sync (Cross-Tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Real-Time Sync (Cross-Tab) ──────────────────────────────────────────
 const syncChannel = typeof BroadcastChannel !== 'undefined'
     ? new BroadcastChannel('consultoria_sync')
     : { postMessage: () => { }, onmessage: null };
@@ -836,8 +1216,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     applyTrainerBranding();
     upgradeSidebarNavIcons();
     setupInstallButton();
+    initSupabaseSync();
 
-    // Haptic para ações de salvar plano, quando existirem
+    // Haptic para a��es de salvar plano, quando existirem
     document.addEventListener('click', (event) => {
         const saveBtn = event.target.closest('.btn-save-plan');
         if (saveBtn) {
@@ -863,8 +1244,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Fast path: remember-me token (auto-login instantâneo)
-    if (tryAutoStudentLogin()) return;
+    // Fast path: remember-me token (auto-login instant�neo)
+    if (await tryAutoStudentLogin()) return;
 
     // Legacy fallback for sessions without token
     const studentId = localStorage.getItem('currentStudentId');
@@ -888,7 +1269,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-// â”€â”€â”€ Real-Time Sync (Cross-Tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Real-Time Sync (Cross-Tab) ──────────────────────────────────────────
 window.addEventListener('storage', (e) => {
     // Sync Trainer Dashboard
     if (e.key === 'trainerStudents' || e.key === 'trainerNotifications') {
@@ -1021,7 +1402,7 @@ function editTrainerProfile() {
     const trainerName = localStorage.getItem('trainerName') || 'Treinador';
     const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
 
-    alert(`✏️ Editar Perfil\n\nNome: ${trainerName}\nCódigo: ${trainerCode}\n\nEsta funcionalidade será implementada em breve.`);
+    alert(`?? Editar Perfil\n\nNome: ${trainerName}\nC�digo: ${trainerCode}\n\nEsta funcionalidade ser� implementada em breve.`);
     closeTrainerProfileMenu();
 }
 
@@ -1034,22 +1415,22 @@ function viewTrainerStats() {
     const active = myStudents.filter(s => s.active).length;
     const pending = myStudents.filter(s => s.pending).length;
 
-    alert(`📊 Estatísticas\n\nTotal de Alunos: ${total}\nAtivos: ${active}\nPendentes: ${pending}\n\nVisita a aba "Alunos" para gerenciar.`);
+    alert(`?? Estat�sticas\n\nTotal de Alunos: ${total}\nAtivos: ${active}\nPendentes: ${pending}\n\nVisita a aba "Alunos" para gerenciar.`);
     closeTrainerProfileMenu();
     switchDashView('alunos');
 }
 
 function shareTrainerCode() {
     const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
-    const message = `Meu código de consultoria: ${trainerCode}\n\nJunte-se ao meu programa de treino e nutrição!`;
+    const message = `Meu c�digo de consultoria: ${trainerCode}\n\nJunte-se ao meu programa de treino e nutri��o!`;
 
     if (navigator.share) {
         navigator.share({
-            title: 'Código de Consultoria',
+            title: 'C�digo de Consultoria',
             text: message
         });
     } else {
-        alert(`📤 Código para compartilhar:\n\n${trainerCode}\n\nCopie este código e compartilhe com seus alunos.`);
+        alert(`?? C�digo para compartilhar:\n\n${trainerCode}\n\nCopie este c�digo e compartilhe com seus alunos.`);
     }
     closeTrainerProfileMenu();
 }
@@ -1079,14 +1460,14 @@ function toggleElement(id) {
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
-// â”€â”€â”€ Authentication Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Authentication Logic ──────────────────────────────────────────────────
 
 function handleEmailLogin() {
     const email = sanitizeEmailInput(document.getElementById('login-email')?.value);
     const pass = document.getElementById('login-pass').value;
 
     if (!EMAIL_REGEX.test(email)) {
-        alert('Informe um e-mail válido.');
+        alert('Informe um e-mail v�lido.');
         return;
     }
 
@@ -1142,7 +1523,7 @@ function handleProfileCreation() {
 
     let users = readStorageJSON('registeredUsers', []);
     if (users.some(u => String(u.email || '').trim().toLowerCase() === email)) {
-        alert('Este e-mail já está cadastrado.');
+        alert('Este e-mail j� est� cadastrado.');
         return;
     }
 
@@ -1170,7 +1551,7 @@ function handleGoogleLogin() {
                 </svg>
                 <h2 style="margin:0 0 0.5rem 0;">Fazer login com Google</h2>
                 <p style="color:#5f6368; margin-bottom:2rem;">Use sua Conta do Google para continuar</p>
-                <button onclick="window.opener.postMessage('google_success', '*'); window.close();" style="background:#1a73e8; color:white; border:none; padding:10px 24px; border-radius:4px; font-weight:500; cursor:pointer;">Continuar como Usuário</button>
+                <button onclick="window.opener.postMessage('google_success', '*'); window.close();" style="background:#1a73e8; color:white; border:none; padding:10px 24px; border-radius:4px; font-weight:500; cursor:pointer;">Continuar como Usu�rio</button>
             </div>
         </body>
     `);
@@ -1435,7 +1816,7 @@ function inferMovementPattern(name) {
     if (/(remada|row)/.test(n)) return 'puxar-horizontal';
     if (/(desenvolvimento|militar|arnold)/.test(n)) return 'empurrar-vertical';
     if (/(rosca|biceps)/.test(n)) return 'flexao-cotovelo';
-    if (/(triceps|tríceps)/.test(n)) return 'extensao-cotovelo';
+    if (/(triceps|tr�ceps)/.test(n)) return 'extensao-cotovelo';
     if (/(agachamento|leg press|hack|afundo|passada|lunge)/.test(n)) return 'agachar';
     if (/(stiff|terra|romeno|levantamento)/.test(n)) return 'hinge';
     if (/(extensora)/.test(n)) return 'extensao-joelho';
@@ -1489,10 +1870,10 @@ function getCoachAssistTip(ex) {
         const exec = Number(set?.execucao);
         if (!Number.isFinite(rpe) || !Number.isFinite(exec) || rpe <= 0 || exec <= 0) continue;
         if (rpe <= 6 && exec >= 4) {
-            return { type: 'progress', message: 'PSE baixo + execução alta. Sugestão: aumentar carga na próxima série.' };
+            return { type: 'progress', message: 'PSE baixo + execu��o alta. Sugest�o: aumentar carga na pr�xima s�rie.' };
         }
         if (rpe >= 10 && exec <= 2) {
-            return { type: 'regress', message: 'PSE 10 e execução baixa. Sugestão: manter carga e focar técnica.' };
+            return { type: 'regress', message: 'PSE 10 e execu��o baixa. Sugest�o: manter carga e focar t�cnica.' };
         }
         break;
     }
@@ -1560,12 +1941,12 @@ function notifyTrainerWorkoutUpdate(student, options = {}) {
         kind: 'workout_update',
         studentId,
         studentName,
-        title: `📌 Treino atualizado - ${studentName}`,
-        desc: `[Plano de treino atualizado] ${blocks.length} treino(s), ${totalExercises} exercícios.`,
+        title: `?? Treino atualizado - ${studentName}`,
+        desc: `[Plano de treino atualizado] ${blocks.length} treino(s), ${totalExercises} exerc�cios.`,
         time: new Date().toISOString(),
         unread: true
     });
-    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+    saveTrainerNotifications(notifs);
     localStorage.setItem(lastKey, String(now));
     syncChannel.postMessage({ type: 'NEW_DOUBT', payload: { studentId } });
 }
@@ -1653,13 +2034,13 @@ function addStudentExerciseToBlock(blockIdx) {
     const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
         const block = blocks[blockIdx];
         if (!block) return;
-        const nome = promptStudentField('Nome do exercício:', '', { maxLen: 80 });
+        const nome = promptStudentField('Nome do exerc�cio:', '', { maxLen: 80 });
         if (nome === null) return;
         if (!nome) {
-            alert('Informe o nome do exercício.');
+            alert('Informe o nome do exerc�cio.');
             return;
         }
-        const series = promptStudentField('Séries (ex: 4):', '4', { maxLen: 6 });
+        const series = promptStudentField('S�ries (ex: 4):', '4', { maxLen: 6 });
         if (series === null) return;
         const reps = promptStudentField('Reps (ex: 8-12):', '10-12', { maxLen: 12 });
         if (reps === null) return;
@@ -1667,7 +2048,7 @@ function addStudentExerciseToBlock(blockIdx) {
         if (carga === null) return;
         const descanso = promptStudentField('Descanso (opcional):', '60s', { maxLen: 12 });
         if (descanso === null) return;
-        const observacao = promptStudentField('Observação (opcional):', '', { maxLen: 160 });
+        const observacao = promptStudentField('Observa��o (opcional):', '', { maxLen: 160 });
         if (observacao === null) return;
 
         const note = observacao || '';
@@ -1701,9 +2082,9 @@ function editStudentExerciseInBlock(blockIdx, exIdx) {
         const block = blocks[blockIdx];
         const ex = block?.exercises?.[exIdx];
         if (!ex) return;
-        const nome = promptStudentField('Nome do exercício:', ex.nome || '', { maxLen: 80 });
+        const nome = promptStudentField('Nome do exerc�cio:', ex.nome || '', { maxLen: 80 });
         if (nome === null) return;
-        const series = promptStudentField('Séries (ex: 4):', ex.series || '', { maxLen: 6 });
+        const series = promptStudentField('S�ries (ex: 4):', ex.series || '', { maxLen: 6 });
         if (series === null) return;
         const reps = promptStudentField('Reps (ex: 8-12):', ex.reps || '', { maxLen: 12 });
         if (reps === null) return;
@@ -1711,7 +2092,7 @@ function editStudentExerciseInBlock(blockIdx, exIdx) {
         if (carga === null) return;
         const descanso = promptStudentField('Descanso (opcional):', ex.descanso || '', { maxLen: 12 });
         if (descanso === null) return;
-        const observacao = promptStudentField('Observação (opcional):', ex.observacao || ex.obs || '', { maxLen: 160 });
+        const observacao = promptStudentField('Observa��o (opcional):', ex.observacao || ex.obs || '', { maxLen: 160 });
         if (observacao === null) return;
 
         const note = observacao || '';
@@ -1734,7 +2115,7 @@ function editStudentExerciseInBlock(blockIdx, exIdx) {
 }
 
 function removeStudentExerciseFromBlock(blockIdx, exIdx) {
-    if (!confirm('Remover este exercício?')) return;
+    if (!confirm('Remover este exerc�cio?')) return;
     const studentId = localStorage.getItem('currentStudentId');
     const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
         const block = blocks[blockIdx];
@@ -1783,11 +2164,11 @@ function renderStudentWorkoutMain(options = {}) {
                 <i class="ph-fill ph-pencil-simple"></i>
                 <div class="empty-info">
                     <h3>Monte seu treino</h3>
-                    <p>Crie o primeiro bloco e adicione exercícios para treinar amanhã.</p>
+                    <p>Crie o primeiro bloco e adicione exerc�cios para treinar amanh�.</p>
                 </div>
                 <div style="display:flex; gap:0.8rem; flex-wrap:wrap; margin-top:1rem;">
                     <button class="btn-primary" onclick="addStudentWorkoutBlock()"><i class="ph-bold ph-plus"></i> Criar Treino</button>
-                    <button class="btn-secondary" onclick="openStudentWorkoutEditor()">Modo Edição</button>
+                    <button class="btn-secondary" onclick="openStudentWorkoutEditor()">Modo Edi��o</button>
                 </div>
             </div>`;
         } else {
@@ -1836,16 +2217,16 @@ function renderStudentWorkoutMain(options = {}) {
                                 <div class="exercise-order-badge">${idx + 1}</div>
                                 <div class="ex-name-box">
                                     <span>${escHtml(ex.nome)}</span>
-                                    <div class="ex-sets-mini">${ex.series} series • ${ex.reps} reps ${ex.descanso ? `• ${escHtml(ex.descanso)} descanso` : ''}</div>
+                                    <div class="ex-sets-mini">${ex.series} series � ${ex.reps} reps ${ex.descanso ? `� ${escHtml(ex.descanso)} descanso` : ''}</div>
                                     ${note ? `<p class="exercise-note"><i class="ph-bold ph-info"></i> ${escHtml(note)}</p>` : ''}
                                     ${substitutes.length ? `<div class="analysis-substitute-chips">${substitutes.map(s => `<span>${escHtml(s)}</span>`).join('')}</div>` : ''}
                                     ${ex.supersetWithNext ? `<p class="exercise-note"><i class="ph-bold ph-lightning"></i> Super serie com o proximo exercicio</p>` : ''}
                                     ${editMode ? `
                                     <div class="exercise-edit-row">
-                                        <button class="btn-icon-tiny action-edit" onclick="editStudentExerciseInBlock(${currentWorkoutTab}, ${idx})" title="Editar exercício">
+                                        <button class="btn-icon-tiny action-edit" onclick="editStudentExerciseInBlock(${currentWorkoutTab}, ${idx})" title="Editar exerc�cio">
                                             <i class="ph-bold ph-pencil-simple"></i>
                                         </button>
-                                        <button class="btn-icon-tiny action-trash" onclick="removeStudentExerciseFromBlock(${currentWorkoutTab}, ${idx})" title="Remover exercício">
+                                        <button class="btn-icon-tiny action-trash" onclick="removeStudentExerciseFromBlock(${currentWorkoutTab}, ${idx})" title="Remover exerc�cio">
                                             <i class="ph-bold ph-trash"></i>
                                         </button>
                                     </div>` : ''}
@@ -1855,7 +2236,7 @@ function renderStudentWorkoutMain(options = {}) {
                                 </button>
                             </div>`;
         }).join('')
-        : `<div class="student-ex-empty">${editMode ? 'Nenhum exercício ainda. Use "Adicionar exercício" para começar.' : 'Nenhum exercício cadastrado neste treino.'}</div>`;
+        : `<div class="student-ex-empty">${editMode ? 'Nenhum exerc�cio ainda. Use "Adicionar exerc�cio" para come�ar.' : 'Nenhum exerc�cio cadastrado neste treino.'}</div>`;
 
     mainContent.innerHTML = `
         <div class="routine-card workout-analysis-layout clean-analysis">
@@ -1912,15 +2293,15 @@ function renderStudentWorkoutMain(options = {}) {
                         <div class="student-edit-head">
                             <strong>Seu Treino</strong>
                             <button class="btn-secondary-outline" onclick="toggleStudentWorkoutEditMode()">
-                                ${editMode ? 'Concluir edição' : 'Editar treino'}
+                                ${editMode ? 'Concluir edi��o' : 'Editar treino'}
                             </button>
                         </div>
-                        <p class="student-edit-hint">${editMode ? 'Use os botões abaixo para montar o treino.' : 'Ative o modo edição para criar e ajustar seu treino.'}</p>
+                        <p class="student-edit-hint">${editMode ? 'Use os bot�es abaixo para montar o treino.' : 'Ative o modo edi��o para criar e ajustar seu treino.'}</p>
                         ${editMode ? `
                         <div class="student-edit-actions">
                             <button class="btn-secondary" onclick="addStudentWorkoutBlock()"><i class="ph-bold ph-plus"></i> Adicionar treino</button>
                             <button class="btn-secondary" onclick="renameStudentWorkoutBlock(${currentWorkoutTab})"><i class="ph-bold ph-pencil-simple"></i> Renomear treino</button>
-                            <button class="btn-secondary" onclick="addStudentExerciseToCurrentBlock()"><i class="ph-bold ph-plus-circle"></i> Adicionar exercício</button>
+                            <button class="btn-secondary" onclick="addStudentExerciseToCurrentBlock()"><i class="ph-bold ph-plus-circle"></i> Adicionar exerc�cio</button>
                             <button class="btn-secondary-outline btn-danger-outline" onclick="removeStudentWorkoutBlock(${currentWorkoutTab})"><i class="ph-bold ph-trash"></i> Remover treino</button>
                         </div>` : ''}
                     </div>` : ''}
@@ -1948,7 +2329,7 @@ function switchWorkoutTab(idx) {
     renderStudentWorkoutMain({ withSkeleton: true, delayMs: 160 });
 }
 
-// â”€â”€â”€ Treino Subview System â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Treino Subview System ──────────────────────────────────────────────────
 
 function switchTreinoSubview(view) {
     const landing = document.getElementById('treino-landing');
@@ -2016,7 +2397,7 @@ function pushStudentMessageToTrainer(studentId, studentName, payload = {}) {
     } : null;
 
     if (!media && rawDataUrl.length > 1_100_000 && !safeText) {
-        safeText = '[Mídia enviada: prévia indisponível no modo beta]';
+        safeText = '[M�dia enviada: pr�via indispon�vel no modo beta]';
     }
 
     if (!safeText && !media) return;
@@ -2027,14 +2408,14 @@ function pushStudentMessageToTrainer(studentId, studentName, payload = {}) {
         type: 'duvida',
         studentId,
         studentName: safeName,
-        title: `💬 Dúvida de ${safeName}`,
-        desc: safeText || '[Mídia enviada]',
+        title: `?? D�vida de ${safeName}`,
+        desc: safeText || '[M�dia enviada]',
         media,
         time: nowIso,
         unread: true
     });
 
-    localStorage.setItem('trainerNotifications', JSON.stringify(notifications));
+    saveTrainerNotifications(notifications);
     syncChannel.postMessage({ type: 'NEW_DOUBT', payload: { studentId } });
 }
 
@@ -2253,8 +2634,8 @@ function updateStudentRecordingUI() {
     if (btn) {
         btn.classList.toggle('recording', studentAudioRecording);
         btn.innerHTML = studentAudioRecording
-            ? '<i class="ph-bold ph-stop-circle"></i> Parar gravação'
-            : '<i class="ph-bold ph-microphone"></i> Gravar áudio real';
+            ? '<i class="ph-bold ph-stop-circle"></i> Parar grava��o'
+            : '<i class="ph-bold ph-microphone"></i> Gravar �udio real';
     }
     if (wave) wave.style.display = studentAudioRecording ? 'flex' : 'none';
 }
@@ -2262,11 +2643,11 @@ function updateStudentRecordingUI() {
 async function startStudentAudioRecording() {
     if (studentAudioRecording) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert('Gravação de áudio não suportada neste dispositivo.');
+        alert('Grava��o de �udio n�o suportada neste dispositivo.');
         return;
     }
     if (typeof MediaRecorder === 'undefined') {
-        alert('Seu navegador não suporta gravação de áudio nesta versão.');
+        alert('Seu navegador n�o suporta grava��o de �udio nesta vers�o.');
         return;
     }
 
@@ -2302,13 +2683,13 @@ async function startStudentAudioRecording() {
                 const dataUrl = await fileToDataUrl(blob);
                 const safeDataUrl = dataUrl.length > 1_100_000 ? '' : dataUrl;
                 simulateStudentMediaUpload('audio', {
-                    text: safeDataUrl ? '[Áudio gravado no app]' : '[Áudio enviado: prévia indisponível]',
+                    text: safeDataUrl ? '[�udio gravado no app]' : '[�udio enviado: pr�via indispon�vel]',
                     mediaDataUrl: safeDataUrl,
                     mediaDuration: formatSecondsMMSS(durationSec)
                 });
             } catch (err) {
-                console.error('Falha ao processar áudio gravado', err);
-                alert('Não foi possível processar o áudio.');
+                console.error('Falha ao processar �udio gravado', err);
+                alert('N�o foi poss�vel processar o �udio.');
             } finally {
                 releaseStudentAudioStream();
                 studentAudioRecorder = null;
@@ -2326,7 +2707,7 @@ async function startStudentAudioRecording() {
         }, 20 * 1000);
     } catch (err) {
         console.error('Falha ao iniciar gravacao do aluno', err);
-        alert('Não foi possível acessar o microfone.');
+        alert('N�o foi poss�vel acessar o microfone.');
         releaseStudentAudioStream();
     }
 }
@@ -2387,7 +2768,7 @@ function simulateStudentMediaUpload(kind = 'audio', options = {}) {
 
             const messages = loadStudentChatMessages(studentId, studentName);
             const messageType = kind === 'video' ? 'video' : 'audio';
-            const messageText = options.text || (kind === 'video' ? '[Vídeo simulado enviado]' : '[Áudio simulado enviado]');
+            const messageText = options.text || (kind === 'video' ? '[V�deo simulado enviado]' : '[�udio simulado enviado]');
             const nowIso = new Date().toISOString();
             const localId = `n-${studentId}-${nowIso}-q`;
             messages.push({
@@ -2434,7 +2815,7 @@ function renderStudentDuvidas() {
                 ${messages.length === 0
             ? `<div class="empty-state-card" style="margin-top:0;border-color:rgba(255,255,255,0.03);">
                             <i class="ph-bold ph-chat-circle-dots" style="font-size:1.5rem;opacity:0.5;"></i>
-                            <p style="font-size:0.8rem;color:var(--text-muted);">Envie uma mensagem para iniciar o chat de dúvidas.</p>
+                            <p style="font-size:0.8rem;color:var(--text-muted);">Envie uma mensagem para iniciar o chat de d�vidas.</p>
                         </div>`
             : messages.map(renderStudentChatBubble).join('')
         }
@@ -2449,21 +2830,21 @@ function renderStudentDuvidas() {
 
             <div class="student-chat-compose">
                 <textarea id="student-chat-input" class="q-input" rows="2" maxlength="900"
-                    placeholder="Digite sua dúvida aqui..."
+                    placeholder="Digite sua d�vida aqui..."
                     onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendStudentQuickMessage();}"></textarea>
                 <div id="student-chat-recording-wave" class="student-chat-recording-wave" style="display:none;">
                     <span></span><span></span><span></span><span></span><span></span>
-                    <small>Gravando áudio...</small>
+                    <small>Gravando �udio...</small>
                 </div>
                 <div class="student-chat-actions">
                     <button type="button" class="btn-secondary-outline" id="btn-student-record-audio" onclick="toggleStudentAudioRecording()">
-                        <i class="ph-bold ph-microphone"></i> Gravar áudio real
+                        <i class="ph-bold ph-microphone"></i> Gravar �udio real
                     </button>
                     <button type="button" class="btn-secondary-outline" onclick="simulateStudentMediaUpload('audio')">
-                        <i class="ph-bold ph-waveform"></i> Simular Áudio
+                        <i class="ph-bold ph-waveform"></i> Simular �udio
                     </button>
                     <button type="button" class="btn-secondary-outline" onclick="simulateStudentMediaUpload('video')">
-                        <i class="ph-bold ph-video-camera"></i> Simular Vídeo
+                        <i class="ph-bold ph-video-camera"></i> Simular V�deo
                     </button>
                     <button type="button" class="btn-primary" onclick="sendStudentQuickMessage()">
                         <i class="ph-fill ph-paper-plane-right"></i> Enviar
@@ -2530,7 +2911,7 @@ function renderWorkoutHistory() {
         listEl.innerHTML = `
             <div class="perfil-history-empty">
                 <i class="ph-bold ph-barbell"></i>
-                <p>Você ainda não completou nenhum treino. Inicie um treino pelo Dashboard para começar a acompanhar sua evolução!</p>
+                <p>Voc� ainda n�o completou nenhum treino. Inicie um treino pelo Dashboard para come�ar a acompanhar sua evolu��o!</p>
             </div>
         `;
         return;
@@ -2550,8 +2931,8 @@ function renderWorkoutHistory() {
                 <div class="history-workout-left">
                     <div class="history-workout-date">${date}</div>
                     <div class="history-workout-meta">
-                        <span><i class="ph-bold ph-barbell"></i> ${exerciseCount} exercícios</span>
-                        <span><i class="ph-bold ph-stack"></i> ${totalSets} séries</span>
+                        <span><i class="ph-bold ph-barbell"></i> ${exerciseCount} exerc�cios</span>
+                        <span><i class="ph-bold ph-stack"></i> ${totalSets} s�ries</span>
                         <span><i class="ph-bold ph-timer"></i> ${durationMin} min</span>
                     </div>
                     <div class="history-workout-exercises">
@@ -2653,7 +3034,7 @@ function renderTrainerWorkoutHistory(studentId) {
             <div class="evo-card">
                 <div class="evo-icon"><i class="ph-bold ph-gauge"></i></div>
                 <div class="evo-value">${avgRpeAll ? avgRpeAll.toFixed(1) : '--'}</div>
-                <div class="evo-label">RPE Médio</div>
+                <div class="evo-label">RPE M�dio</div>
             </div>
         `;
     }
@@ -2662,7 +3043,7 @@ function renderTrainerWorkoutHistory(studentId) {
         listEl.innerHTML = `
             <div class="perfil-history-empty">
                 <i class="ph-bold ph-barbell"></i>
-                <p>Este aluno ainda não completou nenhum treino.</p>
+                <p>Este aluno ainda n�o completou nenhum treino.</p>
             </div>
         `;
         return;
@@ -2690,15 +3071,15 @@ function renderTrainerWorkoutHistory(studentId) {
                 <div class="history-workout-left">
                     <div class="history-workout-date">${date}</div>
                     <div class="history-workout-meta">
-                        <span><i class="ph-bold ph-barbell"></i> ${exerciseCount} exercícios</span>
-                        <span><i class="ph-bold ph-stack"></i> ${totalSets} séries</span>
+                        <span><i class="ph-bold ph-barbell"></i> ${exerciseCount} exerc�cios</span>
+                        <span><i class="ph-bold ph-stack"></i> ${totalSets} s�ries</span>
                         <span><i class="ph-bold ph-timer"></i> ${durationMin} min</span>
                     </div>
                     <div class="history-feedback">
                         <div class="history-feedback-badges">
                             <span class="history-feedback-chip"><i class="ph-bold ph-smiley"></i> Qualidade: ${qualityLabel}</span>
                             <span class="history-feedback-chip"><i class="ph-bold ph-lightning"></i> Intensidade: ${intensityLabel}</span>
-                            <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> PSE médio: ${rpeLabel}</span>
+                            <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> PSE m�dio: ${rpeLabel}</span>
                         </div>
                         ${notePreview ? `<div class="history-feedback-note">${escHtml(notePreview)}</div>` : ''}
                     </div>
@@ -2737,14 +3118,14 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
     const rpeStats = getWorkoutRpeStats(workout);
     const rpeLabel = rpeStats.avg ? rpeStats.avg.toFixed(1) : '--';
 
-    title.textContent = `Treino — ${formatDate(workout.Data_Treino)}`;
+    title.textContent = `Treino � ${formatDate(workout.Data_Treino)}`;
 
     body.innerHTML = `
         <div class="history-detail-stats">
             <div class="hd-stat">
                 <i class="ph-bold ph-timer"></i>
                 <span>${durationMin}:${durationSec.toString().padStart(2, '0')}</span>
-                <small>Duração</small>
+                <small>Dura��o</small>
             </div>
             <div class="hd-stat">
                 <i class="ph-bold ph-barbell"></i>
@@ -2754,7 +3135,7 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
             <div class="hd-stat">
                 <i class="ph-bold ph-stack"></i>
                 <span>${(workout.Exercicios || []).reduce((s, ex) => s + (ex.sets || []).length, 0)}</span>
-                <small>Séries</small>
+                <small>S�ries</small>
             </div>
             <div class="hd-stat">
                 <i class="ph-bold ph-trophy"></i>
@@ -2767,7 +3148,7 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
             <div class="history-feedback-badges">
                 <span class="history-feedback-chip"><i class="ph-bold ph-smiley"></i> Qualidade: ${qualityLabel}</span>
                 <span class="history-feedback-chip"><i class="ph-bold ph-lightning"></i> Intensidade: ${intensityLabel}</span>
-                <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> PSE médio: ${rpeLabel}</span>
+                <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> PSE m�dio: ${rpeLabel}</span>
             </div>
             ${note ? `<div class="history-feedback-note">${escHtml(note)}</div>` : `<div class="history-feedback-note">Sem notas registradas.</div>`}
         </div>
@@ -2784,7 +3165,7 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
                     <h4>${escHtml(ex.nome)}</h4>
                     <div class="hd-ex-meta">
                         ${prChip}
-                        <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exercício.'}</span>
+                        <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exerc�cio.'}</span>
                     </div>
                     <div class="hd-sets">
                         ${(ex.sets || []).map((s, si) => {
@@ -2796,7 +3177,7 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
                             <div class="hd-set-row ${hasSetPR(s) ? 'has-pr' : ''}">
                                 <span class="hd-set-num">${si + 1}</span>
                                 <span>${s.peso || 0} kg</span>
-                                <span>×</span>
+                                <span>�</span>
                                 <span>${s.reps || 0} reps</span>
                                 ${hasSetPR(s) ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
                                 <span class="hd-set-rpe">${rpeText}</span>
@@ -2839,14 +3220,14 @@ function openHistoryDetail(originalIdx) {
     const durationSec = (workout.Duracao || 0) % 60;
     const prCount = countWorkoutPRs(workout);
 
-    title.textContent = `Treino — ${formatDate(workout.Data_Treino)}`;
+    title.textContent = `Treino � ${formatDate(workout.Data_Treino)}`;
 
     body.innerHTML = `
         <div class="history-detail-stats">
             <div class="hd-stat">
                 <i class="ph-bold ph-timer"></i>
                 <span>${durationMin}:${durationSec.toString().padStart(2, '0')}</span>
-                <small>Duração</small>
+                <small>Dura��o</small>
             </div>
             <div class="hd-stat">
                 <i class="ph-bold ph-barbell"></i>
@@ -2856,7 +3237,7 @@ function openHistoryDetail(originalIdx) {
             <div class="hd-stat">
                 <i class="ph-bold ph-stack"></i>
                 <span>${(workout.Exercicios || []).reduce((s, ex) => s + (ex.sets || []).length, 0)}</span>
-                <small>Séries</small>
+                <small>S�ries</small>
             </div>
             <div class="hd-stat">
                 <i class="ph-bold ph-trophy"></i>
@@ -2877,7 +3258,7 @@ function openHistoryDetail(originalIdx) {
                     <h4>${escHtml(ex.nome)}</h4>
                     <div class="hd-ex-meta">
                         ${prChip}
-                        <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exercício.'}</span>
+                        <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exerc�cio.'}</span>
                     </div>
                     <div class="hd-sets">
                         ${(ex.sets || []).map((s, si) => {
@@ -2889,7 +3270,7 @@ function openHistoryDetail(originalIdx) {
                             <div class="hd-set-row ${hasSetPR(s) ? 'has-pr' : ''}">
                                 <span class="hd-set-num">${si + 1}</span>
                                 <span>${s.peso || 0} kg</span>
-                                <span>×</span>
+                                <span>�</span>
                                 <span>${s.reps || 0} reps</span>
                                 ${hasSetPR(s) ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
                                 <span class="hd-set-rpe">${rpeText}</span>
@@ -3005,7 +3386,7 @@ function getExerciseProgressSeries(studentId, exerciseName) {
     return series;
 }
 
-// â”€â”€â”€ Confirmation Modal Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Confirmation Modal Logic ──────────────────────────────────────────────
 let confirmationCallback = null;
 
 function openConfirmationModal(title, message, callback) {
@@ -3048,23 +3429,26 @@ function closeConfirmationModal() {
 function confirmDeleteWorkout(idx) {
     openConfirmationModal(
         'Excluir Treino',
-        'Tem certeza que deseja excluir este registro de treino? Esta ação não pode ser desfeita.',
+        'Tem certeza que deseja excluir este registro de treino? Esta a��o n�o pode ser desfeita.',
         () => deleteWorkoutEntry(idx)
     );
 }
 
 function deleteWorkoutEntry(idx) {
     const history = readStorageJSON('workoutHistory', []);
-    history.splice(idx, 1);
-    localStorage.setItem('workoutHistory', JSON.stringify(history));
+    const removed = history.splice(idx, 1)[0];
+    if (removed?.id) {
+        deleteWorkoutHistoryRemote(removed.id);
+    }
+    saveWorkoutHistory(history);
     renderWorkoutHistory();
     syncChannel.postMessage({ type: 'workout_history_updated' });
 }
 
 function confirmDeleteMetric(idxInHistory) {
     openConfirmationModal(
-        'Excluir Medição',
-        'Tem certeza que deseja excluir este registro de medidas? Isso afetará os gráficos e médias globais.',
+        'Excluir Medi��o',
+        'Tem certeza que deseja excluir este registro de medidas? Isso afetar� os gr�ficos e m�dias globais.',
         () => deleteMetricEntry(idxInHistory)
     );
 }
@@ -3085,13 +3469,13 @@ function deleteMetricEntry(idx) {
             students[sIdx].currentBF = latest.bodyFat || students[sIdx].currentBF;
         }
 
-        localStorage.setItem('trainerStudents', JSON.stringify(students));
+        saveStudentData(students);
         renderStudentPerfil();
-        syncChannel.postMessage({ type: 'student_data_updated' });
+        broadcastStudentDataUpdate(studentId, 'metrics_updated');
     }
 }
 
-// ─── Q&A / Dúvidas ──────────────────────────────────────────────────────────
+// --- Q&A / D�vidas ----------------------------------------------------------
 
 function openDuvidaModal() {
     const modal = document.getElementById('duvida-modal-overlay');
@@ -3112,16 +3496,16 @@ function enviarDuvida() {
     const texto = sanitizeUserInput(document.getElementById('duvida-texto')?.value, { allowNewlines: true, maxLen: 1200 });
 
     if (!texto) {
-        alert('Por favor, descreva sua dúvida.');
+        alert('Por favor, descreva sua d�vida.');
         return;
     }
 
     const studentName = localStorage.getItem('studentName') || 'Aluno';
     const assuntoLabels = {
-        'exercicio': 'Dúvida sobre exercício',
-        'execucao': 'Dúvida sobre execução',
-        'substituicao': 'Substituição de exercício',
-        'carga': 'Dúvida sobre carga',
+        'exercicio': 'D�vida sobre exerc�cio',
+        'execucao': 'D�vida sobre execu��o',
+        'substituicao': 'Substitui��o de exerc�cio',
+        'carga': 'D�vida sobre carga',
         'outro': 'Outro'
     };
 
@@ -3133,12 +3517,12 @@ function enviarDuvida() {
         type: 'duvida',
         studentId: studentId,
         studentName: studentName,
-        title: `💬 Dúvida de ${studentName}`,
+        title: `?? D�vida de ${studentName}`,
         desc: `[${assuntoLabels[assunto]}] ${texto}`,
         time: new Date().toISOString(),
         unread: true
     });
-    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+    saveTrainerNotifications(notifs);
 
     // Broadcast change
     syncChannel.postMessage({ type: 'NEW_DOUBT' });
@@ -3148,7 +3532,7 @@ function enviarDuvida() {
     closeDuvidaModal();
 
     // Feedback
-    alert('✅ Dúvida enviada com sucesso! Seu treinador receberá a mensagem.');
+    alert('? D�vida enviada com sucesso! Seu treinador receber� a mensagem.');
 }
 
 function getMuscleGroups(exercises) {
@@ -3157,8 +3541,8 @@ function getMuscleGroups(exercises) {
         'peito': 'Peito', 'supino': 'Peito', 'crucifixo': 'Peito', 'voador': 'Peito', 'chest': 'Peito',
         'costas': 'Costas', 'puxada': 'Costas', 'remada': 'Costas', 'back': 'Costas', 'pulldown': 'Costas',
         'ombro': 'Ombros', 'desenvolvimento': 'Ombros', 'lateral': 'Ombros', 'shoulder': 'Ombros',
-        'triceps': 'Tríceps', 'tríceps': 'Tríceps', 'extension': 'Tríceps',
-        'biceps': 'Bíceps', 'bíceps': 'Bíceps', 'rosca': 'Bíceps', 'curl': 'Bíceps',
+        'triceps': 'Tr�ceps', 'tr�ceps': 'Tr�ceps', 'extension': 'Tr�ceps',
+        'biceps': 'B�ceps', 'b�ceps': 'B�ceps', 'rosca': 'B�ceps', 'curl': 'B�ceps',
         'perna': 'Pernas', 'agachamento': 'Pernas', 'leg': 'Pernas', 'extensora': 'Pernas', 'flexora': 'Pernas', 'panturrilha': 'Pernas',
         'abdomen': 'Abdominais', 'abdominal': 'Abdominais', 'crunch': 'Abdominais', 'prancha': 'Abdominais'
     };
@@ -3225,9 +3609,9 @@ function renderStudentDietContent(student) {
 
     const summaryCard = `
         <div class="diet-macro-summary-card">
-            <div class="diet-macro-summary-title">Macros Diários</div>
+            <div class="diet-macro-summary-title">Macros Di�rios</div>
             <div class="diet-progress-row">
-                <div class="diet-progress-label protein">${uiSvgIcon('protein')} Proteína</div>
+                <div class="diet-progress-label protein">${uiSvgIcon('protein')} Prote�na</div>
                 <div class="diet-progress-bar"><span class="diet-progress-fill protein" style="width:${macro.progress.protein}%"></span></div>
                 <div class="diet-progress-value">${macro.totals.protein}/${macro.targets.protein}g</div>
             </div>
@@ -3274,7 +3658,7 @@ function renderStudentDietContent(student) {
     const waterCard = `
         <div class="meal-block meal-glass-card" style="text-align: center; padding: 1.5rem; margin-top: 1rem;">
             <h3 style="margin-bottom: 1rem; color: #60a5fa; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                <i class="ph-fill ph-drop" style="font-size: 1.5rem;"></i> Consumo de Água
+                <i class="ph-fill ph-drop" style="font-size: 1.5rem;"></i> Consumo de �gua
             </h3>
             <div style="display: flex; justify-content: center; align-items: center; gap: 1.5rem; font-size: 2rem;">
                 <button class="btn-icon" onclick="updateWater(-1)" style="color: #f87171; background: rgba(248,113,113,0.1); border-radius: 50%; width: 48px; height: 48px;">
@@ -3288,7 +3672,7 @@ function renderStudentDietContent(student) {
                     <i class="ph-bold ph-plus"></i>
                 </button>
             </div>
-            <p style="margin-top: 1rem; font-size: 0.85rem; color: rgba(255,255,255,0.5);">A meta recomendada é de ~8 a 10 copos por dia (2L+)</p>
+            <p style="margin-top: 1rem; font-size: 0.85rem; color: rgba(255,255,255,0.5);">A meta recomendada � de ~8 a 10 copos por dia (2L+)</p>
         </div>
     `;
 
@@ -3322,8 +3706,8 @@ function renderStudentDietMain() {
         container.innerHTML = `<div class="empty-state-card" style="margin-top:2rem;">
             <i class="ph-fill ph-hourglass-high"></i>
             <div class="empty-info">
-                <h3>Dieta em análise</h3>
-                <p>Seu plano alimentar ainda não foi liberado pelo treinador.</p>
+                <h3>Dieta em an�lise</h3>
+                <p>Seu plano alimentar ainda n�o foi liberado pelo treinador.</p>
             </div>
         </div>`;
         return;
@@ -3333,12 +3717,12 @@ function renderStudentDietMain() {
     optimizeMediaElements(container);
 }
 
-function handleUnifiedLogin() {
+async function handleUnifiedLogin() {
     const code = sanitizeCodeInput(document.getElementById('global-code')?.value, 5);
     const codeInput = document.getElementById('global-code');
     if (codeInput) codeInput.value = code;
     if (code.length !== 5) {
-        alert('Digite o código de 5 dígitos.');
+        alert('Digite o c�digo de 5 d�gitos.');
         return;
     }
 
@@ -3389,17 +3773,17 @@ function handleUnifiedLogin() {
         return;
     }
 
-    alert('Código não encontrado. Se você é novo, use as opções da tela inicial.');
+    alert('C�digo n�o encontrado. Se voc� � novo, use as op��es da tela inicial.');
 }
 
 let pendingTrainerCode = '';
 
-function connectStudent() {
+async function connectStudent() {
     const code = sanitizeCodeInput(document.getElementById('trainer-code')?.value, 5);
     const codeInput = document.getElementById('trainer-code');
     if (codeInput) codeInput.value = code;
     if (code.length !== 5) {
-        alert('O código deve ter exatamente 5 dígitos.');
+        alert('O c�digo deve ter exatamente 5 d�gitos.');
         return;
     }
 
@@ -3443,7 +3827,7 @@ function connectStudent() {
             coachName = t.name;
             consultoriaName = t.consultoriaName || `Consultoria de ${t.name.split(' ')[0]} `;
         } else {
-            alert('Código de treinador não encontrado.');
+            alert('C�digo de treinador n�o encontrado.');
             return;
         }
     }
@@ -3513,7 +3897,7 @@ function submitQuestionnaire() {
     }
 
     if (!pendingTrainerCode || pendingTrainerCode.length !== 5) {
-        alert('Conexão com treinador inválida. Refaça o processo de conexão.');
+        alert('Conex�o com treinador inv�lida. Refa�a o processo de conex�o.');
         return;
     }
 
@@ -3546,30 +3930,30 @@ function submitQuestionnaire() {
 
     let students = readStorageJSON('trainerStudents', []);
     students.push(newStudent);
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
 
     let notifs = readStorageJSON('trainerNotifications', []);
     notifs.unshift({
         type: 'questionnaire',
-        title: 'Questionário Respondido!',
-        desc: `Um novo aluno acabou de enviar o questionário inicial.`,
+        title: 'Question�rio Respondido!',
+        desc: `Um novo aluno acabou de enviar o question�rio inicial.`,
         time: 'Agora mesmo',
         unread: true
     });
-    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+    saveTrainerNotifications(notifs);
 
     // Save current session info + remember-me token
     openStudentDashboardSession(newStudent);
 }
 
-// â”€â”€â”€ Student Dashboard (Real Data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Student Dashboard (Real Data) ──────────────────────────────────────────
 
 function initStudentDashboard() {
     const studentId = localStorage.getItem('currentStudentId');
     const trainerCode = localStorage.getItem('connectedTrainerCode');
     const studentName = localStorage.getItem('studentName') || 'Aluno';
 
-    document.getElementById('dash-student-name').innerText = `Olá, ${studentName.split(' ')[0]} `;
+    document.getElementById('dash-student-name').innerText = `Ol�, ${studentName.split(' ')[0]} `;
     document.getElementById('dash-student-trainer').innerText = trainerCode || 'Consultoria';
 
     // Sync sidebar name
@@ -3630,7 +4014,7 @@ function renderWorkoutStartOptions(student) {
             <div style="flex:1; text-align: left;">
                 <span style="display: block; font-weight: 700; color: var(--text-main); font-size: 1rem;">Continuar treino</span>
                 <span style="font-size: 0.75rem; color: #fde68a; font-weight: 600;">${escHtml(backup.title || 'Treino em andamento')}</span>
-                <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${doneSets}/${totalSets} séries · ${elapsedMin} min</span>
+                <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${doneSets}/${totalSets} s�ries � ${elapsedMin} min</span>
             </div>
             <i class="ph-bold ph-caret-right" style="color: #facc15; font-size: 1rem;"></i>
         </button>`;
@@ -3664,8 +4048,8 @@ function renderWorkoutStartOptions(student) {
             <i class="ph-fill ph-play-circle" style="color: var(--primary-color); font-size: 1.5rem;"></i>
             <div style="flex:1; text-align: left;">
                 <span style="display: block; font-weight: 700; color: var(--text-main); font-size: 1rem;">${escHtml(title)}</span>
-                <span style="font-size: 0.75rem; color: var(--primary-color); font-weight: 500;">${muscles.join(' • ')}</span>
-                <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${exCount} exercícios</span>
+                <span style="font-size: 0.75rem; color: var(--primary-color); font-weight: 500;">${muscles.join(' � ')}</span>
+                <span style="display:block; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem;">${exCount} exerc�cios</span>
             </div>
             <i class="ph-bold ph-caret-right" style="color: var(--primary-color); font-size: 1rem;"></i>
         </button> `;
@@ -3677,7 +4061,7 @@ function renderWorkoutStartOptions(student) {
             <i class="ph-bold ph-pencil-simple" style="color: #60a5fa; font-size: 1.4rem;"></i>
             <div style="flex:1; text-align: left;">
                 <span style="display: block; font-weight: 700; color: var(--text-main); font-size: 0.95rem;">Editar meu treino</span>
-                <span style="font-size: 0.72rem; color: rgba(96,165,250,0.9); font-weight: 500;">Adicionar ou remover exercícios</span>
+                <span style="font-size: 0.72rem; color: rgba(96,165,250,0.9); font-weight: 500;">Adicionar ou remover exerc�cios</span>
             </div>
             <i class="ph-bold ph-caret-right" style="color: rgba(96,165,250,0.9); font-size: 1rem;"></i>
         </button>` : '';
@@ -3746,7 +4130,7 @@ function openStudentWorkout() {
                             ${note ? `<span class="ex-obs">${escHtml(note)}</span>` : ''}
                         </div>
                         <div class="ex-stats">
-                            <div class="st-item"><span>Séries</span><strong>${ex.series}</strong></div>
+                            <div class="st-item"><span>S�ries</span><strong>${ex.series}</strong></div>
                             <div class="st-item"><span>Reps</span><strong>${ex.reps}</strong></div>
                             <div class="st-item"><span>Carga</span><strong>${ex.carga}</strong></div>
                             <div class="st-item"><span>Desc.</span><strong>${ex.descanso}</strong></div>
@@ -3785,7 +4169,7 @@ function closeStudentDiet() {
     document.getElementById('student-diet-screen').classList.remove('active');
 }
 
-// â”€â”€â”€ Meu Perfil (Student Profile) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Meu Perfil (Student Profile) ──────────────────────────────────────────
 let _perfilModalField = '';
 
 function getStudentData() {
@@ -3794,10 +4178,39 @@ function getStudentData() {
     return { studentId, students, student: students.find(s => s.id === studentId) };
 }
 
-function saveStudentData(students) {
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+function saveStudentData(students, options = {}) {
+    localStorage.setItem('trainerStudents', JSON.stringify(students || []));
+    if (!options.skipSync) {
+        queueSupabaseStudentsSync(students);
+    }
 }
 
+function saveTrainersData(trainers, options = {}) {
+    localStorage.setItem('allTrainers', JSON.stringify(trainers || []));
+    if (!options.skipSync) {
+        queueSupabaseTrainersSync(trainers);
+    }
+}
+
+function saveTrainerNotifications(notifs, options = {}) {
+    ensureNotificationIds(notifs);
+    localStorage.setItem('trainerNotifications', JSON.stringify(notifs || []));
+    if (!options.skipSync) {
+        const trainerCode = localStorage.getItem('currentTrainerCode') || localStorage.getItem('trainerCodeDefault') || '';
+        queueSupabaseNotificationsSync(trainerCode, notifs);
+    }
+}
+
+function saveWorkoutHistory(history, options = {}) {
+    ensureWorkoutHistoryIds(history);
+    localStorage.setItem('workoutHistory', JSON.stringify(history || []));
+    if (!options.skipSync) {
+        const latest = Array.isArray(history) ? history[history.length - 1] : null;
+        if (latest) {
+            insertWorkoutHistoryRemote(latest);
+        }
+    }
+}
 function calcIMC(weight, height) {
     if (!weight || !height) return 0;
     const h = parseFloat(height) / 100;
@@ -3843,24 +4256,24 @@ function renderStudentBaseCalories(student) {
 
     if (!student) {
         valueEl.innerText = '--';
-        if (hintEl) hintEl.innerText = 'Meta Calórica Diária';
+        if (hintEl) hintEl.innerText = 'Meta Cal�rica Di�ria';
         return;
     }
 
     const tmb = syncStudentTmbData(student);
     if (!tmb) {
         valueEl.innerText = '--';
-        if (hintEl) hintEl.innerText = 'Meta Calórica Diária';
+        if (hintEl) hintEl.innerText = 'Meta Cal�rica Di�ria';
         return;
     }
 
     valueEl.innerText = `${tmb} kcal`;
-    if (hintEl) hintEl.innerText = 'Meta Calórica Diária';
+    if (hintEl) hintEl.innerText = 'Meta Cal�rica Di�ria';
 }
 
 function getIMCLabel(imc) {
     if (imc < 18.5) return 'Abaixo do peso';
-    if (imc < 25) return 'Peso saudável';
+    if (imc < 25) return 'Peso saud�vel';
     if (imc < 30) return 'Sobrepeso';
     return 'Obesidade';
 }
@@ -3871,14 +4284,14 @@ function getPercentDelta(current, previous) {
 }
 
 function formatDate(iso) {
-    if (!iso) return '—';
+    if (!iso) return '�';
     const d = new Date(iso);
     const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} `;
 }
 
 function formatDateShort(iso) {
-    if (!iso) return '—';
+    if (!iso) return '�';
     const d = new Date(iso);
     const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     return `${d.getDate()} ${months[d.getMonth()]} `;
@@ -3930,7 +4343,7 @@ function renderStudentPerfil() {
                 ${weightDelta !== null ? `
                     <div class="metric-delta ${parseFloat(weightDelta) > 0 ? 'up' : parseFloat(weightDelta) < 0 ? 'down' : ''}">
                         <i class="ph-bold ${parseFloat(weightDelta) > 0 ? 'ph-trend-up' : parseFloat(weightDelta) < 0 ? 'ph-trend-down' : 'ph-minus'}"></i>
-                        ${Math.abs(weightDelta)}% desde última atualização
+                        ${Math.abs(weightDelta)}% desde �ltima atualiza��o
                     </div>
                 ` : '<div class="metric-delta neutral">Primeiro registro</div>'
             }
@@ -3940,7 +4353,7 @@ function renderStudentPerfil() {
                 <div class="metric-card-top">
                     <span class="metric-label">IMC</span>
                 </div>
-                <div class="metric-value">${imc}<span class="metric-unit">kg/m²</span></div>
+                <div class="metric-value">${imc}<span class="metric-unit">kg/m�</span></div>
                 <div class="metric-delta ${imcVal < 25 && imcVal >= 18.5 ? 'healthy' : 'warn'}">
                     <i class="ph-bold ${imcVal < 25 && imcVal >= 18.5 ? 'ph-check-circle' : 'ph-warning'}"></i>
                     ${getIMCLabel(imcVal)}
@@ -3952,11 +4365,11 @@ function renderStudentPerfil() {
                     <span class="metric-label">% Gordura</span>
                     <button class="metric-edit-btn"><i class="ph-bold ph-pencil-simple"></i></button>
                 </div>
-                <div class="metric-value">${bodyFat || '—'}<span class="metric-unit">%</span></div>
+                <div class="metric-value">${bodyFat || '�'}<span class="metric-unit">%</span></div>
                 ${bodyFat > 0 && bfDelta !== null ? `
                     <div class="metric-delta ${parseFloat(bfDelta) < 0 ? 'down' : parseFloat(bfDelta) > 0 ? 'up' : ''}">
                         <i class="ph-bold ${parseFloat(bfDelta) < 0 ? 'ph-trend-down' : parseFloat(bfDelta) > 0 ? 'ph-trend-up' : 'ph-minus'}"></i>
-                        ${Math.abs(bfDelta)}% desde última atualização
+                        ${Math.abs(bfDelta)}% desde �ltima atualiza��o
                     </div>
                 ` : '<div class="metric-delta neutral">Sem dados anteriores</div>'}
             </div>
@@ -3983,28 +4396,28 @@ function renderStudentPerfil() {
                 <i class="ph-bold ph-user"></i>
                 <div>
                     <span class="info-label">Nome</span>
-                    <span class="info-value">${student.name || '—'}</span>
+                    <span class="info-value">${student.name || '�'}</span>
                 </div>
             </div>
             <div class="perfil-info-item">
                 <i class="ph-bold ph-calendar-blank"></i>
                 <div>
                     <span class="info-label">Idade</span>
-                    <span class="info-value">${student.age || '—'} anos</span>
+                    <span class="info-value">${student.age || '�'} anos</span>
                 </div>
             </div>
             <div class="perfil-info-item">
                 <i class="ph-bold ph-gender-intersex"></i>
                 <div>
-                    <span class="info-label">Gênero</span>
-                    <span class="info-value">${student.gender === 'M' ? 'Masculino' : student.gender === 'F' ? 'Feminino' : '—'}</span>
+                    <span class="info-label">G�nero</span>
+                    <span class="info-value">${student.gender === 'M' ? 'Masculino' : student.gender === 'F' ? 'Feminino' : '�'}</span>
                 </div>
             </div>
             <div class="perfil-info-item">
                 <i class="ph-bold ph-target"></i>
                 <div>
                     <span class="info-label">Objetivo</span>
-                    <span class="info-value">${student.goal || '—'}</span>
+                    <span class="info-value">${student.goal || '�'}</span>
                 </div>
             </div>
     `;
@@ -4027,7 +4440,7 @@ function renderPerfilHistory(student) {
         list.innerHTML = `
         <div class="perfil-history-empty">
                 <i class="ph-bold ph-note-blank"></i>
-                <p>Nenhuma alteração registrada ainda. Atualize suas métricas para começar a acompanhar sua evolução.</p>
+                <p>Nenhuma altera��o registrada ainda. Atualize suas m�tricas para come�ar a acompanhar sua evolu��o.</p>
             </div>
         `;
         return;
@@ -4229,7 +4642,7 @@ function openPerfilUpdateModal(field) {
             </div>
             <div class="perfil-modal-current">
                 <span>Valor anterior:</span>
-                <strong>${student.weight || '—'} kg</strong>
+                <strong>${student.weight || '�'} kg</strong>
             </div>
     `;
     } else if (field === 'altura') {
@@ -4249,7 +4662,7 @@ function openPerfilUpdateModal(field) {
             </div>
             <div class="perfil-modal-current">
                 <span>Valor anterior:</span>
-                <strong>${student.bodyFat || '—'}%</strong>
+                <strong>${student.bodyFat || '�'}%</strong>
             </div>
     `;
     } else if (field === 'geral') {
@@ -4352,7 +4765,7 @@ function savePerfilUpdate() {
 
         // Also update dashboard name if changed
         const nameEl = document.getElementById('dash-student-name');
-        if (nameEl) nameEl.innerText = `Olá, ${(student.name || 'Aluno').split(' ')[0]} `;
+        if (nameEl) nameEl.innerText = `Ol�, ${(student.name || 'Aluno').split(' ')[0]} `;
         const sideEl = document.getElementById('side-student-name');
         if (sideEl) sideEl.innerText = (student.name || 'Aluno').split(' ')[0];
         renderStudentBaseCalories(student);
@@ -4382,12 +4795,12 @@ function goToTrainerCreate() {
     document.getElementById('trainer-create-screen').classList.add('active');
 }
 
-function connectTrainer() {
+async function connectTrainer() {
     const code = sanitizeCodeInput(document.getElementById('trainer-login-code')?.value, 5);
     const codeInput = document.getElementById('trainer-login-code');
     if (codeInput) codeInput.value = code;
     if (code.length !== 5) {
-        alert('O código deve ter exatamente 5 dígitos.');
+        alert('O c�digo deve ter exatamente 5 d�gitos.');
         return;
     }
 
@@ -4401,7 +4814,7 @@ function connectTrainer() {
             localStorage.setItem('trainerName', t.name.split(' ')[0]);
             localStorage.setItem('currentTrainerCode', t.code);
         } else {
-            alert('Código não cadastrado.');
+            alert('C�digo n�o cadastrado.');
             return;
         }
     }
@@ -4435,7 +4848,7 @@ function createConsultoria() {
         consultoriaName: `Consultoria de ${firstName} `,
         services: services.value
     });
-    localStorage.setItem('allTrainers', JSON.stringify(trainers));
+    saveTrainersData(trainers);
 
     localStorage.setItem('trainerName', firstName);
     localStorage.setItem('currentTrainerCode', newCode);
@@ -4508,6 +4921,12 @@ function initTrainerDashboard() {
         }
     }
 
+    if (trainerCode && trainerCode !== '00000' && isSupabaseReady()) {
+        syncTrainerSettingsFromSupabase(trainerCode);
+        syncTrainerNotificationsFromSupabase(trainerCode);
+        syncStudentsFromSupabase({ trainerCode });
+    }
+
     const elDashName = document.getElementById('dash-trainer-name');
     if (elDashName) elDashName.innerText = trainerName;
 
@@ -4518,8 +4937,8 @@ function initTrainerDashboard() {
     const currentTrainer = trainerRecord || (trainerCode === '00001' ? { services: 'ambos' } : null);
     const servicesLabel = document.getElementById('trainer-services-label');
     if (servicesLabel && currentTrainer) {
-        const serviceMap = { 'treino': 'Treino', 'dieta': 'Nutrição', 'ambos': 'Treino + Dieta' };
-        servicesLabel.textContent = serviceMap[currentTrainer.services] || 'Serviços Gerais';
+        const serviceMap = { 'treino': 'Treino', 'dieta': 'Nutri��o', 'ambos': 'Treino + Dieta' };
+        servicesLabel.textContent = serviceMap[currentTrainer.services] || 'Servi�os Gerais';
     }
 
     loadTrainerSettingsToUI();
@@ -4571,7 +4990,7 @@ function initTrainerDashboard() {
                 pointer-events: none;
                 backdrop-filter: blur(10px);
             `;
-            pullIndicator.textContent = '↻ Atualizar';
+            pullIndicator.textContent = '? Atualizar';
             mainContent.style.position = 'relative';
             mainContent.appendChild(pullIndicator);
         };
@@ -4626,7 +5045,7 @@ function initTrainerDashboard() {
 
                 // Animate indicator
                 if (pullIndicator) {
-                    pullIndicator.textContent = '✓ Atualizado';
+                    pullIndicator.textContent = '? Atualizado';
                     pullIndicator.style.background = 'rgba(34, 197, 94, 0.9)';
                     setTimeout(() => {
                         if (pullIndicator) {
@@ -4696,7 +5115,7 @@ function initTrainerDashboard() {
             animation: slideUpFade 0.5s ease, fadeOut 0.5s ease 3s forwards;
             pointer-events: none;
         `;
-        hint.innerHTML = '👆 Deslize para navegar entre as telas';
+        hint.innerHTML = '?? Deslize para navegar entre as telas';
         document.body.appendChild(hint);
 
         setTimeout(() => hint.remove(), 4000);
@@ -4727,13 +5146,16 @@ function loadTrainerSettings() {
     return { ...defaults, ...stored, specialties };
 }
 
-function updateTrainerSettings(partial) {
+function updateTrainerSettings(partial, options = {}) {
     const current = loadTrainerSettings();
     const next = { ...current, ...partial };
     localStorage.setItem(TRAINER_SETTINGS_KEY, JSON.stringify(next));
+    if (!options.skipSync) {
+        const trainerCode = localStorage.getItem('currentTrainerCode') || localStorage.getItem('trainerCodeDefault') || '';
+        queueSupabaseSettingsSync(trainerCode, next);
+    }
     return next;
 }
-
 function renderTrainerSpecialties(tags) {
     const container = document.getElementById('trainer-specialty-tags');
     if (!container) return;
@@ -4919,7 +5341,7 @@ function resetTrainerSettings() {
     loadTrainerSettingsToUI();
 }
 
-// â”€â”€ View switching + routes (Dashboard / Alunos / Duvidas / Exercicios) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── View switching + routes (Dashboard / Alunos / Duvidas / Exercicios) ───────────────
 function getTrainerViewFromHash() {
     const hash = (location.hash || '').replace('#', '').replace(/^\/+/, '');
     if (!hash) return null;
@@ -5095,7 +5517,7 @@ function switchDashView(view, options = {}) {
 }
 
 
-// â”€â”€ Helper: build a student row HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helper: build a student row HTML ────────────────────────────────────────
 function buildStudentRow(s, idx, options = {}) {
     const recentCompact = !!options.recentCompact;
     const safeName = escHtml(s?.name || ('Aluno ' + (s?.id || '')));
@@ -5114,8 +5536,8 @@ function buildStudentRow(s, idx, options = {}) {
     const joinedAt = new Date(s?.joinedAt || new Date());
     const diffDays = Math.floor((new Date() - joinedAt) / (1000 * 60 * 60 * 24));
     let timeDesc = 'Entrou recentemente';
-    if (diffDays > 30) timeDesc = `Entrou há ${Math.floor(diffDays / 30)} meses`;
-    else if (diffDays > 0) timeDesc = `Entrou há ${diffDays} dias`;
+    if (diffDays > 30) timeDesc = `Entrou h� ${Math.floor(diffDays / 30)} meses`;
+    else if (diffDays > 0) timeDesc = `Entrou h� ${diffDays} dias`;
 
     if (recentCompact) {
         return `
@@ -5198,18 +5620,18 @@ function openWhatsAppForStudent(studentIdx, event) {
         phoneRaw = sanitizeUserInput(phoneRaw, { maxLen: 20 });
         if (!phoneRaw) return;
         students[studentIdx].whatsapp = phoneRaw;
-        localStorage.setItem('trainerStudents', JSON.stringify(students));
+        saveStudentData(students);
     }
 
     const phone = phoneRaw.replace(/\D/g, '');
     if (phone.length < 10) {
-        alert('Número de WhatsApp inválido. Informe com DDD e, de preferência, com DDI.');
+        alert('N�mero de WhatsApp inv�lido. Informe com DDD e, de prefer�ncia, com DDI.');
         return;
     }
 
     const coachName = localStorage.getItem('trainerName') || 'Treinador';
     const studentName = s.name || 'aluno';
-    const msg = encodeURIComponent(`Olá ${studentName}, aqui é ${coachName}.`);
+    const msg = encodeURIComponent(`Ol� ${studentName}, aqui � ${coachName}.`);
     window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
 }
 
@@ -5218,7 +5640,7 @@ function backToStudentHomeView() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-// â”€â”€ Helper: build a pending card HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helper: build a pending card HTML ───────────────────────────────────────
 function buildPendingCard(s, idx) {
     const reqDate = new Date(s.joinedAt || new Date()).toLocaleDateString('pt-BR');
     return `
@@ -5227,7 +5649,7 @@ function buildPendingCard(s, idx) {
         <div class="pending-card-info">
             <h4>${s.name || 'Aluno ' + s.id}</h4>
             <p class="sli-sub"><i class="ph-fill ph-target" style="color:var(--primary-color)"></i> ${s.goal}</p>
-            <p class="sli-sub">${s.weight} kg · ${s.height} cm · ${s.age} anos</p>
+            <p class="sli-sub">${s.weight} kg � ${s.height} cm � ${s.age} anos</p>
             <span class="pending-date"><i class="ph-bold ph-calendar-blank"></i> Solicitado em ${reqDate}</span>
         </div>
         <div class="pending-card-actions">
@@ -5241,7 +5663,7 @@ function buildPendingCard(s, idx) {
     </div>`;
 }
 
-// â”€â”€ Main stats + list renderer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Main stats + list renderer ───────────────────────────────────────────────
 function updateTrainerStats(filterText) {
     let students = readStorageJSON('trainerStudents', []);
     const activeStudents = students.filter(s => s.active && !s.pending);
@@ -5262,7 +5684,7 @@ function updateTrainerStats(filterText) {
     const filteredActive = applyDashboardFilterList(activeStudents, activeDashboardFilter, pendingDuvidasSet);
     const listBase = activeDashboardFilter === 'all' ? activeStudents : filteredActive;
 
-    // â”€â”€ Stats cards â”€â”€
+    // ── Stats cards ──
     const elTotal = document.getElementById('stat-total');
     if (elTotal) elTotal.innerText = activeStudents.length;
     const elAtivos = document.getElementById('stat-ativos');
@@ -5270,22 +5692,22 @@ function updateTrainerStats(filterText) {
     const elPendentes = document.getElementById('stat-pendentes');
     if (elPendentes) elPendentes.innerText = pendingCount;
 
-    // â”€â”€ Pending nav badge â”€â”€
+    // ── Pending nav badge ──
     const navBadge = document.getElementById('pending-nav-badge');
     if (navBadge) {
         navBadge.style.display = pendingCount > 0 ? 'inline-flex' : 'none';
         navBadge.textContent = pendingCount;
     }
 
-    // â”€â”€ Pending banner (dashboard view) â”€â”€
+    // ── Pending banner (dashboard view) ──
     const banner = document.getElementById('pending-banner');
     if (banner) {
         banner.style.display = pendingCount > 0 ? 'flex' : 'none';
         const bannerTitle = document.getElementById('pending-banner-title');
-        if (bannerTitle) bannerTitle.textContent = `${pendingCount} nova${pendingCount > 1 ? 's' : ''} solicitaç${pendingCount > 1 ? 'ões' : 'ão'}`;
+        if (bannerTitle) bannerTitle.textContent = `${pendingCount} nova${pendingCount > 1 ? 's' : ''} solicita�${pendingCount > 1 ? '�es' : '�o'}`;
     }
 
-    // â”€â”€ Dashboard recent list (view-dashboard) â”€â”€
+    // ── Dashboard recent list (view-dashboard) ──
     const recentList = document.getElementById('trainer-student-list');
     if (recentList) {
         const query = (filterText || '').toLowerCase();
@@ -5310,17 +5732,17 @@ function updateTrainerStats(filterText) {
         if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${listBase.length} alunos`;
     }
 
-    // â”€â”€ Pending requests list (view-alunos) â”€â”€
+    // ── Pending requests list (view-alunos) ──
     const pendingList = document.getElementById('pending-student-list');
     if (pendingList) {
         const badge = document.getElementById('pending-count-badge');
         if (badge) badge.textContent = pendingCount;
         pendingList.innerHTML = pendingCount === 0
-            ? `<p class="empty-pending-msg"><i class="ph-fill ph-check-circle" style="color:var(--text-success,#22c55e)"></i> Nenhuma solicitação pendente.</p>`
+            ? `<p class="empty-pending-msg"><i class="ph-fill ph-check-circle" style="color:var(--text-success,#22c55e)"></i> Nenhuma solicita��o pendente.</p>`
             : pendingStudents.map((s) => buildPendingCard(s, students.indexOf(s))).join('');
     }
 
-    // â”€â”€ Active list (view-alunos) â”€â”€
+    // ── Active list (view-alunos) ──
     const activeList = document.getElementById('alunos-active-list');
     if (activeList) {
         const query = (filterText || '').toLowerCase();
@@ -5340,7 +5762,7 @@ function updateTrainerStats(filterText) {
         if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${listBase.length} alunos`;
     }
 
-    // â”€â”€ Duvidas nav badge â”€â”€
+    // ── Duvidas nav badge ──
     const unreadDuvidas = notifications.filter(n => n.type === 'duvida' && n.unread).length;
     const duvidasBadge = document.getElementById('duvidas-nav-badge');
     if (duvidasBadge) {
@@ -5348,7 +5770,7 @@ function updateTrainerStats(filterText) {
         duvidasBadge.textContent = unreadDuvidas;
     }
 
-    // â”€â”€ Chat sidebar total unread â”€â”€
+    // ── Chat sidebar total unread ──
     const chatTotalBadge = document.getElementById('chat-total-unread');
     if (chatTotalBadge) {
         chatTotalBadge.style.display = unreadDuvidas > 0 ? 'flex' : 'none';
@@ -5370,7 +5792,7 @@ function renderDuvidas(filterText) {
     const students = readStorageJSON('trainerStudents', []);
     const duvidas = notifications.filter(n => n.type === 'duvida');
 
-    // â”€â”€ 1. Group by Student â”€â”€
+    // ── 1. Group by Student ──
     const chatsMap = {};
     duvidas.forEach(d => {
         const sId = d.studentId || 'unknown';
@@ -5381,7 +5803,7 @@ function renderDuvidas(filterText) {
                 const s = students.find(x => x.id === sId);
                 if (s) sName = s.name;
             } else {
-                sName = d.title.replace('💬 Dúvida de ', '');
+                sName = d.title.replace('?? D�vida de ', '');
             }
 
             chatsMap[sId] = {
@@ -5404,7 +5826,7 @@ function renderDuvidas(filterText) {
     // Convert to array and sort by last message time
     const chatList = Object.values(chatsMap).sort((a, b) => new Date(b.lastTime) - new Date(a.lastTime));
 
-    // â”€â”€ 2. Render Sidebar â”€â”€
+    // ── 2. Render Sidebar ──
     const listContainer = document.getElementById('chat-list');
     if (listContainer) {
         const query = (filterText || '').toLowerCase();
@@ -5442,7 +5864,7 @@ function renderDuvidas(filterText) {
         }
     }
 
-    // â”€â”€ 3. Render Active Window â”€â”€
+    // ── 3. Render Active Window ──
     const welcomeView = document.getElementById('chat-welcome');
     const activeView = document.getElementById('chat-active-view');
 
@@ -5527,7 +5949,7 @@ function selectChat(studentId) {
     });
 
     if (changed) {
-        localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+        saveTrainerNotifications(notifs);
         updateTrainerStats();
         syncChannel.postMessage({ type: 'DOUBT_RESOLVED' });
     }
@@ -5550,7 +5972,7 @@ function markActiveChatAsRead() {
         }
     });
     if (!changed) return;
-    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+    saveTrainerNotifications(notifs);
     updateTrainerStats();
     renderDuvidas();
     syncChannel.postMessage({ type: 'DOUBT_RESOLVED' });
@@ -5609,7 +6031,7 @@ async function handleTrainerAttachment(event) {
     const isVideo = file.type.startsWith('video/');
     const isAudio = file.type.startsWith('audio/');
     if (!isImage && !isVideo && !isAudio) {
-        alert('Formato não suportado. Use imagem, vídeo ou áudio.');
+        alert('Formato n�o suportado. Use imagem, v�deo ou �udio.');
         return;
     }
 
@@ -5620,13 +6042,13 @@ async function handleTrainerAttachment(event) {
         } else if (isVideo) {
             // Keep video size controlled due to localStorage limits
             if (file.size > 8 * 1024 * 1024) {
-                alert('Vídeo muito grande. Use até 8MB para envio no chat.');
+                alert('V�deo muito grande. Use at� 8MB para envio no chat.');
                 return;
             }
             dataUrl = await fileToDataUrl(file);
         } else {
             if (file.size > 5 * 1024 * 1024) {
-                alert('Áudio muito grande. Use até 5MB para envio no chat.');
+                alert('�udio muito grande. Use at� 5MB para envio no chat.');
                 return;
             }
             dataUrl = await fileToDataUrl(file);
@@ -5641,7 +6063,7 @@ async function handleTrainerAttachment(event) {
         renderTrainerAttachmentPreview();
     } catch (e) {
         console.error('Falha ao processar anexo', e);
-        alert('Não foi possível processar o arquivo.');
+        alert('N�o foi poss�vel processar o arquivo.');
     } finally {
         const input = event?.target;
         if (input && typeof input.value === 'string') input.value = '';
@@ -5761,13 +6183,13 @@ function sendTrainerChat() {
         const students = readStorageJSON('trainerStudents', []);
         const matchedStudent = students.find(s => s.id === activeChatStudentId);
         const fallbackNotif = notifs.find(n => isFromActiveStudent(n));
-        const fallbackName = fallbackNotif?.studentName || (fallbackNotif?.title ? String(fallbackNotif.title).replace('💬 Dúvida de ', '') : 'Aluno');
+        const fallbackName = fallbackNotif?.studentName || (fallbackNotif?.title ? String(fallbackNotif.title).replace('?? D�vida de ', '') : 'Aluno');
 
         notifs.unshift({
             type: 'duvida',
             studentId: activeChatStudentId === 'unknown' ? null : activeChatStudentId,
             studentName: matchedStudent?.name || fallbackName,
-            title: `💬 Dúvida de ${matchedStudent?.name || fallbackName}`,
+            title: `?? D�vida de ${matchedStudent?.name || fallbackName}`,
             desc: '',
             fromTrainerOnly: true,
             reply: finalReplyText,
@@ -5785,7 +6207,7 @@ function sendTrainerChat() {
         }
     });
 
-    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+    saveTrainerNotifications(notifs);
     input.value = '';
     clearTrainerAttachment();
     renderDuvidas();
@@ -5804,7 +6226,7 @@ function openVideoPiPFromButton(buttonEl) {
     const video = wrap?.querySelector('video');
     if (!video) return;
     if (!document.pictureInPictureEnabled) {
-        alert('Picture-in-Picture não disponível neste navegador.');
+        alert('Picture-in-Picture n�o dispon�vel neste navegador.');
         return;
     }
     video.requestPictureInPicture().catch(() => { });
@@ -5818,7 +6240,7 @@ async function startTrainerHoldRecord(event) {
         try { micBtn.setPointerCapture(event.pointerId); } catch (_) { }
     }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert('Gravação de áudio não suportada neste dispositivo.');
+        alert('Grava��o de �udio n�o suportada neste dispositivo.');
         return;
     }
 
@@ -5852,12 +6274,12 @@ async function startTrainerHoldRecord(event) {
         if (wave) wave.style.display = 'flex';
         if (micBtn) micBtn.classList.add('recording');
     } catch (e) {
-        console.error('Falha ao iniciar gravação', e);
+        console.error('Falha ao iniciar grava��o', e);
         trainerRecordingActive = false;
         const wave = document.getElementById('chat-recording-wave');
         if (wave) wave.style.display = 'none';
         if (micBtn) micBtn.classList.remove('recording');
-        alert('Não foi possível acessar o microfone.');
+        alert('N�o foi poss�vel acessar o microfone.');
     }
 }
 
@@ -5915,7 +6337,7 @@ function markDuvidaAsRead(idx) {
     let notifs = readStorageJSON('trainerNotifications', []);
     if (notifs[idx]) {
         notifs[idx].unread = false;
-        localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+        saveTrainerNotifications(notifs);
 
         // Broadcast change
         syncChannel.postMessage({ type: 'DOUBT_RESOLVED' });
@@ -5936,25 +6358,25 @@ function responderDuvida(idx) {
         notifs[idx].unread = false;
         notifs[idx].reply = replyText;
         notifs[idx].repliedAt = new Date().toISOString();
-        localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+        saveTrainerNotifications(notifs);
 
         // Broadcast change
         syncChannel.postMessage({ type: 'DOUBT_REPLY', payload: { studentId: notifs[idx].studentId } });
 
         updateTrainerStats();
         renderDuvidas();
-        alert('✅ Resposta enviada ao aluno!');
+        alert('? Resposta enviada ao aluno!');
     }
 }
 
-// â”€â”€ Accept a pending student â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Accept a pending student ─────────────────────────────────────────────────
 function acceptStudent(idx) {
     let students = readStorageJSON('trainerStudents', []);
     if (!students[idx]) return;
     students[idx].pending = false;
     students[idx].active = true;
     students[idx].acceptedAt = new Date().toISOString();
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
 
     // Broadcast change
     syncChannel.postMessage({ type: 'STUDENT_ACCEPTED', payload: { studentId: students[idx].id } });
@@ -5969,19 +6391,19 @@ function acceptStudent(idx) {
     }
 }
 
-// â”€â”€ Reject / remove a pending student â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Reject / remove a pending student ───────────────────────────────────────
 function rejectStudent(idx) {
-    if (!confirm('Tem certeza que deseja recusar esta solicitação?')) return;
+    if (!confirm('Tem certeza que deseja recusar esta solicita��o?')) return;
     let students = readStorageJSON('trainerStudents', []);
     students.splice(idx, 1);
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
 
     // Broadcast change
     syncChannel.postMessage({ type: 'STUDENT_REJECTED' });
     updateTrainerStats();
 }
 
-// â”€â”€ Filter helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Filter helper ────────────────────────────────────────────────────────────
 function filterStudents(query) {
     updateTrainerStats(query);
 }
@@ -5999,7 +6421,7 @@ function markNotifRead(index, btnElement) {
     let notifs = readStorageJSON('trainerNotifications', []);
     if (notifs[index]) {
         notifs[index].unread = false;
-        localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+        saveTrainerNotifications(notifs);
     }
     // Update UI instantly without full reload
     const item = btnElement.closest('.notification-item');
@@ -6017,7 +6439,7 @@ function markNotifRead(index, btnElement) {
     }
 }
 
-// â”€â”€â”€ Profile open / close / tab switch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Profile open / close / tab switch ──────────────────────────────────────
 let currentStudentIdx = null; // tracks which student is being edited
 let currentTrainerStudentId = null; // tracks current student id for trainer history
 let workoutBlocks = [];        // local state for workout blocks
@@ -6129,7 +6551,7 @@ function switchProfileTab(tabName) {
     document.getElementById(`p-nav-${tabName}`).classList.add('active');
 }
 
-// â”€â”€â”€ Workout Blocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Workout Blocks ──────────────────────────────────────────────────────────
 
 function renderWorkoutBlocks() {
     const container = document.getElementById('workout-blocks-container');
@@ -6164,12 +6586,12 @@ function renderWorkoutBlocks() {
         <div class="wb-header">
             <div class="wb-header-left">
                 <i class="ph-fill ph-calendar-blank" style="color:var(--primary-color)"></i>
-                <input class="wb-name-input" value="${escHtml(block.name)}" placeholder="Ex: Treino A: Peito e Tríceps"
+                <input class="wb-name-input" value="${escHtml(block.name)}" placeholder="Ex: Treino A: Peito e Tr�ceps"
                     oninput="workoutBlocks[${bIdx}].name = this.value">
             </div>
             <div class="wb-header-right">
                 <button class="btn-add-ex" onclick="openExModal(${bIdx})">
-                    <i class="ph-bold ph-plus"></i> Adicionar Exercício
+                    <i class="ph-bold ph-plus"></i> Adicionar Exerc�cio
                 </button>
                 <button class="btn-icon-minimal" onclick="deleteWorkoutBlock(${bIdx})" title="Remover bloco">
                     <i class="ph-bold ph-trash" style="color:#ef4444"></i>
@@ -6178,7 +6600,7 @@ function renderWorkoutBlocks() {
         </div>
 
         ${block.exercises.length === 0
-            ? `<div class="ex-empty-block">Nenhum exercício ainda. Clique em "Adicionar Exercício".</div>`
+            ? `<div class="ex-empty-block">Nenhum exerc�cio ainda. Clique em "Adicionar Exerc�cio".</div>`
             : block.exercises.map((ex, eIdx) => `
         <div class="ex-row" id="ex-${bIdx}-${eIdx}">
             <div class="ex-info">
@@ -6192,13 +6614,13 @@ function renderWorkoutBlocks() {
                     <label class="ex-superset-toggle ${eIdx === block.exercises.length - 1 ? 'disabled' : ''}">
                         <input type="checkbox" ${ex.supersetWithNext ? 'checked' : ''} ${eIdx === block.exercises.length - 1 ? 'disabled' : ''}
                             onchange="toggleSupersetWithNext(${bIdx}, ${eIdx}, this.checked)">
-                        Super série com próximo
+                        Super s�rie com pr�ximo
                     </label>
                 </div>
             </div>
             <div class="ex-stats">
                 <div class="ex-stat">
-                    <span class="ex-stat-label">SÉRIES</span>
+                    <span class="ex-stat-label">S�RIES</span>
                     <input type="number" class="ex-stat-input" value="${ex.series || ''}"
                         oninput="workoutBlocks[${bIdx}].exercises[${eIdx}].series=this.value;updateSummaryBar()" placeholder="4">
                 </div>
@@ -6239,7 +6661,7 @@ function queueWorkoutPlanAutosave() {
         if (!student) return;
         student.workoutBlocks = workoutBlocks;
         students[currentStudentIdx] = student;
-        localStorage.setItem('trainerStudents', JSON.stringify(students));
+        saveStudentData(students);
         const now = Date.now();
         if (now - lastWorkoutPlanBroadcast > 1500) {
             broadcastStudentDataUpdate(student.id, 'workout_plan_updated');
@@ -6303,7 +6725,7 @@ function updateSummaryBar() {
     queueWorkoutPlanAutosave();
 }
 
-// â”€â”€â”€ Exercise Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Exercise Modal ───────────────────────────────────────────────────────────
 
 function openExModal(blockIdx) {
     pendingBlockIdx = blockIdx;
@@ -6340,7 +6762,7 @@ function searchExerciseLibrary(query) {
         results.innerHTML = `
             <div class="ex-library-empty">
                 <i class="ph-bold ph-magnifying-glass"></i>
-                <p>Nenhum exercício encontrado.</p>
+                <p>Nenhum exerc�cio encontrado.</p>
             </div>`;
         return;
     }
@@ -6352,7 +6774,7 @@ function searchExerciseLibrary(query) {
             <div class="ex-hevy-thumb"><i class="ph-bold ${ex.icon || 'ph-barbell'}"></i></div>
             <div class="ex-hevy-info">
                 <strong>${escapeHTML(ex.name)}</strong>
-                <span>${escapeHTML(GROUP_DISPLAY[ex.group] || ex.group)} · ${escapeHTML(EQUIPMENT_DISPLAY[ex.equipment] || ex.equipment)}</span>
+                <span>${escapeHTML(GROUP_DISPLAY[ex.group] || ex.group)} � ${escapeHTML(EQUIPMENT_DISPLAY[ex.equipment] || ex.equipment)}</span>
             </div>
             <i class="ph-bold ${active ? 'ph-check-circle' : 'ph-trend-up'}"></i>
         </button>`;
@@ -6369,7 +6791,7 @@ function selectExerciseFromLibrary(name) {
 function updateExerciseFilterButtons() {
     const muscleBtn = document.getElementById('ex-muscle-filter-btn');
     const equipBtn = document.getElementById('ex-equipment-filter-btn');
-    if (muscleBtn) muscleBtn.textContent = MUSCLE_FILTER_OPTIONS.find(o => o.value === activeExerciseFilter)?.label || 'Todos os Músculos';
+    if (muscleBtn) muscleBtn.textContent = MUSCLE_FILTER_OPTIONS.find(o => o.value === activeExerciseFilter)?.label || 'Todos os M�sculos';
     if (equipBtn) equipBtn.textContent = EQUIPMENT_FILTER_OPTIONS.find(o => o.value === activeEquipmentFilter)?.label || 'Todo o Equipamento';
 }
 
@@ -6437,14 +6859,14 @@ function confirmAddExercise() {
     renderWorkoutBlocks();
 }
 
-// â”€â”€â”€ Diet / Meals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Diet / Meals ─────────────────────────────────────────────────────────────
 
 function renderMeals() {
     const container = document.getElementById('meal-blocks-container');
     if (!container) return;
 
     if (mealBlocks.length === 0) {
-        container.innerHTML = `<div class="workout-empty"><p>Nenhuma refeição configurada.</p><button class="btn-add-block" onclick="addMeal()"><i class="ph-bold ph-plus"></i> Criar Primeira Refeição</button></div>`;
+        container.innerHTML = `<div class="workout-empty"><p>Nenhuma refei��o configurada.</p><button class="btn-add-block" onclick="addMeal()"><i class="ph-bold ph-plus"></i> Criar Primeira Refei��o</button></div>`;
         return;
     }
 
@@ -6453,7 +6875,7 @@ function renderMeals() {
         <div class="wb-header">
             <div class="wb-header-left">
                 <i class="ph-fill ph-fork-knife" style="color:var(--primary-color)"></i>
-                <input class="wb-name-input" value="${escHtml(meal.name)}" placeholder="Ex: Café da manhã"
+                <input class="wb-name-input" value="${escHtml(meal.name)}" placeholder="Ex: Caf� da manh�"
                     oninput="mealBlocks[${mIdx}].name = this.value">
             </div>
             <div class="wb-header-right">
@@ -6493,14 +6915,14 @@ function renderMeals() {
 }
 
 function addMeal() {
-    const names = ['Café da manhã', 'Lanche 1', 'Almoço', 'Lanche 2', 'Jantar', 'Ceia'];
-    mealBlocks.push({ name: names[mealBlocks.length] || `Refeição ${mealBlocks.length + 1}`, items: [] });
+    const names = ['Caf� da manh�', 'Lanche 1', 'Almo�o', 'Lanche 2', 'Jantar', 'Ceia'];
+    mealBlocks.push({ name: names[mealBlocks.length] || `Refei��o ${mealBlocks.length + 1}`, items: [] });
     renderMeals();
     switchProfileTab('nutricao');
 }
 
 function deleteMeal(mIdx) {
-    if (!confirm('Remover esta refeição?')) return;
+    if (!confirm('Remover esta refei��o?')) return;
     mealBlocks.splice(mIdx, 1);
     renderMeals();
 }
@@ -6640,7 +7062,7 @@ function confirmAddFood() {
     closeFoodModal();
 }
 
-// â”€â”€â”€ Save plan â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Save plan ────────────────────────────────────────────────────────────────
 
 function saveStudentPlan() {
     if (currentStudentIdx === null) return;
@@ -6655,7 +7077,8 @@ function saveStudentPlan() {
     students[currentStudentIdx].mealBlocks = mealBlocks;
     students[currentStudentIdx].dietMeta = diet;
     students[currentStudentIdx].active = true; // Mark protocol as active when saved
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
+    broadcastStudentDataUpdate(students[currentStudentIdx].id, 'workout_plan_updated');
 
     // Visual feedback
     const btn = document.querySelector('.btn-save-plan');
@@ -6663,7 +7086,7 @@ function saveStudentPlan() {
         btn.innerHTML = '<i class="ph-bold ph-check"></i> Salvo!';
         btn.style.background = '#22c55e';
         setTimeout(() => {
-            btn.innerHTML = '<i class="ph-bold ph-floppy-disk"></i> Salvar Alterações';
+            btn.innerHTML = '<i class="ph-bold ph-floppy-disk"></i> Salvar Altera��es';
             btn.style.background = '';
         }, 2000);
     }
@@ -6695,22 +7118,25 @@ function checkRemoveInput() {
 function confirmRemoveStudent() {
     if (currentStudentIdx === null) return;
     let students = readStorageJSON('trainerStudents', []);
-    students.splice(currentStudentIdx, 1);
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    const removed = students.splice(currentStudentIdx, 1)[0];
+    if (removed?.id) {
+        deleteStudentRemote(removed.id);
+    }
+    saveStudentData(students);
 
     closeRemoveModal();
     closeStudentProfile();
     updateTrainerStats();
 }
 
-// â”€â”€â”€ UTILITY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── UTILITY ──────────────────────────────────────────────────────────────────
 function escHtml(str) {
     return String(str || '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// â”€â”€â”€ HEVY STYLE WORKOUT LOG LOGIC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── HEVY STYLE WORKOUT LOG LOGIC ───────────────────────────────────────
 let workoutState = null;
 let workoutTimerInterval = null;
 let restTimerInterval = null;
@@ -6847,7 +7273,7 @@ function getExecutionLabel(score) {
         1: 'Ruim',
         2: 'Ok',
         3: 'Boa',
-        4: 'Ótima',
+        4: '�tima',
         5: 'Perfeita'
     };
     return map[score] || '--';
@@ -6893,7 +7319,7 @@ function renderExerciseThumb(exercise) {
             <img
                 src="${escHtml(webpSrc)}"
                 data-fallback-src="${escHtml(originalSrc)}"
-                alt="Miniatura do exercício ${escHtml(exercise?.nome || '')}"
+                alt="Miniatura do exerc�cio ${escHtml(exercise?.nome || '')}"
                 loading="lazy"
                 decoding="async"
                 width="88"
@@ -6918,7 +7344,7 @@ function startWorkoutSession(blockIdx = 0) {
     const student = students.find(s => s.id === studentId);
 
     if (!student || !student.workoutBlocks || !student.workoutBlocks[blockIdx]) {
-        alert('Plano de treino não encontrado.');
+        alert('Plano de treino n�o encontrado.');
         return;
     }
 
@@ -7018,16 +7444,16 @@ function renderWorkoutLog() {
                     <div class="log-ex-title-row">
                         <h3 class="clickable-ex-title" onclick="openExerciseProgressModalEncoded('${encodeURIComponent(ex.nome)}')">${escHtml(ex.nome)}</h3>
                         <div class="log-ex-top-actions">
-                            <button class="btn-icon-tiny action-swap" onclick="toggleLogSubstitutes(${exIdx})" title="Trocar exercício" style="color: #a3e635; filter: drop-shadow(0 0 4px rgba(163,230,53,0.4));">
+                            <button class="btn-icon-tiny action-swap" onclick="toggleLogSubstitutes(${exIdx})" title="Trocar exerc�cio" style="color: #a3e635; filter: drop-shadow(0 0 4px rgba(163,230,53,0.4));">
                                 ${uiSvgIcon('arrows-clockwise')}
                             </button>
-                            <button class="btn-icon-tiny action-trash" onclick="removeExerciseFromLog(${exIdx})" title="Excluir exercício" style="color: #f87171;">
+                            <button class="btn-icon-tiny action-trash" onclick="removeExerciseFromLog(${exIdx})" title="Excluir exerc�cio" style="color: #f87171;">
                                 ${uiSvgIcon('trash')}
                             </button>
                         </div>
                     </div>
                     <div class="log-ex-meta">
-                        <span class="meta-pill">${uiSvgIcon('check-circle')} ${completed}/${total} séries</span>
+                        <span class="meta-pill">${uiSvgIcon('check-circle')} ${completed}/${total} s�ries</span>
                         <span class="meta-pill muted">${uiSvgIcon('chart-line-up')} registrar carga</span>
                         ${bestWeightLabel ? `<span class="meta-pill">${uiSvgIcon('trophy')} PR carga: ${bestWeightLabel}</span>` : ''}
                         ${ex.supersetGroup ? `<span class="meta-pill">${uiSvgIcon('lightning')} bi-set ${ex.supersetGroup}</span>` : ''}
@@ -7043,7 +7469,7 @@ function renderWorkoutLog() {
                 const hasManual = manualSubs.length > 0;
                 const hasAuto = autoSubs.length > 0;
                 const emptyState = !hasManual && !hasAuto
-                    ? `<div class="log-substitute-empty">Sem substitutos disponíveis para este exercício.</div>`
+                    ? `<div class="log-substitute-empty">Sem substitutos dispon�veis para este exerc�cio.</div>`
                     : '';
                 return `
                 <div class="log-substitute-box">
@@ -7054,7 +7480,7 @@ function renderWorkoutLog() {
                         </div>
                     ` : ''}
                     ${hasAuto ? `
-                        <strong class="muted">Sugestões automáticas:</strong>
+                        <strong class="muted">Sugest�es autom�ticas:</strong>
                         <div class="log-substitute-list">
                             ${autoSubs.slice(0, 4).map(sub => `<button class="btn-substitute-ex auto" onclick="applyExerciseSubstituteEncoded(${exIdx}, '${encodeURIComponent(sub)}')">${escHtml(sub)}</button>`).join('')}
                         </div>
@@ -7072,7 +7498,7 @@ function renderWorkoutLog() {
                 const hasPrev = !!prevNoteText;
                 return `
                 <input type="text" class="exercise-notes-input ${hasPrev ? 'has-prev' : ''}"
-                    placeholder="Notas do exercício..."
+                    placeholder="Notas do exerc�cio..."
                     value="${escHtml(ex.notes || '')}"
                     oninput="updateExerciseNotes(${exIdx}, this.value)">
                 ${hasPrev ? `<div class="exercise-prev-note">${uiSvgIcon('timer')} Nota anterior: ${escHtml(prevNoteText)}</div>` : ''}`;
@@ -7080,7 +7506,7 @@ function renderWorkoutLog() {
 
             <div class="log-set-table">
                 <div class="log-set-header">
-                    <span>Série</span>
+                    <span>S�rie</span>
                     <span>Kg</span>
                     <span>Reps</span>
                     <span>PSE</span>
@@ -7100,7 +7526,7 @@ function renderWorkoutLog() {
             const setType = normalizeSetType(set.type);
             const typeOption = SET_TYPE_OPTIONS.find(t => t.value === setType) || SET_TYPE_OPTIONS[0];
             const typeShort = typeOption.short || '';
-            const setTitle = hasPR ? prTooltip : `Série ${setIdx + 1} · ${typeOption.label}`;
+            const setTitle = hasPR ? prTooltip : `S�rie ${setIdx + 1} � ${typeOption.label}`;
             const setNumberHtml = hasPR
                 ? `<span class="set-pr-icon" title="${prTooltip}">${uiSvgIcon('trophy')}</span>`
                 : `${typeShort || (setIdx + 1)}`;
@@ -7160,7 +7586,7 @@ function renderWorkoutLog() {
             
             <div class="log-ex-footer">
                 <button class="btn-add-set" onclick="addSetToExercise(${exIdx})">
-                    ${uiSvgIcon('plus')} Adicionar Série
+                    ${uiSvgIcon('plus')} Adicionar S�rie
                 </button>
             </div>
         </div>
@@ -7537,7 +7963,7 @@ function selectSetType(exIdx, setIdx, type) {
     renderWorkoutLog();
     closeSetTypePopover();
 }
-// â”€â”€â”€ REST TIMER LOGIC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── REST TIMER LOGIC ──────────────────────────────────────────────────
 function startRestTimer(seconds) {
     const safeSeconds = Math.max(1, parseInt(seconds, 10) || 60);
     const now = Date.now();
@@ -7726,12 +8152,12 @@ function removeSetFromExercise(exIdx, setIdx) {
     const ex = workoutState.exercises?.[exIdx];
     if (!ex || !Array.isArray(ex.sets)) return;
     if (ex.sets.length <= 1) {
-        alert('O exercício precisa ter ao menos 1 série.');
+        alert('O exerc�cio precisa ter ao menos 1 s�rie.');
         return;
     }
     const target = ex.sets[setIdx];
     if (target?.completed) {
-        if (!confirm('Esta série já foi marcada como concluída. Remover mesmo assim?')) return;
+        if (!confirm('Esta s�rie j� foi marcada como conclu�da. Remover mesmo assim?')) return;
     }
     ex.sets.splice(setIdx, 1);
     updateExercisePRs(exIdx);
@@ -7741,7 +8167,7 @@ function removeSetFromExercise(exIdx, setIdx) {
 }
 
 function removeExerciseFromLog(exIdx) {
-    if (!workoutState || !confirm('Remover exercício do log?')) return;
+    if (!workoutState || !confirm('Remover exerc�cio do log?')) return;
     workoutState.exercises.splice(exIdx, 1);
     saveWorkoutBackup();
     renderWorkoutLog();
@@ -7775,7 +8201,7 @@ function handleFinishWorkout() {
     const completedSets = workoutState.exercises.reduce((acc, ex) => acc + ex.sets.filter(s => s.completed).length, 0);
 
     if (completedSets === 0) {
-        if (!confirm('Nenhuma série foi marcada como concluída. Deseja realmente finalizar?')) return;
+        if (!confirm('Nenhuma s�rie foi marcada como conclu�da. Deseja realmente finalizar?')) return;
     }
 
     openWorkoutFeedbackModal();
@@ -7879,10 +8305,13 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
         }
     };
 
+    workoutArchive.id = workoutArchive.id || generateUID();
+    workoutArchive.trainerCode = workoutArchive.trainerCode || (localStorage.getItem('connectedTrainerCode') || '');
+
     // SAVE TO HISTORY
     const history = readStorageJSON('workoutHistory', []);
     history.push(workoutArchive);
-    localStorage.setItem('workoutHistory', JSON.stringify(history));
+    saveWorkoutHistory(history);
 
     // UPDATE PERSONAL RECORDS PERMANENTLY
     const students = readStorageJSON('trainerStudents', []);
@@ -7911,7 +8340,7 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
             students[sIdx].personalRecords[ex.nome] = currentMelhores;
         });
 
-        localStorage.setItem('trainerStudents', JSON.stringify(students));
+        saveStudentData(students);
     }
 
     if (workoutTimerInterval) clearInterval(workoutTimerInterval);
@@ -7949,7 +8378,7 @@ function showWorkoutSummary(archive) {
         <div class="summary-stat-card">
             <i class="ph-bold ph-timer"></i>
             <span class="summary-stat-value">${durStr}</span>
-            <span class="summary-stat-label">Duração</span>
+            <span class="summary-stat-label">Dura��o</span>
         </div>
         <div class="summary-stat-card">
             <i class="ph-bold ph-lightning"></i>
@@ -7979,7 +8408,7 @@ function showWorkoutSummary(archive) {
         const hasPR = hasSetPR(s);
         return `
                         <div class="summary-set-pill ${hasPR ? 'has-pr' : ''}">
-                            <span>${idx + 1}ª: <strong>${s.peso}kg</strong> x ${s.reps}</span>
+                            <span>${idx + 1}�: <strong>${s.peso}kg</strong> x ${s.reps}</span>
                             ${hasPR ? '<i class="ph-fill ph-trophy" style="font-size: 0.8rem;"></i>' : ''}
                         </div>
                     `;
@@ -8017,9 +8446,9 @@ function escHtml(str) {
         .replace(/'/g, "&#039;");
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════
 // EXERCISE CATALOG (Trainer > Exercicios view)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════
 
 const EXERCISE_CATALOG_DATA = [
     { name: "Puxada Alta na Polia", group: "Dorsais", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
@@ -8027,18 +8456,18 @@ const EXERCISE_CATALOG_DATA = [
     { name: "Supino (Barra)", group: "Peito", equipment: "Barra", icon: "ph-barbell", hasHistory: true },
     { name: "Supino Inclinado (Halter)", group: "Peito", equipment: "Haltere", icon: "ph-barbell", hasHistory: false },
     { name: "Crucifixo no Voador", group: "Peito", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
-    { name: "Rosca Scott (Máquina)", group: "Biceps", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
+    { name: "Rosca Scott (M�quina)", group: "Biceps", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
     { name: "Rosca Direta (Barra W)", group: "Biceps", equipment: "Barra", icon: "ph-barbell", hasHistory: true },
-    { name: "Tríceps na Polia com Corda", group: "Triceps", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
+    { name: "Tr�ceps na Polia com Corda", group: "Triceps", equipment: "Maquina", icon: "ph-barbell", hasHistory: true },
     { name: "Desenvolvimento (Halteres)", group: "Ombros", equipment: "Haltere", icon: "ph-barbell", hasHistory: false },
-    { name: "Elevação Lateral", group: "Ombros", equipment: "Haltere", icon: "ph-barbell", hasHistory: false },
+    { name: "Eleva��o Lateral", group: "Ombros", equipment: "Haltere", icon: "ph-barbell", hasHistory: false },
     { name: "Agachamento Livre", group: "Pernas", equipment: "Barra", icon: "ph-person-simple-walk", hasHistory: true },
     { name: "Leg Press 45", group: "Pernas", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: true },
     { name: "Cadeira Extensora", group: "Quadriceps", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: true },
     { name: "Mesa Flexora", group: "Posteriores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
     { name: "Stiff com Halteres", group: "Posteriores", equipment: "Haltere", icon: "ph-person-simple-walk", hasHistory: false },
-    { name: "Abdução de Quadril", group: "Abdutores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
-    { name: "Adução de Quadril", group: "Adutores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
+    { name: "Abdu��o de Quadril", group: "Abdutores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
+    { name: "Adu��o de Quadril", group: "Adutores", equipment: "Maquina", icon: "ph-person-simple-walk", hasHistory: false },
     { name: "Prancha", group: "Abdominais", equipment: "Nenhum", icon: "ph-person-simple", hasHistory: false },
     { name: "Abdominal Infra", group: "Abdominais", equipment: "Nenhum", icon: "ph-person-simple", hasHistory: true },
     { name: "Corrida Esteira", group: "Cardio", equipment: "Maquina", icon: "ph-heartbeat", hasHistory: false },
@@ -8054,11 +8483,11 @@ function getExerciseCatalogData() {
 
 // Display-friendly labels
 const GROUP_DISPLAY = {
-    "todos": "Todos os Músculos",
+    "todos": "Todos os M�sculos",
     "Abdominais": "Abdominais",
     "Abdutores": "Abdutores",
     "Adutores": "Adutores",
-    "Biceps": "Bíceps",
+    "Biceps": "B�ceps",
     "Cardio": "Cardio",
     "CorpoInteiro": "Corpo Inteiro",
     "CostasSuperiores": "Costas Superiores",
@@ -8067,28 +8496,28 @@ const GROUP_DISPLAY = {
     "Peito": "Peito",
     "Pernas": "Pernas",
     "Posteriores": "Posteriores",
-    "Quadriceps": "Quadríceps",
-    "Triceps": "Tríceps"
+    "Quadriceps": "Quadr�ceps",
+    "Triceps": "Tr�ceps"
 };
 
 const EQUIPMENT_DISPLAY = {
     "todos": "Todo o Equipamento",
     "Nenhum": "Nenhum",
-    "Banda": "Banda de Resistência",
+    "Banda": "Banda de Resist�ncia",
     "Barra": "Barra",
     "Disco": "Disco de Peso",
     "Haltere": "Haltere",
     "Kettlebell": "Kettlebell",
-    "Maquina": "Máquina",
+    "Maquina": "M�quina",
     "Outro": "Outro"
 };
 
 const MUSCLE_FILTER_OPTIONS = [
-    { value: 'todos', label: 'Todos os Músculos', icon: 'ph-squares-four' },
+    { value: 'todos', label: 'Todos os M�sculos', icon: 'ph-squares-four' },
     { value: 'Abdominais', label: 'Abdominais', icon: 'ph-person-simple' },
     { value: 'Abdutores', label: 'Abdutores', icon: 'ph-person-simple-walk' },
     { value: 'Adutores', label: 'Adutores', icon: 'ph-person-simple-walk' },
-    { value: 'Biceps', label: 'Bíceps', icon: 'ph-barbell' },
+    { value: 'Biceps', label: 'B�ceps', icon: 'ph-barbell' },
     { value: 'Cardio', label: 'Cardio', icon: 'ph-heartbeat' },
     { value: 'CorpoInteiro', label: 'Corpo Inteiro', icon: 'ph-person-simple' },
     { value: 'CostasSuperiores', label: 'Costas Superiores', icon: 'ph-arrows-in-line-vertical' },
@@ -8097,19 +8526,19 @@ const MUSCLE_FILTER_OPTIONS = [
     { value: 'Peito', label: 'Peito', icon: 'ph-barbell' },
     { value: 'Pernas', label: 'Pernas', icon: 'ph-person-simple-walk' },
     { value: 'Posteriores', label: 'Posteriores', icon: 'ph-person-simple-walk' },
-    { value: 'Quadriceps', label: 'Quadríceps', icon: 'ph-person-simple-walk' },
-    { value: 'Triceps', label: 'Tríceps', icon: 'ph-barbell' }
+    { value: 'Quadriceps', label: 'Quadr�ceps', icon: 'ph-person-simple-walk' },
+    { value: 'Triceps', label: 'Tr�ceps', icon: 'ph-barbell' }
 ];
 
 const EQUIPMENT_FILTER_OPTIONS = [
     { value: 'todos', label: 'Todo o Equipamento', icon: 'ph-squares-four' },
     { value: 'Nenhum', label: 'Nenhum', icon: 'ph-person-simple' },
-    { value: 'Banda', label: 'Banda de Resistência', icon: 'ph-wave-sine' },
+    { value: 'Banda', label: 'Banda de Resist�ncia', icon: 'ph-wave-sine' },
     { value: 'Barra', label: 'Barra', icon: 'ph-barbell' },
     { value: 'Disco', label: 'Disco de Peso', icon: 'ph-circle' },
     { value: 'Haltere', label: 'Haltere', icon: 'ph-barbell' },
     { value: 'Kettlebell', label: 'Kettlebell', icon: 'ph-barbell' },
-    { value: 'Maquina', label: 'Máquina', icon: 'ph-desktop' },
+    { value: 'Maquina', label: 'M�quina', icon: 'ph-desktop' },
     { value: 'Outro', label: 'Outro', icon: 'ph-dots-three' }
 ];
 
@@ -8307,6 +8736,30 @@ function setSetExecution(exIdx, setIdx, execValue) {
     saveWorkoutBackup();
     renderWorkoutLog();
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
