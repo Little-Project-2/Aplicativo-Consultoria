@@ -127,10 +127,11 @@ async function getAlunosDoTreinador(trainerId) {
         .select('*')
         .eq('role', 'aluno')
         .eq('trainer_id', trainerId)
+        .eq('status', 'ativo')
         .order('nome', { ascending: true });
 
     if (error) {
-        console.error('❌ Erro ao buscar alunos:', error.message);
+        console.error('❌ Erro ao buscar alunos ativos:', error.message);
         return [];
     }
     return data;
@@ -161,6 +162,7 @@ window.AuthService = {
     getUsuarioLogado,
     getPerfilLogado,
     getAlunosDoTreinador,
+    getAlunosAtivosDoTreinador: getAlunosDoTreinador, // Alias para manter compatibilidade ou se quiser filtrar por padrão
     atualizarStatusAluno
 };
 

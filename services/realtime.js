@@ -111,10 +111,38 @@ function stopAllRealtimeListeners() {
     console.log('⛔ Todos os canais Realtime encerrados.');
 }
 
+// Função para carregar o treino e ficar ouvindo atualizações
+const monitorarTreino = async (idDoAluno) => {
+  
+  // 1. Busca o treino atual assim que a página abre
+  let { data: treino } = await window.supabase
+    .from('treinos')
+    .select('*')
+    .eq('aluno_id', idDoAluno)
+    .single()
+
+  console.log("Treino atual:", treino)
+
+  // 2. ESCUTA EM TEMPO REAL (A mágica que você queria)
+  window.supabase
+    .channel('custom-filter-channel')
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'treinos', filter: `aluno_id=eq.${idDoAluno}` },
+      (payload) => {
+        console.log('O treinador alterou algo!', payload.new)
+        // Aqui você usa o 'payload.new.exercicios_json' para atualizar o HTML da sua página
+        alert("Seu treino foi atualizado pelo treinador!")
+      }
+    )
+    .subscribe()
+}
+
 window.RealtimeService = {
     startTrainerRealtimeListener,
     startMessagesRealtimeListener,
-    stopAllRealtimeListeners
+    stopAllRealtimeListeners,
+    monitorarTreino
 };
 
 console.log('✅ services/realtime.js carregado!');
