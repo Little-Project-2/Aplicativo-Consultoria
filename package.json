@@ -6,6 +6,7 @@
     "dev": "npx http-server . -p 5173 -c-1"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.99.2"
+    "@supabase/supabase-js": "^2.99.2",
+    "@vercel/analytics": "^2.0.1"
   }
 }
