@@ -114,13 +114,18 @@
     <style>
         /* ─── LOGIN GLASSMORPHISM SCREEN ─────────────────────────── */
         #global-login-screen {
-            display: flex;
+            display: none;
             align-items: center;
             justify-content: center;
             min-height: 100vh;
             padding: 1rem;
             position: relative;
             overflow: hidden;
+            z-index: 1000;
+        }
+
+        #global-login-screen.active {
+            display: flex;
         }
 
         /* Background glows */
