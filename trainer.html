@@ -31,6 +31,7 @@
     <link rel="preload" href="assets/vendor/phosphor/bold/Phosphor-Bold.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="assets/vendor/phosphor/fill/Phosphor-Fill.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="assets/logo.svg" as="image" type="image/svg+xml">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="assets/vendor/phosphor/phosphor-local.css">
 </head>
@@ -147,14 +148,11 @@
                             <i class="ph-bold ph-chat-circle-dots"></i> Dúvidas
                             <span class="nav-badge" id="duvidas-nav-badge" style="display:none">0</span>
                         </a>
-                        <a href="#/exercicios" class="nav-item" id="nav-exercicios" onclick="switchDashView('exercicios')">
-                            <i class="ph-bold ph-barbell"></i> Exercícios
+                        <a href="#/configuracoes" class="nav-item" id="nav-config" onclick="switchDashView('config')">
+                            <i class="ph-bold ph-gear"></i> Configurações
                         </a>
                         <a href="#" class="nav-item">
                             <i class="ph-bold ph-file-text"></i> Avaliações
-                        </a>
-                        <a href="#/configuracoes" class="nav-item" id="nav-config" onclick="switchDashView('config')">
-                            <i class="ph-bold ph-gear"></i> Configurações
                         </a>
                     </nav>
 
@@ -191,6 +189,34 @@
                             <div class="t-stat-card status-pending">
                                 <h3 id="stat-pendentes" class="text-warning">0</h3>
                                 <p>Pendentes</p>
+                            </div>
+                        </div>
+
+                        <div class="trainer-kpi-row">
+                            <div class="kpi-card">
+                                <span class="kpi-label">Treinos na Semana</span>
+                                <strong id="kpi-week-workouts">0</strong>
+                            </div>
+                            <div class="kpi-card">
+                                <span class="kpi-label">Dúvidas em Aberto</span>
+                                <strong id="kpi-open-duvidas">0</strong>
+                            </div>
+                            <div class="kpi-card">
+                                <span class="kpi-label">Planos Sem Treino</span>
+                                <strong id="kpi-no-workout">0</strong>
+                            </div>
+                            <div class="kpi-card">
+                                <span class="kpi-label">Dietas Pendentes</span>
+                                <strong id="kpi-diet-pending">0</strong>
+                            </div>
+                        </div>
+
+                        <div class="trainer-alerts">
+                            <div class="section-header">
+                                <h2>Central de Alertas</h2>
+                            </div>
+                            <div id="trainer-alerts-list" class="alert-list">
+                                <!-- Dynamic -->
                             </div>
                         </div>
 
@@ -260,6 +286,44 @@
                                 <span class="text-muted" id="pagination-info">Nenhum aluno</span>
                             </div>
                         </div>
+
+                        <div class="students-section" style="margin-top: 1.5rem;">
+                            <div class="section-header">
+                                <h2>Painel Financeiro</h2>
+                            </div>
+                            <div id="finance-panel" class="finance-grid">
+                                <!-- Dynamic -->
+                            </div>
+                        </div>
+
+                        <div class="students-section" style="margin-top: 1.5rem;">
+                            <div class="section-header">
+                                <h2>Relatórios Rápidos</h2>
+                            </div>
+                            <div class="report-actions">
+                                <button class="btn-secondary" onclick="renderTrainerQuickReport('week')">
+                                    <i class="ph-bold ph-calendar-check"></i> Semana
+                                </button>
+                                <button class="btn-secondary" onclick="renderTrainerQuickReport('month')">
+                                    <i class="ph-bold ph-calendar-blank"></i> Mês
+                                </button>
+                                <button class="btn-secondary" onclick="renderTrainerQuickReport('quarter')">
+                                    <i class="ph-bold ph-chart-line-up"></i> Trimestre
+                                </button>
+                            </div>
+                            <div id="trainer-report-output" class="report-output">
+                                <p class="text-muted">Gere um relatório para visualizar indicadores gerais.</p>
+                            </div>
+                        </div>
+
+                        <div class="students-section" style="margin-top: 1.5rem;">
+                            <div class="section-header">
+                                <h2>Checklist do Treinador</h2>
+                            </div>
+                            <div id="trainer-checklist" class="trainer-checklist">
+                                <!-- Dynamic -->
+                            </div>
+                        </div>
                     </div>
 
                     <!-- VIEW: ALUNOS (full management) -->
@@ -291,7 +355,56 @@
                                 </div>
                             </div>
 
+                            <div class="students-filter-bar">
+                                <div class="filter-item">
+                                    <label>Status</label>
+                                    <select id="alunos-filter-status" class="q-input" onchange="applyStudentFilters()">
+                                        <option value="all">Todos</option>
+                                        <option value="active">Ativos</option>
+                                        <option value="alert">Atenção</option>
+                                        <option value="no-plan">Sem plano</option>
+                                    </select>
+                                </div>
+                                <div class="filter-item">
+                                    <label>Objetivo</label>
+                                    <select id="alunos-filter-goal" class="q-input" onchange="applyStudentFilters()">
+                                        <option value="all">Todos</option>
+                                        <option value="hipertrofia">Hipertrofia</option>
+                                        <option value="emagrecimento">Emagrecimento</option>
+                                        <option value="recomposicao">Recomposição</option>
+                                    </select>
+                                </div>
+                                <div class="filter-item">
+                                    <label>Plano</label>
+                                    <select id="alunos-filter-plan" class="q-input" onchange="applyStudentFilters()">
+                                        <option value="all">Todos</option>
+                                        <option value="treino">Treino</option>
+                                        <option value="dieta">Dieta</option>
+                                        <option value="ambos">Treino + Dieta</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="bulk-actions">
+                                <label class="bulk-select">
+                                    <input type="checkbox" id="bulk-select-all" onchange="toggleSelectAllStudents(this.checked)">
+                                    Selecionar todos
+                                </label>
+                                <div class="bulk-buttons">
+                                    <button class="btn-secondary" onclick="bulkSetActive(true)">
+                                        <i class="ph-bold ph-check"></i> Marcar ativo
+                                    </button>
+                                    <button class="btn-secondary-outline" onclick="bulkSetActive(false)">
+                                        <i class="ph-bold ph-warning"></i> Marcar pendente
+                                    </button>
+                                    <button class="btn-secondary" onclick="bulkSendMessage()">
+                                        <i class="ph-bold ph-paper-plane-tilt"></i> Enviar mensagem
+                                    </button>
+                                </div>
+                            </div>
+
                             <div class="table-header-row">
+                                <span><input type="checkbox" id="header-select-all" onchange="toggleSelectAllStudents(this.checked)"></span>
                                 <span>STATUS</span>
                                 <span>IDENTIFICAÇÃO</span>
                                 <span>OBJETIVO</span>
@@ -330,6 +443,11 @@
                         <aside class="chat-sidebar">
                             <div class="chat-sidebar-header">
                                 <h3>Conversas</h3>
+                            </div>
+                            <div class="chat-filters">
+                                <button class="filter-chip active" data-chat-filter="all" onclick="applyChatFilter('all')">Todas</button>
+                                <button class="filter-chip" data-chat-filter="pending" onclick="applyChatFilter('pending')">Pendentes</button>
+                                <button class="filter-chip" data-chat-filter="resolved" onclick="applyChatFilter('resolved')">Respondidas</button>
                             </div>
                             <div class="chat-search">
                                 <i class="ph-bold ph-magnifying-glass"></i>
@@ -495,6 +613,25 @@
 
                     <section class="settings-card">
                         <div class="settings-card-header">
+                            <h2>Planos e Preços (Média)</h2>
+                            <p class="subtitle">Defina o preço médio para integração futura com AbacatePay.</p>
+                        </div>
+                        <div class="settings-field">
+                            <label>Mensal (R$)</label>
+                            <input type="number" id="plan-price-monthly" class="q-input" placeholder="200">
+                        </div>
+                        <div class="settings-field">
+                            <label>Trimestral (R$)</label>
+                            <input type="number" id="plan-price-quarterly" class="q-input" placeholder="540">
+                        </div>
+                        <div class="settings-field">
+                            <label>Anual (R$)</label>
+                            <input type="number" id="plan-price-annual" class="q-input" placeholder="1800">
+                        </div>
+                    </section>
+
+                    <section class="settings-card">
+                        <div class="settings-card-header">
                             <h2>Preferencias de Protocolo</h2>
                             <p class="subtitle">Defina unidades e formula padrao para macros.</p>
                         </div>
@@ -551,8 +688,7 @@
                 </div>
             </div>
 
-            <!-- Exercises drawer (loaded from partial) -->
-            <div data-page="pages/trainer-exercicios.html"></div>
+            <!-- Exercises drawer removed -->
             </main>
         </div>
     </div>
@@ -616,42 +752,64 @@
                     </button>
                 </div>
 
-                <!-- Workout blocks injected by JS -->
-                <div id="workout-blocks-container"></div>
-
-                <!-- Summary bar -->
-                <div class="plan-summary-bar" id="plan-summary-bar">
-                    <div class="summary-item">
-                        <i class="ph-fill ph-timer" style="color:var(--primary-color)"></i>
-                        <div>
-                            <span class="summary-label">TEMPO ESTIMADO</span>
-                            <strong id="summary-tempo">0 min</strong>
-                        </div>
-                    </div>
-                    <div class="summary-item">
-                        <i class="ph-fill ph-fire" style="color:#f97316"></i>
-                        <div>
-                            <span class="summary-label">GASTO CALÓRICO</span>
-                            <strong id="summary-kcal">~0 kcal</strong>
-                        </div>
-                    </div>
-                    <div class="summary-item">
-                        <i class="ph-fill ph-lightning" style="color:#eab308"></i>
-                        <div>
-                            <span class="summary-label">INTENSIDADE</span>
-                            <strong id="summary-intensidade">--</strong>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="plan-section-header" style="margin-top: 1.5rem;">
+                <div class="template-bar">
                     <div>
-                        <h3 class="plan-title">Histórico de Treinos</h3>
-                        <p class="plan-subtitle">Notas e percepção de esforço informadas pelo aluno.</p>
+                        <span class="summary-label">TEMPLATES</span>
+                        <div class="template-controls">
+                            <select id="workout-template-select" class="q-input">
+                                <option value="">Selecionar template</option>
+                            </select>
+                            <button class="btn-secondary" onclick="applyWorkoutTemplate()"><i class="ph-bold ph-download-simple"></i> Aplicar</button>
+                        </div>
+                    </div>
+                    <div class="template-actions">
+                        <button class="btn-secondary-outline" onclick="saveWorkoutTemplate()"><i class="ph-bold ph-floppy-disk"></i> Salvar como template</button>
+                        <button class="btn-secondary-outline" onclick="openTemplateManager()"><i class="ph-bold ph-stack"></i> Gerenciar</button>
                     </div>
                 </div>
-                <div class="history-evolution-grid" id="trainer-history-evolution-cards"></div>
-                <div class="history-workout-list" id="trainer-history-workout-list"></div>
+
+                <div class="trainer-plan-grid">
+                    <div class="plan-main">
+                        <!-- Workout blocks injected by JS -->
+                        <div id="workout-blocks-container"></div>
+
+                        <!-- Summary bar -->
+                        <div class="plan-summary-bar" id="plan-summary-bar">
+                            <div class="summary-item">
+                                <i class="ph-fill ph-timer" style="color:var(--primary-color)"></i>
+                                <div>
+                                    <span class="summary-label">TEMPO ESTIMADO</span>
+                                    <strong id="summary-tempo">0 min</strong>
+                                </div>
+                            </div>
+                            <div class="summary-item">
+                                <i class="ph-fill ph-fire" style="color:#f97316"></i>
+                                <div>
+                                    <span class="summary-label">GASTO CALÓRICO</span>
+                                    <strong id="summary-kcal">~0 kcal</strong>
+                                </div>
+                            </div>
+                            <div class="summary-item">
+                                <i class="ph-fill ph-lightning" style="color:#eab308"></i>
+                                <div>
+                                    <span class="summary-label">INTENSIDADE</span>
+                                    <strong id="summary-intensidade">--</strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <aside class="plan-side">
+                        <div class="plan-section-header">
+                            <div>
+                                <h3 class="plan-title">Histórico de Treinos</h3>
+                                <p class="plan-subtitle">Notas e percepção de esforço informadas pelo aluno.</p>
+                            </div>
+                        </div>
+                        <div class="history-evolution-grid" id="trainer-history-evolution-cards"></div>
+                        <div class="history-workout-list" id="trainer-history-workout-list"></div>
+                    </aside>
+                </div>
             </div>
 
             <!-- ── TAB: DIETA ──────────────────────────────────────── -->
@@ -666,93 +824,203 @@
                     </button>
                 </div>
 
-                <!-- Diet meta bar -->
-                <div class="diet-meta-bar">
-                    <div class="diet-meta-item static">
-                        <span class="summary-label">TMB</span>
-                        <strong id="diet-tmb-value">--</strong>
-                    </div>
-                    <div class="diet-meta-item static">
-                        <span class="summary-label">GASTO DIÁRIO</span>
-                        <strong id="diet-gasto-value">--</strong>
-                    </div>
-                    <div class="diet-meta-item">
-                        <span class="summary-label">META CALÓRICA</span>
-                        <input type="number" id="diet-kcal-meta" class="diet-meta-input" placeholder="2400"
-                            oninput="updateDietSummary()">
-                        <span class="summary-label">kcal</span>
-                    </div>
-                    <div class="diet-meta-item">
-                        <span class="summary-label">PROTEÍNA</span>
-                        <input type="number" id="diet-protein-meta" class="diet-meta-input" placeholder="160">
-                        <span class="summary-label">g</span>
-                    </div>
-                    <div class="diet-meta-item">
-                        <span class="summary-label">CARBO</span>
-                        <input type="number" id="diet-carb-meta" class="diet-meta-input" placeholder="280">
-                        <span class="summary-label">g</span>
-                    </div>
-                    <div class="diet-meta-item">
-                        <span class="summary-label">GORDURA</span>
-                        <input type="number" id="diet-fat-meta" class="diet-meta-input" placeholder="80">
-                        <span class="summary-label">g</span>
-                    </div>
-                </div>
+                <div class="trainer-diet-grid">
+                    <div class="diet-main">
+                        <!-- Diet meta bar -->
+                        <div class="diet-meta-bar">
+                            <div class="diet-meta-item static">
+                                <span class="summary-label">TMB</span>
+                                <strong id="diet-tmb-value">--</strong>
+                            </div>
+                            <div class="diet-meta-item static">
+                                <span class="summary-label">GASTO DIÁRIO</span>
+                                <strong id="diet-gasto-value">--</strong>
+                            </div>
+                            <div class="diet-meta-item">
+                                <span class="summary-label">META CALÓRICA</span>
+                                <input type="number" id="diet-kcal-meta" class="diet-meta-input" placeholder="2400"
+                                    oninput="updateDietSummary()">
+                                <span class="summary-label">kcal</span>
+                            </div>
+                            <div class="diet-meta-item">
+                                <span class="summary-label">PROTEÍNA</span>
+                                <input type="number" id="diet-protein-meta" class="diet-meta-input" placeholder="160">
+                                <span class="summary-label">g</span>
+                            </div>
+                            <div class="diet-meta-item">
+                                <span class="summary-label">CARBO</span>
+                                <input type="number" id="diet-carb-meta" class="diet-meta-input" placeholder="280">
+                                <span class="summary-label">g</span>
+                            </div>
+                            <div class="diet-meta-item">
+                                <span class="summary-label">GORDURA</span>
+                                <input type="number" id="diet-fat-meta" class="diet-meta-input" placeholder="80">
+                                <span class="summary-label">g</span>
+                            </div>
+                        </div>
 
-                <!-- Meal blocks injected by JS -->
-                <div id="meal-blocks-container"></div>
+                        <!-- Meal blocks injected by JS -->
+                        <div id="meal-blocks-container"></div>
+                    </div>
+
+                    <aside class="diet-side">
+                        <div class="diet-preview-card">
+                            <h4>Resumo do Plano</h4>
+                            <p class="subtitle">Deixe claro para o aluno quais são as prioridades da semana.</p>
+                            <ul class="diet-tips">
+                                <li>Priorize proteína em todas as refeições.</li>
+                                <li>Hidrate-se e ajuste carbo em dias de treino.</li>
+                                <li>Defina substituições simples para manutenção.</li>
+                            </ul>
+                        </div>
+                    </aside>
+                </div>
             </div>
 
             <!-- ── TAB: PERFIL ─────────────────────────────────────── -->
             <div id="p-tab-perfil" class="p-tab-content">
-                <div class="info-grid">
-                    <div class="info-card ic-horizontal">
-                        <div class="ic-icon"><i class="ph-bold ph-calendar-blank"></i></div>
-                        <div class="ic-content"><span class="lbl">Idade</span><strong id="prof-idade">--
-                                anos</strong></div>
-                    </div>
-                    <div class="info-card ic-horizontal">
-                        <div class="ic-icon"><i class="ph-bold ph-scales"></i></div>
-                        <div class="ic-content"><span class="lbl">Peso</span><strong id="prof-peso">-- kg</strong>
+                <div class="trainer-profile-grid">
+                    <div class="profile-main">
+                        <div class="info-grid">
+                            <div class="info-card ic-horizontal">
+                                <div class="ic-icon"><i class="ph-bold ph-calendar-blank"></i></div>
+                                <div class="ic-content"><span class="lbl">Idade</span><strong id="prof-idade">--
+                                        anos</strong></div>
+                            </div>
+                            <div class="info-card ic-horizontal">
+                                <div class="ic-icon"><i class="ph-bold ph-scales"></i></div>
+                                <div class="ic-content"><span class="lbl">Peso</span><strong id="prof-peso">-- kg</strong>
+                                </div>
+                            </div>
+                            <div class="info-card ic-horizontal">
+                                <div class="ic-icon"><i class="ph-bold ph-ruler"></i></div>
+                                <div class="ic-content"><span class="lbl">Altura</span><strong id="prof-altura">--
+                                        cm</strong></div>
+                            </div>
+                            <div class="info-card ic-horizontal">
+                                <div class="ic-icon"><i class="ph-bold ph-gender-intersex"></i></div>
+                                <div class="ic-content"><span class="lbl">Gênero</span><strong id="prof-genero">Não
+                                        Informado</strong></div>
+                            </div>
+                            <div class="info-card ic-horizontal">
+                                <div class="ic-icon text-success"><i class="ph-bold ph-fire"></i></div>
+                                <div class="ic-content"><span class="lbl">TMB</span><strong class="text-success"
+                                        id="prof-tmb">-- kcal</strong></div>
+                            </div>
+                            <div class="info-card ic-horizontal">
+                                <div class="ic-icon text-success"><i class="ph-bold ph-lightning"></i></div>
+                                <div class="ic-content"><span class="lbl">Gasto Diário</span><strong class="text-success"
+                                        id="prof-gasto">-- kcal</strong></div>
+                            </div>
+                        </div>
+                        <div class="info-card ic-horizontal" style="margin-top:1rem;">
+                            <div class="ic-icon"><i class="ph-bold ph-person-simple-walk"></i></div>
+                            <div class="ic-content"><span class="lbl">NÍVEL DE ATIVIDADE</span><strong
+                                    id="prof-atividade">--</strong></div>
+                        </div>
+
+                        <div id="trainer-evolution-compare" class="evolution-compare">
+                            <!-- Dynamic -->
                         </div>
                     </div>
-                    <div class="info-card ic-horizontal">
-                        <div class="ic-icon"><i class="ph-bold ph-ruler"></i></div>
-                        <div class="ic-content"><span class="lbl">Altura</span><strong id="prof-altura">--
-                                cm</strong></div>
-                    </div>
-                    <div class="info-card ic-horizontal">
-                        <div class="ic-icon"><i class="ph-bold ph-gender-intersex"></i></div>
-                        <div class="ic-content"><span class="lbl">Gênero</span><strong id="prof-genero">Não
-                                Informado</strong></div>
-                    </div>
-                    <div class="info-card ic-horizontal">
-                        <div class="ic-icon text-success"><i class="ph-bold ph-fire"></i></div>
-                        <div class="ic-content"><span class="lbl">TMB</span><strong class="text-success"
-                                id="prof-tmb">-- kcal</strong></div>
-                    </div>
-                    <div class="info-card ic-horizontal">
-                        <div class="ic-icon text-success"><i class="ph-bold ph-lightning"></i></div>
-                        <div class="ic-content"><span class="lbl">Gasto Diário</span><strong class="text-success"
-                                id="prof-gasto">-- kcal</strong></div>
-                    </div>
-                </div>
-                <div class="info-card ic-horizontal" style="margin-top:1rem;">
-                    <div class="ic-icon"><i class="ph-bold ph-person-simple-walk"></i></div>
-                    <div class="ic-content"><span class="lbl">NÍVEL DE ATIVIDADE</span><strong
-                            id="prof-atividade">--</strong></div>
+
+                    <aside class="profile-side">
+                        <div class="plan-section-header">
+                            <div>
+                                <h3 class="plan-title">Tags do Aluno</h3>
+                                <p class="plan-subtitle">Organize com etiquetas personalizadas.</p>
+                            </div>
+                        </div>
+                        <div class="trainer-tags-card">
+                            <div class="tag-input-row">
+                                <input type="text" id="student-tag-input" class="q-input" placeholder="Ex: iniciante">
+                                <button class="btn-secondary btn-sm" onclick="addStudentTag()">Adicionar</button>
+                            </div>
+                            <div id="student-tag-list" class="tag-list"></div>
+                        </div>
+
+                        <div class="plan-section-header" style="margin-top: 1.5rem;">
+                            <div>
+                                <h3 class="plan-title">Financeiro do Aluno</h3>
+                                <p class="plan-subtitle">Plano, valor e status.</p>
+                            </div>
+                        </div>
+                        <div class="trainer-finance-card">
+                            <div class="settings-field">
+                                <label>Plano</label>
+                                <input type="text" id="student-finance-plan" class="q-input" placeholder="Mensal">
+                            </div>
+                            <div class="settings-field">
+                                <label>Valor (R$)</label>
+                                <input type="number" id="student-finance-price" class="q-input" placeholder="200">
+                            </div>
+                            <div class="settings-field">
+                                <label>Status</label>
+                                <select id="student-finance-status" class="q-input">
+                                    <option value="em-dia">Em dia</option>
+                                    <option value="atrasado">Atrasado</option>
+                                    <option value="cancelado">Cancelado</option>
+                                </select>
+                            </div>
+                            <div class="settings-field">
+                                <label>Vencimento</label>
+                                <input type="date" id="student-finance-due" class="q-input">
+                            </div>
+                        </div>
+
+                        <div class="plan-section-header">
+                            <div>
+                                <h3 class="plan-title">Arquivos para o Aluno</h3>
+                                <p class="plan-subtitle">Envie PDFs, imagens ou vídeos de apoio.</p>
+                            </div>
+                        </div>
+                        <div class="trainer-attachments">
+                            <label class="btn-secondary" for="trainer-attachment-input">
+                                <i class="ph-bold ph-upload-simple"></i> Enviar arquivo
+                            </label>
+                            <input id="trainer-attachment-input" type="file" multiple
+                                onchange="handleTrainerAttachmentUpload(event)" style="display:none;">
+                            <div id="trainer-attachment-list" class="trainer-attachment-list">
+                                <!-- Dynamic -->
+                            </div>
+                        </div>
+
+                        <div class="plan-section-header" style="margin-top: 1.5rem;">
+                            <div>
+                                <h3 class="plan-title">Histórico de Mensagens</h3>
+                                <p class="plan-subtitle">Busque rapidamente conversas anteriores.</p>
+                            </div>
+                        </div>
+                        <div class="trainer-messages-card">
+                            <div class="small-search">
+                                <i class="ph-bold ph-magnifying-glass"></i>
+                                <input type="text" id="trainer-message-search" placeholder="Buscar mensagem..."
+                                    oninput="renderTrainerMessageHistory()">
+                            </div>
+                            <div id="trainer-message-history" class="trainer-message-history"></div>
+                        </div>
+                    </aside>
                 </div>
             </div>
 
             <!-- ── TAB: ANAMNESE ───────────────────────────────────── -->
             <div id="p-tab-anamnese" class="p-tab-content">
-                <div class="empty-state-card active" style="margin-top:0;border:none;">
-                    <i class="ph-fill ph-clipboard-text" style="color:var(--text-muted)"></i>
-                    <div class="empty-info">
-                        <h3>Respostas do Aluno</h3>
-                        <p>Os dados preenchidos no questionário aparecerão aqui.</p>
+                <div class="anamnese-tools">
+                    <div class="small-search">
+                        <i class="ph-bold ph-magnifying-glass"></i>
+                        <input type="text" id="anamnese-search" placeholder="Buscar resposta..."
+                            oninput="renderTrainerAnamnese()">
                     </div>
+                    <select id="anamnese-filter" class="q-input" onchange="renderTrainerAnamnese()">
+                        <option value="all">Todos os campos</option>
+                        <option value="basic">Dados básicos</option>
+                        <option value="questionario">Questionário</option>
+                    </select>
+                    <button class="btn-secondary" onclick="exportTrainerAnamnese()">
+                        <i class="ph-bold ph-download-simple"></i> Exportar
+                    </button>
                 </div>
+                <div id="trainer-anamnese-list" class="anamnese-list"></div>
             </div>
 
         </div><!-- end prof-editor-layout -->
