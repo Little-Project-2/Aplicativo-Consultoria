@@ -38,14 +38,14 @@ export default defineConfig({
         ],
         shortcuts: [
           {
-            name: 'Área do Aluno',
+            name: 'Area do Aluno',
             short_name: 'Aluno',
-            url: '/student'
+            url: '/'
           },
           {
-            name: 'Área do Treinador',
+            name: 'Area do Treinador',
             short_name: 'Treinador',
-            url: '/trainer'
+            url: '/'
           }
         ]
       }

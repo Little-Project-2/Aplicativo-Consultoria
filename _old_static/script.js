@@ -2881,11 +2881,23 @@ function openExerciseProgressModal(exerciseName) {
         const step = points.length > 1 ? (width - 40) / (points.length - 1) : 0;
         const yScale = (v) => 20 + (height - 40) * (1 - ((v - yMin) / (yMax - yMin || 1)));
         const plot = points.map((p, i) => `${20 + i * step},${yScale(p.kg)}`).join(' ');
+        const areaPlot = `${plot} ${20 + (points.length - 1) * step},${height - 20} 20,${height - 20}`;
         const latest = points[points.length - 1];
         const best = points.reduce((acc, p) => p.kg > acc.kg ? p : acc, points[0]);
+        const avg = Math.round(points.reduce((sum, p) => sum + p.kg, 0) / points.length);
+        const prev = points.length > 1 ? points[points.length - 2] : null;
+        const diff = prev ? (latest.kg - prev.kg) : 0;
+        const diffLabel = prev ? `${diff >= 0 ? '+' : ''}${diff} kg` : '--';
+        const diffClass = prev ? (diff >= 0 ? 'up' : 'down') : '';
+        const recentRows = points.slice(-5).reverse().map(p => `
+            <div class="ep-row">
+                <span>${p.date}</span>
+                <strong>${p.kg} kg</strong>
+            </div>
+        `).join('');
 
         body.innerHTML = `
-            <div class="exercise-progress-head">
+            <div class="exercise-progress-head refined">
                 <div class="eph-card">
                     <span>Ultima carga</span>
                     <strong>${latest.kg} kg</strong>
@@ -2898,13 +2910,33 @@ function openExerciseProgressModal(exerciseName) {
                     <span>Registros</span>
                     <strong>${points.length}</strong>
                 </div>
+                <div class="eph-card">
+                    <span>Media</span>
+                    <strong>${avg} kg</strong>
+                </div>
+                <div class="eph-card ${diffClass}">
+                    <span>Tendencia</span>
+                    <strong>${diffLabel}</strong>
+                </div>
             </div>
-            <svg viewBox="0 0 ${width} ${height}" class="exercise-progress-svg" aria-label="grafico de carga">
-                <polyline class="ep-line" points="${plot}" />
-                ${points.map((p, i) => `<circle class="ep-dot" cx="${20 + i * step}" cy="${yScale(p.kg)}" r="3.5"><title>${p.date}: ${p.kg} kg</title></circle>`).join('')}
-            </svg>
+            <div class="exercise-progress-chart">
+                <svg viewBox="0 0 ${width} ${height}" class="exercise-progress-svg" aria-label="grafico de carga">
+                    <polygon class="ep-area" points="${areaPlot}" />
+                    <polyline class="ep-line" points="${plot}" />
+                    ${points.map((p, i) => {
+                        const isLatest = i === points.length - 1;
+                        const isBest = p.kg === best.kg && p.date === best.date;
+                        const dotClass = `ep-dot${isLatest ? ' latest' : ''}${isBest ? ' best' : ''}`;
+                        return `<circle class="${dotClass}" cx="${20 + i * step}" cy="${yScale(p.kg)}" r="${isLatest ? 5 : 3.5}"><title>${p.date}: ${p.kg} kg</title></circle>`;
+                    }).join('')}
+                </svg>
+            </div>
             <div class="exercise-progress-xlabels">
                 ${points.map(p => `<span>${p.shortDate}</span>`).join('')}
+            </div>
+            <div class="exercise-progress-list">
+                <div class="ep-list-title">Historico recente</div>
+                ${recentRows}
             </div>
         `;
     }
@@ -6642,6 +6674,7 @@ let restStartedAt = 0;
 let restEndAt = 0;
 let workoutFeedbackRating = 0;
 let workoutFeedbackIntensity = 'moderado';
+let lastWorkoutArchive = null;
 let pendingSetCompletion = null;
 let pendingExecCompletion = null;
 let activeSetTypePopover = null;
@@ -6837,17 +6870,26 @@ function startWorkoutSession(blockIdx = 0) {
         sessionId: `${studentId}-${Date.now()}`,
         startTime: Date.now(),
         title: blockTitle || 'Meu Treino',
-        exercises: block.exercises.map((ex, idx) => ({
-            id: `ex-${idx}`,
-            nome: ex.nome,
-            baseNome: ex.nome,
-            substitutes: Array.isArray(ex.substitutes) ? ex.substitutes.filter(Boolean) : [],
-            showSubstitutes: false,
-            supersetGroup: supersetGroups[idx] || 0,
-            notes: '',
-            prevMeta: getPreviousExerciseMeta(studentId, ex.nome),
-            best: personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxOneRM: 0 },
-                sets: Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => ({
+        exercises: block.exercises.map((ex, idx) => {
+            const templateSets = Array.isArray(ex.setTemplates) && ex.setTemplates.length
+                ? ex.setTemplates
+                : null;
+            const sets = templateSets
+                ? templateSets.map((tpl, sIdx) => ({
+                    id: `set-${idx}-${sIdx}`,
+                    weight: tpl.weight ?? ex.carga || '',
+                    reps: tpl.reps ?? ex.reps || '',
+                    type: tpl.type || 'normal',
+                    intensityLevel: 0,
+                    rpe: '',
+                    rir: '',
+                    execucao: 0,
+                    logged: false,
+                    completed: false,
+                    brokenPRs: { weight: false, volume: false, oneRM: false },
+                    prev: getPreviousSessionData(studentId, ex.nome)
+                }))
+                : Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => ({
                     id: `set-${idx}-${sIdx}`,
                     weight: ex.carga || '',
                     reps: ex.reps || '',
@@ -6857,11 +6899,24 @@ function startWorkoutSession(blockIdx = 0) {
                     rir: '',
                     execucao: 0,
                     logged: false,
-                completed: false,
-                brokenPRs: { weight: false, volume: false, oneRM: false },
-                prev: getPreviousSessionData(studentId, ex.nome)
-            }))
-        }))
+                    completed: false,
+                    brokenPRs: { weight: false, volume: false, oneRM: false },
+                    prev: getPreviousSessionData(studentId, ex.nome)
+                }));
+
+            return {
+                id: `ex-${idx}`,
+                nome: ex.nome,
+                baseNome: ex.nome,
+                substitutes: Array.isArray(ex.substitutes) ? ex.substitutes.filter(Boolean) : [],
+                showSubstitutes: false,
+                supersetGroup: supersetGroups[idx] || 0,
+                notes: '',
+                prevMeta: getPreviousExerciseMeta(studentId, ex.nome),
+                best: personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxOneRM: 0 },
+                sets
+            };
+        })
     };
 
     saveWorkoutBackup();
@@ -7778,6 +7833,7 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
 
     const workoutArchive = {
         ID_Usuario: studentId,
+        Nome_Treino: workoutState.title || '',
         Data_Treino: new Date().toISOString(),
         Duracao: elapsed,
         Volume_Total: totalVolume,
@@ -7789,6 +7845,7 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
                 .map(s => ({
                     peso: parseFloat(s.weight) || 0,
                     reps: parseInt(s.reps) || 0,
+                    type: s.type || 'normal',
                     intensidade: s.intensityLevel || null,
                     rpe: s.rpe ? parseFloat(s.rpe) : null,
                     rir: s.rir ? parseInt(s.rir) : null,
@@ -7850,6 +7907,7 @@ function showWorkoutSummary(archive) {
     const exerciseList = document.getElementById('summary-exercise-list');
 
     if (!screen || !statsGrid || !exerciseList) return;
+    lastWorkoutArchive = archive;
 
     // Calculate PR Count
     let prCount = 0;
@@ -7914,6 +7972,54 @@ function showWorkoutSummary(archive) {
     // Switch View
     switchStudentView('workout-summary');
     window.scrollTo(0, 0);
+}
+
+function applyLastWorkoutAsTemplate() {
+    if (!lastWorkoutArchive) {
+        alert('Nenhum treino recente para aplicar.');
+        return;
+    }
+
+    if (!confirm('Deseja substituir o modelo padrao pelo ultimo treino realizado?')) {
+        return;
+    }
+
+    const studentId = localStorage.getItem('currentStudentId');
+    const students = readStorageJSON('trainerStudents', []);
+    const sIdx = students.findIndex(s => String(s.id) === String(studentId));
+    if (sIdx < 0) return;
+
+    const blocks = students[sIdx].workoutBlocks || [];
+    if (!blocks.length) return;
+
+    const targetTitle = lastWorkoutArchive.Nome_Treino || lastWorkoutArchive.title || '';
+    let blockIdx = blocks.findIndex((b, idx) => getWorkoutBlockTitle(b, idx) === targetTitle);
+    if (blockIdx < 0) blockIdx = Number.isFinite(currentWorkoutTab) ? currentWorkoutTab : 0;
+    const block = blocks[blockIdx];
+    if (!block || !Array.isArray(block.exercises)) return;
+
+    const historyExercises = lastWorkoutArchive.Exercicios || [];
+
+    block.exercises.forEach(ex => {
+        const past = historyExercises.find(e => e.nome === ex.nome);
+        if (!past || !Array.isArray(past.sets) || past.sets.length === 0) return;
+
+        const templates = past.sets.map((s) => ({
+            weight: Number.isFinite(s.peso) ? s.peso : (s.weight ?? ex.carga ?? ''),
+            reps: Number.isFinite(s.reps) ? s.reps : (s.reps ?? ex.reps ?? ''),
+            type: s.type || s.setType || 'normal'
+        }));
+
+        ex.setTemplates = templates;
+        ex.series = String(templates.length);
+        ex.carga = templates[0]?.weight ?? ex.carga ?? '';
+        ex.reps = templates[0]?.reps ?? ex.reps ?? '';
+    });
+
+    students[sIdx].workoutBlocks = blocks;
+    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    if (typeof scheduleRemoteSync === 'function') scheduleRemoteSync('apply-template');
+    alert('Modelo padrão atualizado com base no último treino.');
 }
 
 function closeWorkoutSummary() {
