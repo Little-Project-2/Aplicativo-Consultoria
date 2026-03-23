@@ -707,10 +707,218 @@ function goToHome() {
 }
 
 function logout() {
+    if (workoutState && !confirmExitActiveWorkout()) return;
     if (confirm('Deseja realmente sair?')) {
         localStorage.clear();
         location.reload(); // Hard refresh to clear state
     }
+}
+
+// -------------------------------
+// Supabase Sync (multi-device)
+// -------------------------------
+const SYNC_KEYS = [
+    'trainerStudents',
+    'workoutHistory',
+    'trainerNotifications',
+    'allTrainers',
+    'registeredUsers',
+    'customExercises',
+    'trainer_settings_v1'
+];
+
+let syncPushTimer = null;
+let syncPullTimer = null;
+let syncPullInFlight = false;
+let isApplyingRemoteState = false;
+
+function isSupabaseReady() {
+    return typeof window.supabase?.from === 'function';
+}
+
+function getActiveSyncTrainerCode() {
+    return (
+        localStorage.getItem('currentTrainerCode') ||
+        localStorage.getItem('connectedTrainerCode') ||
+        localStorage.getItem('trainerCodeDefault') ||
+        ''
+    );
+}
+
+function getLocalStateUpdatedAt() {
+    return localStorage.getItem('app_state_updated_at') || '';
+}
+
+function setLocalStateUpdatedAt(ts) {
+    if (ts) localStorage.setItem('app_state_updated_at', ts);
+}
+
+function getLocalSyncPayload() {
+    const payload = {};
+    SYNC_KEYS.forEach((key) => {
+        const raw = localStorage.getItem(key);
+        if (raw === null || raw === undefined) return;
+        try {
+            payload[key] = JSON.parse(raw);
+        } catch {
+            payload[key] = raw;
+        }
+    });
+    return payload;
+}
+
+function setStorageValue(key, value) {
+    if (value === undefined) return;
+    const rawSet = window.__rawSetItem || localStorage.setItem.bind(localStorage);
+    if (typeof value === 'string') {
+        rawSet(key, value);
+    } else {
+        rawSet(key, JSON.stringify(value));
+    }
+}
+
+function applyRemotePayload(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    isApplyingRemoteState = true;
+    SYNC_KEYS.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(payload, key)) {
+            setStorageValue(key, payload[key]);
+        }
+    });
+    isApplyingRemoteState = false;
+    handleRemoteStateApplied();
+}
+
+async function pushAppState(reason = '') {
+    if (!isSupabaseReady()) return;
+    const trainerCode = getActiveSyncTrainerCode();
+    if (!trainerCode) return;
+
+    const payload = getLocalSyncPayload();
+    const now = new Date().toISOString();
+    setLocalStateUpdatedAt(now);
+
+    try {
+        const { error } = await window.supabase
+            .from('app_state')
+            .upsert({
+                trainer_code: trainerCode,
+                payload,
+                updated_at: now
+            }, { onConflict: 'trainer_code' });
+
+        if (error) {
+            console.warn('Falha ao sincronizar com Supabase', reason, error);
+        }
+    } catch (e) {
+        console.warn('Falha ao sincronizar com Supabase', reason, e);
+    }
+}
+
+async function pullAppStateIfNewer() {
+    if (!isSupabaseReady()) return;
+    if (syncPullInFlight) return;
+    const trainerCode = getActiveSyncTrainerCode();
+    if (!trainerCode) return;
+    syncPullInFlight = true;
+
+    try {
+        const { data, error } = await window.supabase
+            .from('app_state')
+            .select('payload, updated_at')
+            .eq('trainer_code', trainerCode)
+            .maybeSingle();
+
+        if (error) {
+            console.warn('Falha ao puxar estado remoto', error);
+            syncPullInFlight = false;
+            return;
+        }
+
+        if (!data) {
+            await pushAppState('seed');
+            syncPullInFlight = false;
+            return;
+        }
+
+        const remoteUpdated = data.updated_at || '';
+        const localUpdated = getLocalStateUpdatedAt();
+        if (!localUpdated || (remoteUpdated && new Date(remoteUpdated) > new Date(localUpdated))) {
+            applyRemotePayload(data.payload || {});
+            setLocalStateUpdatedAt(remoteUpdated);
+        }
+    } catch (e) {
+        console.warn('Falha ao puxar estado remoto', e);
+    } finally {
+        syncPullInFlight = false;
+    }
+}
+
+function scheduleRemoteSync(reason = '') {
+    if (!isSupabaseReady()) return;
+    if (syncPushTimer) clearTimeout(syncPushTimer);
+    syncPushTimer = setTimeout(() => pushAppState(reason), 800);
+}
+
+function startSyncPolling() {
+    if (!isSupabaseReady()) return;
+    if (syncPullTimer) return;
+    syncPullTimer = setInterval(() => {
+        pullAppStateIfNewer();
+    }, 20000);
+}
+
+function handleRemoteStateApplied() {
+    // Trainer dashboard refresh
+    if (document.getElementById('dash-stats-grid')) {
+        updateTrainerStats();
+        renderStudents();
+        renderPendingRequests();
+    }
+
+    // Trainer profile refresh
+    const profileScreen = document.getElementById('trainer-student-profile-screen');
+    if (profileScreen && profileScreen.classList.contains('active') && currentStudentIdx !== null) {
+        const students = readStorageJSON('trainerStudents', []);
+        if (students[currentStudentIdx]) {
+            workoutBlocks = students[currentStudentIdx].workoutBlocks || [];
+            mealBlocks = students[currentStudentIdx].mealBlocks || [];
+            renderWorkouts();
+            renderMeals();
+            if (currentTrainerStudentId) {
+                renderTrainerWorkoutHistory(currentTrainerStudentId);
+            }
+        }
+    }
+
+    // Student dashboard refresh
+    const studentDash = document.getElementById('student-dashboard-screen');
+    if (studentDash && studentDash.classList.contains('active')) {
+        initStudentDashboard();
+        const workoutScreen = document.getElementById('student-workout-screen');
+        const dietScreen = document.getElementById('student-diet-screen');
+        if (workoutScreen && workoutScreen.classList.contains('active')) openStudentWorkout();
+        if (dietScreen && dietScreen.classList.contains('active')) openStudentDiet();
+    }
+}
+
+if (!window.__syncPatched) {
+    const originalSetItem = localStorage.setItem.bind(localStorage);
+    const originalRemoveItem = localStorage.removeItem.bind(localStorage);
+    window.__rawSetItem = originalSetItem;
+    window.__rawRemoveItem = originalRemoveItem;
+
+    localStorage.setItem = (key, value) => {
+        originalSetItem(key, value);
+        if (SYNC_KEYS.includes(key) && !isApplyingRemoteState) scheduleRemoteSync(`set:${key}`);
+    };
+
+    localStorage.removeItem = (key) => {
+        originalRemoveItem(key);
+        if (SYNC_KEYS.includes(key) && !isApplyingRemoteState) scheduleRemoteSync(`remove:${key}`);
+    };
+
+    window.__syncPatched = true;
 }
 
 // â”€â”€â”€ Real-Time Sync (Cross-Tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -782,6 +990,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     applyTrainerBranding();
     upgradeSidebarNavIcons();
     setupInstallButton();
+    setupWorkoutExitGuard();
 
     // Haptic para ações de salvar plano, quando existirem
     document.addEventListener('click', (event) => {
@@ -1165,6 +1374,9 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function switchStudentView(view) {
+    if (workoutState && view !== 'log-workout' && view !== 'workout-summary') {
+        if (!confirmExitActiveWorkout()) return;
+    }
     const views = ['home', 'treino', 'dieta', 'perfil', 'log-workout', 'workout-summary'];
     views.forEach(v => {
         const el = document.getElementById(`view-student-${v}`);
@@ -2264,7 +2476,7 @@ function renderWorkoutHistory() {
         const durationMin = Math.floor((w.Duracao || 0) / 60);
         const exerciseCount = (w.Exercicios || []).length;
         const totalSets = (w.Exercicios || []).reduce((s, ex) => s + ex.sets.length, 0);
-        const hasPRs = (w.Exercicios || []).some(ex => ex.sets.some(s => s.brokenPRs && s.brokenPRs.length > 0));
+        const hasPRs = (w.Exercicios || []).some(ex => ex.sets.some(s => getSetPRTypes(s).length > 0));
         const originalIdx = history.length - 1 - idx;
 
         return `
@@ -2395,7 +2607,7 @@ function renderTrainerWorkoutHistory(studentId) {
         const durationMin = Math.floor((w.Duracao || 0) / 60);
         const exerciseCount = (w.Exercicios || []).length;
         const totalSets = (w.Exercicios || []).reduce((s, ex) => s + (ex.sets || []).length, 0);
-        const hasPRs = (w.Exercicios || []).some(ex => (ex.sets || []).some(s => s.brokenPRs && s.brokenPRs.length > 0));
+        const hasPRs = (w.Exercicios || []).some(ex => (ex.sets || []).some(s => getSetPRTypes(s).length > 0));
         const originalIdx = history.length - 1 - idx;
 
         const feedback = w.Avaliacao_Geral || {};
@@ -2433,6 +2645,63 @@ function renderTrainerWorkoutHistory(studentId) {
     }).join('');
 }
 
+function renderHistoryExerciseDetail(ex) {
+    const exNote = (ex.nota || ex.notes || '').trim();
+    const sets = Array.isArray(ex.sets) ? ex.sets : [];
+    const exVolume = sets.reduce((sum, s) => sum + getSetVolumeValue(s), 0);
+    const bestSet = sets.reduce((best, s) => {
+        const bestVol = best ? getSetVolumeValue(best) : -1;
+        const currVol = getSetVolumeValue(s);
+        return currVol > bestVol ? s : best;
+    }, null);
+    const bestLabel = bestSet
+        ? `${formatMetricNumber(getSetWeightValue(bestSet))}kg x ${getSetRepsValue(bestSet)}`
+        : '--';
+    const bestOneRM = sets.reduce((max, s) => Math.max(max, getSetOneRMValue(s)), 0);
+    const bestOneRMLabel = bestOneRM ? `${formatMetricNumber(bestOneRM)}kg` : '--';
+    const prCount = sets.reduce((sum, s) => sum + getSetPRTypes(s).length, 0);
+
+    return `
+        <div class="hd-exercise">
+            <h4>${escHtml(ex.nome)}</h4>
+            <div class="hd-ex-meta">
+                <span class="hd-ex-chip"><i class="ph-bold ph-stack"></i> Volume ${formatMetricNumber(exVolume)}kg</span>
+                <span class="hd-ex-chip"><i class="ph-bold ph-crown"></i> Melhor set ${bestLabel}</span>
+                <span class="hd-ex-chip"><i class="ph-bold ph-chart-line-up"></i> Melhor 1RM ${bestOneRMLabel}</span>
+                ${prCount ? `<span class="hd-ex-chip pr"><i class="ph-fill ph-trophy"></i> ${prCount} PRs</span>` : ''}
+                <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exercício.'}</span>
+            </div>
+            <div class="hd-sets">
+                ${sets.map((s, si) => {
+                    const weightVal = getSetWeightValue(s);
+                    const repsVal = getSetRepsValue(s);
+                    const volumeVal = getSetVolumeValue(s);
+                    const oneRMVal = getSetOneRMValue(s);
+                    const rpeVal = Number(s.rpe);
+                    const rpeText = Number.isFinite(rpeVal) ? `PSE ${rpeVal.toFixed(1)}` : 'PSE --';
+                    const execVal = Number(s.execucao);
+                    const execText = Number.isFinite(execVal) && execVal > 0 ? `Exec ${execVal}` : 'Exec --';
+                    const prTypes = getSetPRTypes(s);
+                    const prTags = prTypes.map(type => `<span class="hd-pr-chip">${type}</span>`).join('');
+                    return `
+                    <div class="hd-set-row ${prTypes.length ? 'has-pr' : ''}">
+                        <span class="hd-set-num">${si + 1}</span>
+                        <span>${formatMetricNumber(weightVal)} kg</span>
+                        <span>×</span>
+                        <span>${repsVal} reps</span>
+                        <span class="hd-set-vol">Vol ${formatMetricNumber(volumeVal)} kg</span>
+                        <span class="hd-set-onerm">1RM ${formatMetricNumber(oneRMVal)} kg</span>
+                        ${prTags}
+                        <span class="hd-set-rpe">${rpeText}</span>
+                        <span class="hd-set-exec">${execText}</span>
+                    </div>
+                `;
+                }).join('')}
+            </div>
+        </div>
+    `;
+}
+
 function openTrainerHistoryDetail(studentId, originalIdx) {
     const resolvedId = studentId || currentTrainerStudentId;
     if (!resolvedId && resolvedId !== 0) return;
@@ -2456,6 +2725,9 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
     const qualityLabel = feedback.qualidade ? `${feedback.qualidade}/5` : '--';
     const rpeStats = getWorkoutRpeStats(workout);
     const rpeLabel = rpeStats.avg ? rpeStats.avg.toFixed(1) : '--';
+    const prTotal = (workout.Exercicios || []).reduce((sum, ex) => {
+        return sum + (ex.sets || []).reduce((inner, s) => inner + getSetPRTypes(s).length, 0);
+    }, 0);
 
     title.textContent = `Treino — ${formatDate(workout.Data_Treino)}`;
 
@@ -2476,6 +2748,11 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
                 <span>${(workout.Exercicios || []).reduce((s, ex) => s + (ex.sets || []).length, 0)}</span>
                 <small>Séries</small>
             </div>
+            <div class="hd-stat">
+                <i class="ph-fill ph-trophy"></i>
+                <span>${prTotal}</span>
+                <small>PRs</small>
+            </div>
         </div>
 
         <div class="history-feedback">
@@ -2488,36 +2765,7 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
         </div>
 
         <div class="history-detail-exercises">
-            ${(workout.Exercicios || []).map(ex => {
-                const exNote = (ex.nota || ex.notes || '').trim();
-                return `
-                <div class="hd-exercise">
-                    <h4>${escHtml(ex.nome)}</h4>
-                    <div class="hd-ex-meta">
-                        <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exercício.'}</span>
-                    </div>
-                    <div class="hd-sets">
-                        ${(ex.sets || []).map((s, si) => {
-                            const rpeVal = Number(s.rpe);
-                            const rpeText = Number.isFinite(rpeVal) ? `PSE ${rpeVal.toFixed(1)}` : 'PSE --';
-                            const execVal = Number(s.execucao);
-                            const execText = Number.isFinite(execVal) && execVal > 0 ? `Exec ${execVal}` : 'Exec --';
-                            return `
-                            <div class="hd-set-row ${s.brokenPRs && s.brokenPRs.length > 0 ? 'has-pr' : ''}">
-                                <span class="hd-set-num">${si + 1}</span>
-                                <span>${s.peso || 0} kg</span>
-                                <span>×</span>
-                                <span>${s.reps || 0} reps</span>
-                                ${s.brokenPRs && s.brokenPRs.length > 0 ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
-                                <span class="hd-set-rpe">${rpeText}</span>
-                                <span class="hd-set-exec">${execText}</span>
-                            </div>
-                        `;
-                        }).join('')}
-                    </div>
-                </div>
-            `;
-            }).join('')}
+            ${(workout.Exercicios || []).map(ex => renderHistoryExerciseDetail(ex)).join('')}
         </div>
     `;
 
@@ -2547,6 +2795,15 @@ function openHistoryDetail(originalIdx) {
 
     const durationMin = Math.floor((workout.Duracao || 0) / 60);
     const durationSec = (workout.Duracao || 0) % 60;
+    const feedback = workout.Avaliacao_Geral || {};
+    const note = (feedback.comentario || '').trim();
+    const intensityLabel = feedback.intensidade ? formatIntensityLabel(feedback.intensidade) : '--';
+    const qualityLabel = feedback.qualidade ? `${feedback.qualidade}/5` : '--';
+    const rpeStats = getWorkoutRpeStats(workout);
+    const rpeLabel = rpeStats.avg ? rpeStats.avg.toFixed(1) : '--';
+    const prTotal = (workout.Exercicios || []).reduce((sum, ex) => {
+        return sum + (ex.sets || []).reduce((inner, s) => inner + getSetPRTypes(s).length, 0);
+    }, 0);
 
     title.textContent = `Treino — ${formatDate(workout.Data_Treino)}`;
 
@@ -2567,39 +2824,24 @@ function openHistoryDetail(originalIdx) {
                 <span>${(workout.Exercicios || []).reduce((s, ex) => s + ex.sets.length, 0)}</span>
                 <small>Séries</small>
             </div>
+            <div class="hd-stat">
+                <i class="ph-fill ph-trophy"></i>
+                <span>${prTotal}</span>
+                <small>PRs</small>
+            </div>
+        </div>
+
+        <div class="history-feedback">
+            <div class="history-feedback-badges">
+                <span class="history-feedback-chip"><i class="ph-bold ph-smiley"></i> Qualidade: ${qualityLabel}</span>
+                <span class="history-feedback-chip"><i class="ph-bold ph-lightning"></i> Intensidade: ${intensityLabel}</span>
+                <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> PSE médio: ${rpeLabel}</span>
+            </div>
+            ${note ? `<div class="history-feedback-note">${escHtml(note)}</div>` : `<div class="history-feedback-note">Sem notas registradas.</div>`}
         </div>
 
         <div class="history-detail-exercises">
-            ${(workout.Exercicios || []).map(ex => {
-                const exNote = (ex.nota || ex.notes || '').trim();
-                return `
-                <div class="hd-exercise">
-                    <h4>${escHtml(ex.nome)}</h4>
-                    <div class="hd-ex-meta">
-                        <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exercício.'}</span>
-                    </div>
-                    <div class="hd-sets">
-                        ${(ex.sets || []).map((s, si) => {
-                            const rpeVal = Number(s.rpe);
-                            const rpeText = Number.isFinite(rpeVal) ? `PSE ${rpeVal.toFixed(1)}` : 'PSE --';
-                            const execVal = Number(s.execucao);
-                            const execText = Number.isFinite(execVal) && execVal > 0 ? `Exec ${execVal}` : 'Exec --';
-                            return `
-                            <div class="hd-set-row ${s.brokenPRs && s.brokenPRs.length > 0 ? 'has-pr' : ''}">
-                                <span class="hd-set-num">${si + 1}</span>
-                                <span>${s.peso || 0} kg</span>
-                                <span>×</span>
-                                <span>${s.reps || 0} reps</span>
-                                ${s.brokenPRs && s.brokenPRs.length > 0 ? '<i class="ph-fill ph-trophy" style="color:#facc15;font-size:0.85rem;"></i>' : ''}
-                                <span class="hd-set-rpe">${rpeText}</span>
-                                <span class="hd-set-exec">${execText}</span>
-                            </div>
-                        `;
-                        }).join('')}
-                    </div>
-                </div>
-            `;
-            }).join('')}
+            ${(workout.Exercicios || []).map(ex => renderHistoryExerciseDetail(ex)).join('')}
         </div>
     `;
 
@@ -3264,6 +3506,8 @@ function submitQuestionnaire() {
 // â”€â”€â”€ Student Dashboard (Real Data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function initStudentDashboard() {
+    pullAppStateIfNewer();
+    startSyncPolling();
     const studentId = localStorage.getItem('currentStudentId');
     const trainerCode = localStorage.getItem('connectedTrainerCode');
     const studentName = localStorage.getItem('studentName') || 'Aluno';
@@ -3307,8 +3551,8 @@ function initStudentDashboard() {
         setProtocolStatus(false);
     }
 
-    // Attempt to restore active workout session
-    restoreWorkoutBackup();
+    // Check if there is a workout in progress (show "Continuar treino")
+    refreshWorkoutBackupIndicator();
 }
 
 function renderWorkoutStartOptions(student) {
@@ -3316,9 +3560,20 @@ function renderWorkoutStartOptions(student) {
     if (!container) return;
     const canEditWorkout = studentCanEditWorkout(student);
     const blocks = Array.isArray(student?.workoutBlocks) ? student.workoutBlocks : [];
+    const backup = getWorkoutBackup();
     if (blocks.length === 0) {
+        const continueCard = backup ? `
+            <button class="action-card highlight" onclick="resumeWorkoutBackup()"
+                style="background: rgba(250, 204, 21, 0.12); border-color: rgba(250, 204, 21, 0.35); padding: 1rem;">
+                <i class="ph-fill ph-play-circle" style="color: #facc15; font-size: 1.5rem;"></i>
+                <div style="flex:1; text-align: left;">
+                    <span style="display: block; font-weight: 700; color: var(--text-main); font-size: 1rem;">Continuar treino</span>
+                    <span style="font-size: 0.75rem; color: #facc15; font-weight: 500;">${escHtml(backup.title || 'Treino em andamento')}</span>
+                </div>
+                <i class="ph-bold ph-caret-right" style="color: #facc15; font-size: 1rem;"></i>
+            </button>` : '';
         if (canEditWorkout) {
-            container.innerHTML = `
+            container.innerHTML = `${continueCard}
             <button class="action-card highlight" onclick="openStudentWorkoutEditor()"
                 style="background: rgba(163, 230, 53, 0.1); border-color: rgba(163, 230, 53, 0.3); padding: 1rem;">
                 <i class="ph-fill ph-plus-circle" style="color: var(--primary-color); font-size: 1.5rem;"></i>
@@ -3329,10 +3584,21 @@ function renderWorkoutStartOptions(student) {
                 <i class="ph-bold ph-caret-right" style="color: var(--primary-color); font-size: 1rem;"></i>
             </button>`;
         } else {
-            container.innerHTML = '';
+            container.innerHTML = continueCard;
         }
         return;
     }
+
+    const continueCard = backup ? `
+        <button class="action-card highlight" onclick="resumeWorkoutBackup()"
+            style="background: rgba(250, 204, 21, 0.12); border-color: rgba(250, 204, 21, 0.35); padding: 1rem;">
+            <i class="ph-fill ph-play-circle" style="color: #facc15; font-size: 1.5rem;"></i>
+            <div style="flex:1; text-align: left;">
+                <span style="display: block; font-weight: 700; color: var(--text-main); font-size: 1rem;">Continuar treino</span>
+                <span style="font-size: 0.75rem; color: #facc15; font-weight: 500;">${escHtml(backup.title || 'Treino em andamento')}</span>
+            </div>
+            <i class="ph-bold ph-caret-right" style="color: #facc15; font-size: 1rem;"></i>
+        </button>` : '';
 
     const startCards = blocks.map((block, idx) => {
         const exercises = Array.isArray(block.exercises) ? block.exercises : [];
@@ -3363,7 +3629,7 @@ function renderWorkoutStartOptions(student) {
             <i class="ph-bold ph-caret-right" style="color: rgba(96,165,250,0.9); font-size: 1rem;"></i>
         </button>` : '';
 
-    container.innerHTML = `${startCards}${editCard}`;
+    container.innerHTML = `${continueCard}${startCards}${editCard}`;
 }
 
 function setProtocolStatus(isReady) {
@@ -4155,6 +4421,9 @@ function initTrainerDashboard() {
     if (!localStorage.getItem('trainerCodeDefault') && trainerCode && trainerCode !== '00000') {
         localStorage.setItem('trainerCodeDefault', trainerCode);
     }
+
+    pullAppStateIfNewer();
+    startSyncPolling();
 
     if (canAutoEnterDashboard) {
         const dashboardScreen = document.getElementById('trainer-dashboard-screen');
@@ -6383,7 +6652,7 @@ const SET_TYPE_OPTIONS = [
     { value: 'drop', label: 'Drop-set', short: 'D' },
     { value: 'failure', label: 'Falha', short: 'F' },
     { value: 'restpause', label: 'Rest-pause', short: 'R' },
-    { value: 'tempo', label: 'Tempo', short: 'T' },
+    { value: 'tempo', label: 'Preparatoria', short: 'P' },
     { value: 'cluster', label: 'Cluster', short: 'C' }
 ];
 
@@ -6397,24 +6666,48 @@ function clearWorkoutBackup() {
     localStorage.removeItem('active_workout_backup');
 }
 
-function restoreWorkoutBackup() {
+function getWorkoutBackup() {
     const backup = localStorage.getItem('active_workout_backup');
-    if (backup) {
-        try {
-            workoutState = JSON.parse(backup);
-            // Resume view
-            switchStudentView('log-workout');
-            // Resume Timer
-            if (workoutTimerInterval) clearInterval(workoutTimerInterval);
-            workoutTimerInterval = setInterval(updateWorkoutTimer, 1000);
-            renderWorkoutLog();
-            return true;
-        } catch (e) {
-            console.error('Falha ao restaurar backup de treino', e);
-            clearWorkoutBackup();
-        }
+    if (!backup) return null;
+    try {
+        return JSON.parse(backup);
+    } catch (e) {
+        console.error('Falha ao ler backup de treino', e);
+        clearWorkoutBackup();
+        return null;
     }
-    return false;
+}
+
+function resumeWorkoutBackup() {
+    const backup = getWorkoutBackup();
+    if (!backup) return false;
+    workoutState = backup;
+    // Resume view
+    switchStudentView('log-workout');
+    // Resume Timer
+    if (workoutTimerInterval) clearInterval(workoutTimerInterval);
+    workoutTimerInterval = setInterval(updateWorkoutTimer, 1000);
+    renderWorkoutLog();
+    return true;
+}
+
+function refreshWorkoutBackupIndicator() {
+    const studentId = localStorage.getItem('currentStudentId');
+    const students = readStorageJSON('trainerStudents', []);
+    const student = students.find(s => s.id === studentId);
+    if (student) renderWorkoutStartOptions(student);
+}
+
+function confirmExitActiveWorkout() {
+    return confirm('Você tem um treino em andamento. Deseja sair mesmo assim? O progresso ficará salvo para continuar depois.');
+}
+
+function setupWorkoutExitGuard() {
+    window.addEventListener('beforeunload', (event) => {
+        if (!workoutState) return;
+        event.preventDefault();
+        event.returnValue = '';
+    });
 }
 
 function getPreviousSessionData(studentId, exerciseName) {
@@ -6553,7 +6846,7 @@ function startWorkoutSession(blockIdx = 0) {
             supersetGroup: supersetGroups[idx] || 0,
             notes: '',
             prevMeta: getPreviousExerciseMeta(studentId, ex.nome),
-            best: personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxReps: 0 },
+            best: personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxOneRM: 0 },
                 sets: Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => ({
                     id: `set-${idx}-${sIdx}`,
                     weight: ex.carga || '',
@@ -6565,7 +6858,7 @@ function startWorkoutSession(blockIdx = 0) {
                     execucao: 0,
                     logged: false,
                 completed: false,
-                brokenPRs: { weight: false, volume: false, reps: false },
+                brokenPRs: { weight: false, volume: false, oneRM: false },
                 prev: getPreviousSessionData(studentId, ex.nome)
             }))
         }))
@@ -6638,14 +6931,14 @@ function renderWorkoutLog() {
             ` : ''}
 
             ${(() => {
-                const prevNote = ex.prevMeta?.notes ? `Última nota: ${ex.prevMeta.notes}` : '';
-                const placeholder = prevNote || 'Notas do exercício...';
-                const hasPrev = !!prevNote;
+                const prevNoteRaw = (ex.prevMeta?.notes || '').trim();
+                const prevNote = prevNoteRaw ? `Ultima nota: ${prevNoteRaw}` : '';
                 return `
-                <input type="text" class="exercise-notes-input ${hasPrev ? 'has-prev' : ''}"
-                    placeholder="${escHtml(placeholder)}"
+                <input type="text" class="exercise-notes-input"
+                    placeholder="Notas do exercicio..."
                     value="${escHtml(ex.notes || '')}"
-                    oninput="updateExerciseNotes(${exIdx}, this.value)">`;
+                    oninput="updateExerciseNotes(${exIdx}, this.value)">
+                ${prevNote ? `<div class="exercise-prev-note">${escHtml(prevNote)}</div>` : ''}`;
             })()}
 
             <div class="log-set-table">
@@ -6665,7 +6958,7 @@ function renderWorkoutLog() {
             const repsUp = Number.isFinite(currentReps) && prevMetrics.reps !== null && currentReps > prevMetrics.reps;
             const lastWeightLabel = prevMetrics.weight === null ? '--' : `${formatMetricNumber(prevMetrics.weight)}kg`;
             const lastRepsLabel = prevMetrics.reps === null ? '--' : `${prevMetrics.reps} reps`;
-            const hasPR = set.completed && set.brokenPRs && (set.brokenPRs.weight || set.brokenPRs.volume || set.brokenPRs.reps);
+            const hasPR = set.completed && set.brokenPRs && (set.brokenPRs.weight || set.brokenPRs.volume || set.brokenPRs.oneRM);
             const prTooltip = hasPR ? getSetPRTooltip(set) : '';
             const setType = set.type || 'normal';
             const typeOption = SET_TYPE_OPTIONS.find(t => t.value === setType) || SET_TYPE_OPTIONS[0];
@@ -6717,15 +7010,13 @@ function renderWorkoutLog() {
                                 onclick="toggleSetCompletion(${exIdx}, ${setIdx})">
                                 ${set.completed ? uiSvgIcon('check') : uiSvgIcon('circle')}
                             </button>
-                            <button class="btn-remove-set" ${canRemoveSet ? '' : 'disabled'} title="${canRemoveSet ? 'Remover série' : 'Mínimo 1 série'}"
-                                onclick="removeSetFromExercise(${exIdx}, ${setIdx})">
-                                ${uiSvgIcon('x')}
-                            </button>
                         </div>
                     </div>
                 `;
-        }).join('')}
+                }).join('')}
             </div>
+
+            ${renderExercisePRSummary(ex)}
             
             <div class="log-ex-footer">
                 <button class="btn-add-set" onclick="addSetToExercise(${exIdx})">
@@ -6746,14 +7037,151 @@ function updateExerciseNotes(exIdx, notes) {
 }
 
 
-function getSetPRTooltip(set) {
-    if (!set || !set.brokenPRs) return '';
+function getSetPRTypes(set) {
+    if (!set || !set.brokenPRs) return [];
+    if (Array.isArray(set.brokenPRs)) return set.brokenPRs;
     const types = [];
     if (set.brokenPRs.weight) types.push('Peso');
     if (set.brokenPRs.volume) types.push('Volume');
+    if (set.brokenPRs.oneRM) types.push('1RM');
     if (set.brokenPRs.reps) types.push('Reps');
+    return types;
+}
+
+function getSetPRTooltip(set) {
+    const types = getSetPRTypes(set);
     if (types.length === 0) return '';
     return `Recorde Batido: ${types.join(', ')}!`;
+}
+
+function getSetWeightValue(set) {
+    const raw = set?.peso ?? set?.weight ?? 0;
+    const parsed = parseFloat(String(raw).replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getSetRepsValue(set) {
+    const reps = parseInt(set?.reps, 10);
+    return Number.isFinite(reps) ? reps : 0;
+}
+
+function getSetVolumeValue(set) {
+    return getSetWeightValue(set) * getSetRepsValue(set);
+}
+
+function getSetOneRMValue(set) {
+    const weight = getSetWeightValue(set);
+    const reps = getSetRepsValue(set);
+    if (!weight || !reps) return 0;
+    return weight * (1 + reps / 30);
+}
+
+function renderExercisePRSummary(ex) {
+    if (!ex || !Array.isArray(ex.sets)) return '';
+    const items = [];
+    ex.sets.forEach((s, idx) => {
+        if (!s?.completed) return;
+        if (s?.brokenPRs?.weight) {
+            items.push({
+                icon: 'ph-bold ph-barbell',
+                label: 'Peso recorde',
+                value: `${formatMetricNumber(getSetWeightValue(s))}kg`,
+                setIdx: idx + 1
+            });
+        }
+        if (s?.brokenPRs?.volume) {
+            items.push({
+                icon: 'ph-bold ph-stack',
+                label: 'Volume recorde',
+                value: `${formatMetricNumber(getSetVolumeValue(s))}kg`,
+                setIdx: idx + 1
+            });
+        }
+        if (s?.brokenPRs?.oneRM) {
+            items.push({
+                icon: 'ph-bold ph-chart-line-up',
+                label: '1RM recorde',
+                value: `${formatMetricNumber(getSetOneRMValue(s))}kg`,
+                setIdx: idx + 1
+            });
+        }
+    });
+
+    if (items.length === 0) return '';
+
+    const countLabel = items.length === 1 ? '1 PR' : `${items.length} PRs`;
+    return `
+        <div class="pr-summary-card">
+            <div class="pr-summary-head">
+                <i class="ph-fill ph-trophy"></i>
+                <strong>Recordes desta sessão</strong>
+                <span class="pr-summary-count">${countLabel}</span>
+            </div>
+            <div class="pr-summary-list">
+                ${items.map(item => `
+                    <div class="pr-summary-item">
+                        <i class="${item.icon}"></i>
+                        <div>
+                            <span class="pr-summary-label">${item.label}</span>
+                            <span class="pr-summary-value">${item.value}</span>
+                        </div>
+                        <span class="pr-summary-set">Série ${item.setIdx}</span>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function playAchievementSound() {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.4);
+        osc.onended = () => ctx.close();
+    } catch {
+        // ignore audio failures
+    }
+}
+
+function showAchievementToast(title, subtitle) {
+    const toast = document.createElement('div');
+    toast.className = 'achievement-toast';
+    toast.innerHTML = `
+        <div class="achievement-icon">${uiSvgIcon('trophy')}</div>
+        <div>
+            <strong>${escHtml(title)}</strong>
+            ${subtitle ? `<span>${escHtml(subtitle)}</span>` : ''}
+        </div>
+    `;
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 250);
+    }, 2200);
+}
+
+function maybeNotifySetPR(exIdx, setIdx) {
+    const set = workoutState?.exercises?.[exIdx]?.sets?.[setIdx];
+    if (!set || !set.completed) return;
+    const types = getSetPRTypes(set);
+    if (types.length === 0) return;
+    if (set.prNotified) return;
+    set.prNotified = true;
+    playAchievementSound();
+    showAchievementToast('Recorde batido!', types.join(', '));
 }
 
 function updateSetData(exIdx, setIdx, field, value) {
@@ -6775,11 +7203,12 @@ function updateSetData(exIdx, setIdx, field, value) {
 
 function updateExercisePRs(exIdx) {
     const ex = workoutState.exercises[exIdx];
-    const best = ex.best;
+    const best = ex.best || { maxWeight: 0, maxVolume: 0, maxOneRM: 0 };
+    ex.best = best;
 
     // Reset all brokenPRs in this exercise
     ex.sets.forEach(set => {
-        set.brokenPRs = { weight: false, reps: false, volume: false };
+        set.brokenPRs = { weight: false, volume: false, oneRM: false };
     });
 
     // We only care about COMPLETED sets for the trophy (as per previous requirement)
@@ -6789,16 +7218,17 @@ function updateExercisePRs(exIdx) {
 
     let maxWeightIdx = -1;
     let maxVolumeIdx = -1;
-    let maxRepsIdx = -1;
+    let maxOneRMIdx = -1;
 
     let sessionMaxWeight = best.maxWeight;
     let sessionMaxVolume = best.maxVolume;
-    let sessionMaxReps = best.maxReps;
+    let sessionMaxOneRM = best.maxOneRM || 0;
 
     ex.sets.forEach((set, idx) => {
-        const w = parseFloat(set.weight) || 0;
-        const r = parseInt(set.reps) || 0;
+        const w = getSetWeightValue(set);
+        const r = getSetRepsValue(set);
         const v = w * r;
+        const oneRM = getSetOneRMValue(set);
 
         if (w > sessionMaxWeight) {
             sessionMaxWeight = w;
@@ -6808,16 +7238,16 @@ function updateExercisePRs(exIdx) {
             sessionMaxVolume = v;
             maxVolumeIdx = idx;
         }
-        if (r > sessionMaxReps) {
-            sessionMaxReps = r;
-            maxRepsIdx = idx;
+        if (oneRM > sessionMaxOneRM) {
+            sessionMaxOneRM = oneRM;
+            maxOneRMIdx = idx;
         }
     });
 
     // Assign trophies only to the session champions
     if (maxWeightIdx !== -1) ex.sets[maxWeightIdx].brokenPRs.weight = true;
     if (maxVolumeIdx !== -1) ex.sets[maxVolumeIdx].brokenPRs.volume = true;
-    if (maxRepsIdx !== -1) ex.sets[maxRepsIdx].brokenPRs.reps = true;
+    if (maxOneRMIdx !== -1) ex.sets[maxOneRMIdx].brokenPRs.oneRM = true;
 }
 
 function checkPRs(exIdx, setIdx) {
@@ -6850,6 +7280,8 @@ function toggleSetCompletion(exIdx, setIdx) {
         }
     }
 
+    updateExercisePRs(exIdx);
+
     if (set.completed) {
         startRestTimer(60); // Default 60s
         if (!set.logged) {
@@ -6870,7 +7302,9 @@ function toggleSetCompletion(exIdx, setIdx) {
             });
             set.logged = true;
         }
+        maybeNotifySetPR(exIdx, setIdx);
     } else {
+        set.prNotified = false;
         hideRestTimer();
     }
 
@@ -6978,11 +7412,20 @@ function openSetTypePopover(event, exIdx, setIdx) {
 
     const popover = document.createElement('div');
     popover.className = 'set-type-popover';
-    popover.innerHTML = SET_TYPE_OPTIONS.map(opt => {
+    const optionsHtml = SET_TYPE_OPTIONS.map(opt => {
         const active = opt.value === currentType ? 'active' : '';
         const chip = opt.short ? `<span class="set-type-chip">${opt.short}</span>` : '';
         return `<button type="button" class="set-type-option ${active}" onclick="selectSetType(${exIdx}, ${setIdx}, '${opt.value}')">${chip}<span>${opt.label}</span></button>`;
     }).join('');
+    const canRemoveSet = workoutState.exercises?.[exIdx]?.sets?.length > 1;
+    const removeHtml = `
+        <div class="set-type-divider"></div>
+        <button type="button" class="set-type-remove" ${canRemoveSet ? '' : 'disabled'} title="${canRemoveSet ? 'Remover série' : 'Mínimo 1 série'}"
+            onclick="removeSetFromPopover(${exIdx}, ${setIdx})">
+            ${uiSvgIcon('x')} <span>Remover série</span>
+        </button>
+    `;
+    popover.innerHTML = optionsHtml + removeHtml;
 
     popover.addEventListener('click', (e) => e.stopPropagation());
     document.body.appendChild(popover);
@@ -7216,6 +7659,11 @@ function removeSetFromExercise(exIdx, setIdx) {
     renderWorkoutLog();
 }
 
+function removeSetFromPopover(exIdx, setIdx) {
+    removeSetFromExercise(exIdx, setIdx);
+    closeSetTypePopover();
+}
+
 function removeExerciseFromLog(exIdx) {
     if (!workoutState || !confirm('Remover exercício do log?')) return;
     workoutState.exercises.splice(exIdx, 1);
@@ -7369,17 +7817,18 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
         if (!students[sIdx].personalRecords) students[sIdx].personalRecords = {};
 
         workoutState.exercises.forEach(ex => {
-            const currentMelhores = students[sIdx].personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxReps: 0 };
+            const currentMelhores = students[sIdx].personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxOneRM: 0 };
 
             ex.sets.forEach(set => {
                 if (!set.completed) return;
-                const w = parseFloat(set.weight) || 0;
-                const r = parseInt(set.reps) || 0;
+                const w = getSetWeightValue(set);
+                const r = getSetRepsValue(set);
                 const v = w * r;
+                const oneRM = getSetOneRMValue(set);
 
                 if (w > currentMelhores.maxWeight) currentMelhores.maxWeight = w;
-                if (r > currentMelhores.maxReps) currentMelhores.maxReps = r;
                 if (v > currentMelhores.maxVolume) currentMelhores.maxVolume = v;
+                if (oneRM > (currentMelhores.maxOneRM || 0)) currentMelhores.maxOneRM = oneRM;
             });
 
             students[sIdx].personalRecords[ex.nome] = currentMelhores;
@@ -7406,7 +7855,7 @@ function showWorkoutSummary(archive) {
     let prCount = 0;
     archive.Exercicios.forEach(ex => {
         ex.sets.forEach(s => {
-            if (s.brokenPRs && (s.brokenPRs.weight || s.brokenPRs.volume)) prCount++;
+            prCount += getSetPRTypes(s).length;
         });
     });
 
@@ -7450,7 +7899,7 @@ function showWorkoutSummary(archive) {
             </div>
             <div class="summary-set-list">
                 ${ex.sets.map((s, idx) => {
-        const hasPR = s.brokenPRs && (s.brokenPRs.weight || s.brokenPRs.volume);
+        const hasPR = getSetPRTypes(s).length > 0;
         return `
                         <div class="summary-set-pill ${hasPR ? 'has-pr' : ''}">
                             <span>${idx + 1}ª: <strong>${s.peso}kg</strong> x ${s.reps}</span>
@@ -7474,6 +7923,7 @@ function closeWorkoutSummary() {
     workoutFeedbackIntensity = 'moderado';
     clearWorkoutBackup();
     switchStudentView('home');
+    refreshWorkoutBackupIndicator();
 }
 
 function finishWorkout() {

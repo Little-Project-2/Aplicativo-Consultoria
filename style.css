@@ -4601,6 +4601,42 @@ body {
     color: var(--primary-color);
 }
 
+.set-type-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 0.35rem 0.2rem;
+}
+
+.set-type-remove {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 10px;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    background: rgba(239, 68, 68, 0.08);
+    color: #f87171;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.set-type-remove:hover {
+    border-color: rgba(239, 68, 68, 0.5);
+    background: rgba(239, 68, 68, 0.16);
+}
+
+.set-type-remove:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.set-type-remove .ui-svg-icon {
+    width: 0.9rem;
+    height: 0.9rem;
+}
+
 .set-type-chip {
     display: inline-flex;
     align-items: center;
@@ -5111,6 +5147,13 @@ body {
 
 .exercise-notes-input.has-prev::placeholder {
     color: rgba(255, 255, 255, 0.35);
+}
+
+.exercise-prev-note {
+    margin-top: 0.35rem;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.5);
+    opacity: 0.75;
 }
 
 /* Workout Summary Styles */
@@ -6394,6 +6437,131 @@ body {
     gap: 1rem;
 }
 
+.pr-summary-card {
+    margin-top: 0.85rem;
+    padding: 0.85rem 1rem;
+    border-radius: 14px;
+    background: rgba(250, 204, 21, 0.08);
+    border: 1px solid rgba(250, 204, 21, 0.18);
+}
+
+.pr-summary-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #facc15;
+    margin-bottom: 0.6rem;
+}
+
+.pr-summary-head i {
+    font-size: 1rem;
+}
+
+.pr-summary-count {
+    margin-left: auto;
+    font-size: 0.7rem;
+    background: rgba(250, 204, 21, 0.15);
+    color: #facc15;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-weight: 700;
+}
+
+.pr-summary-list {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.pr-summary-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pr-summary-item i {
+    color: #facc15;
+}
+
+.pr-summary-label {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.pr-summary-value {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.pr-summary-set {
+    margin-left: auto;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.achievement-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translate(-50%, 20px);
+    background: rgba(15, 15, 18, 0.95);
+    border: 1px solid rgba(250, 204, 21, 0.35);
+    border-radius: 14px;
+    padding: 0.7rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: var(--text-main);
+    opacity: 0;
+    transition: all 0.25s ease;
+    z-index: 9999;
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+}
+
+.achievement-toast.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+.achievement-toast strong {
+    display: block;
+    font-size: 0.9rem;
+    color: #facc15;
+}
+
+.achievement-toast span {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.achievement-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(250, 204, 21, 0.15);
+    color: #facc15;
+}
+
+.achievement-icon .ui-svg-icon {
+    width: 18px;
+    height: 18px;
+}
+
 .hd-exercise {
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.05);
@@ -6428,6 +6596,12 @@ body {
     font-weight: 700;
 }
 
+.hd-ex-chip.pr {
+    background: rgba(250, 204, 21, 0.12);
+    border-color: rgba(250, 204, 21, 0.3);
+    color: #facc15;
+}
+
 .hd-ex-note {
     flex: 1 1 100%;
     font-size: 0.78rem;
@@ -6443,11 +6617,34 @@ body {
 .hd-set-row {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0.75rem;
     padding: 0.4rem 0.6rem;
     border-radius: 8px;
     font-size: 0.85rem;
     background: rgba(255, 255, 255, 0.02);
+}
+
+.hd-set-vol {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.hd-set-onerm {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.hd-pr-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #facc15;
+    background: rgba(250, 204, 21, 0.12);
+    border: 1px solid rgba(250, 204, 21, 0.25);
 }
 
 .hd-set-row.has-pr {
@@ -10960,6 +11157,22 @@ body {
 #student-diet-screen.active {
     align-items: stretch;
     justify-content: flex-start;
+}
+
+@media (min-width: 1024px) {
+    #trainer-student-profile-screen.active {
+        align-items: center;
+    }
+
+    #trainer-student-profile-screen .prof-editor-layout {
+        max-width: 1200px;
+        margin: 1.5rem auto 3rem;
+        padding: 1.5rem 2.5rem 2.5rem;
+        background: rgba(15, 15, 18, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 24px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+    }
 }
 
 /* =============================

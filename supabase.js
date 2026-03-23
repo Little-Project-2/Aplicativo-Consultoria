@@ -1,13 +1,13 @@
 // supabase.js
 
-// Substitua com a URL real e a chave Anon do seu projeto no Supabase
-const supabaseUrl = 'SUA_URL_DO_SUPABASE_AQUI';
-const supabaseKey = 'SUA_CHAVE_ANON_DO_SUPABASE_AQUI';
+// URL e chave Anon do Supabase
+const supabaseUrl = 'https://lqxvordilkcqgzmkmlsb.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxxeHZvcmRpbGtjcWd6bWttbHNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NDQ1MDIsImV4cCI6MjA4OTQyMDUwMn0.Jy3Y1v62l3ElN9Jgv7Q6n--8nN8SSl1dsGkzp37Svos';
 
-// Supabase.createClient é injetado globalmente pela CDN
+// Supabase.createClient e injetado globalmente pela CDN
 const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
 
-// Torna o cliente acessível em qualquer outro arquivo (ex: script.js)
+// Torna o cliente acessivel em qualquer outro arquivo (ex: script.js)
 window.supabase = supabaseClient;
 
-console.log('✅ Supabase inicializado com sucesso!', window.supabase);
+console.log('Supabase inicializado com sucesso!', window.supabase);
