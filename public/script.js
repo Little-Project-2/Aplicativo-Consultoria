@@ -1,4 +1,4 @@
-function hideAllScreens() {
+﻿function hideAllScreens() {
     const screens = document.querySelectorAll('.screen');
     screens.forEach(screen => screen.classList.remove('active'));
     const app = document.getElementById('app');
@@ -429,7 +429,7 @@ function triggerHaptic(durationMs = 20) {
             window.navigator.vibrate(durationMs);
         }
     } catch {
-        // ignora erros de vibra��o
+        // ignora erros de vibração
     }
 }
 
@@ -535,7 +535,7 @@ function validateFormFields(form) {
         const value = sanitizeEmailInput(emailField.value);
         emailField.value = value;
         if (value && !EMAIL_REGEX.test(value)) {
-            emailField.setCustomValidity('Informe um e-mail v�lido.');
+            emailField.setCustomValidity('Informe um e-mail válido.');
             emailField.reportValidity();
             return false;
         }
@@ -921,7 +921,7 @@ if (!window.__syncPatched) {
     window.__syncPatched = true;
 }
 
-// ─── Real-Time Sync (Cross-Tab) ──────────────────────────────────────────
+// â”€â”€â”€ Real-Time Sync (Cross-Tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const syncChannel = typeof BroadcastChannel !== 'undefined'
     ? new BroadcastChannel('consultoria_sync')
     : { postMessage: () => { }, onmessage: null };
@@ -993,7 +993,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupInstallButton();
     setupWorkoutExitGuard();
 
-    // Haptic para a��es de salvar plano, quando existirem
+    // Haptic para ações de salvar plano, quando existirem
     document.addEventListener('click', (event) => {
         const saveBtn = event.target.closest('.btn-save-plan');
         if (saveBtn) {
@@ -1010,7 +1010,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     optimizeMediaElements(document);
 
-    // Fast path: remember-me token (auto-login instant�neo)
+    // Fast path: remember-me token (auto-login instantâneo)
     if (tryAutoStudentLogin()) return;
 
     // Legacy fallback for sessions without token
@@ -1035,7 +1035,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-// ─── Real-Time Sync (Cross-Tab) ──────────────────────────────────────────
+// â”€â”€â”€ Real-Time Sync (Cross-Tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 window.addEventListener('storage', (e) => {
     // Sync Trainer Dashboard
     if (e.key === 'trainerStudents' || e.key === 'trainerNotifications') {
@@ -1168,7 +1168,7 @@ function editTrainerProfile() {
     const trainerName = localStorage.getItem('trainerName') || 'Treinador';
     const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
 
-    alert(`?? Editar Perfil\n\nNome: ${trainerName}\nC�digo: ${trainerCode}\n\nEsta funcionalidade ser� implementada em breve.`);
+    alert(`?? Editar Perfil\n\nNome: ${trainerName}\nCódigo: ${trainerCode}\n\nEsta funcionalidade será implementada em breve.`);
     closeTrainerProfileMenu();
 }
 
@@ -1181,22 +1181,22 @@ function viewTrainerStats() {
     const active = myStudents.filter(s => s.active).length;
     const pending = myStudents.filter(s => s.pending).length;
 
-    alert(`?? Estat�sticas\n\nTotal de Alunos: ${total}\nAtivos: ${active}\nPendentes: ${pending}\n\nVisita a aba "Alunos" para gerenciar.`);
+    alert(`?? Estatísticas\n\nTotal de Alunos: ${total}\nAtivos: ${active}\nPendentes: ${pending}\n\nVisita a aba "Alunos" para gerenciar.`);
     closeTrainerProfileMenu();
     switchDashView('alunos');
 }
 
 function shareTrainerCode() {
     const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
-    const message = `Meu c�digo de consultoria: ${trainerCode}\n\nJunte-se ao meu programa de treino e nutri��o!`;
+    const message = `Meu código de consultoria: ${trainerCode}\n\nJunte-se ao meu programa de treino e nutrição!`;
 
     if (navigator.share) {
         navigator.share({
-            title: 'C�digo de Consultoria',
+            title: 'Código de Consultoria',
             text: message
         });
     } else {
-        alert(`?? C�digo para compartilhar:\n\n${trainerCode}\n\nCopie este c�digo e compartilhe com seus alunos.`);
+        alert(`?? Código para compartilhar:\n\n${trainerCode}\n\nCopie este código e compartilhe com seus alunos.`);
     }
     closeTrainerProfileMenu();
 }
@@ -1226,14 +1226,14 @@ function toggleElement(id) {
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
-// ─── Authentication Logic ──────────────────────────────────────────────────
+// â”€â”€â”€ Authentication Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function handleEmailLogin() {
     const email = sanitizeEmailInput(document.getElementById('login-email')?.value);
     const pass = document.getElementById('login-pass').value;
 
     if (!EMAIL_REGEX.test(email)) {
-        alert('Informe um e-mail v�lido.');
+        alert('Informe um e-mail válido.');
         return;
     }
 
@@ -1289,7 +1289,7 @@ function handleProfileCreation() {
 
     let users = readStorageJSON('registeredUsers', []);
     if (users.some(u => String(u.email || '').trim().toLowerCase() === email)) {
-        alert('Este e-mail j� est� cadastrado.');
+        alert('Este e-mail já está cadastrado.');
         return;
     }
 
@@ -1317,7 +1317,7 @@ function handleGoogleLogin() {
                 </svg>
                 <h2 style="margin:0 0 0.5rem 0;">Fazer login com Google</h2>
                 <p style="color:#5f6368; margin-bottom:2rem;">Use sua Conta do Google para continuar</p>
-                <button onclick="window.opener.postMessage('google_success', '*'); window.close();" style="background:#1a73e8; color:white; border:none; padding:10px 24px; border-radius:4px; font-weight:500; cursor:pointer;">Continuar como Usu�rio</button>
+                <button onclick="window.opener.postMessage('google_success', '*'); window.close();" style="background:#1a73e8; color:white; border:none; padding:10px 24px; border-radius:4px; font-weight:500; cursor:pointer;">Continuar como Usuário</button>
             </div>
         </body>
     `);
@@ -1501,7 +1501,7 @@ function notifyTrainerWorkoutUpdate(student, options = {}) {
         studentId,
         studentName,
         title: `?? Treino atualizado - ${studentName}`,
-        desc: `[Plano de treino atualizado] ${blocks.length} treino(s), ${totalExercises} exerc�cios.`,
+        desc: `[Plano de treino atualizado] ${blocks.length} treino(s), ${totalExercises} exercícios.`,
         time: new Date().toISOString(),
         unread: true
     });
@@ -1593,13 +1593,13 @@ function addStudentExerciseToBlock(blockIdx) {
     const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
         const block = blocks[blockIdx];
         if (!block) return;
-        const nome = promptStudentField('Nome do exerc�cio:', '', { maxLen: 80 });
+        const nome = promptStudentField('Nome do exercício:', '', { maxLen: 80 });
         if (nome === null) return;
         if (!nome) {
-            alert('Informe o nome do exerc�cio.');
+            alert('Informe o nome do exercício.');
             return;
         }
-        const series = promptStudentField('S�ries (ex: 4):', '4', { maxLen: 6 });
+        const series = promptStudentField('Séries (ex: 4):', '4', { maxLen: 6 });
         if (series === null) return;
         const reps = promptStudentField('Reps (ex: 8-12):', '10-12', { maxLen: 12 });
         if (reps === null) return;
@@ -1607,7 +1607,7 @@ function addStudentExerciseToBlock(blockIdx) {
         if (carga === null) return;
         const descanso = promptStudentField('Descanso (opcional):', '60s', { maxLen: 12 });
         if (descanso === null) return;
-        const observacao = promptStudentField('Observa��o (opcional):', '', { maxLen: 160 });
+        const observacao = promptStudentField('Observação (opcional):', '', { maxLen: 160 });
         if (observacao === null) return;
 
         const note = observacao || '';
@@ -1641,9 +1641,9 @@ function editStudentExerciseInBlock(blockIdx, exIdx) {
         const block = blocks[blockIdx];
         const ex = block?.exercises?.[exIdx];
         if (!ex) return;
-        const nome = promptStudentField('Nome do exerc�cio:', ex.nome || '', { maxLen: 80 });
+        const nome = promptStudentField('Nome do exercício:', ex.nome || '', { maxLen: 80 });
         if (nome === null) return;
-        const series = promptStudentField('S�ries (ex: 4):', ex.series || '', { maxLen: 6 });
+        const series = promptStudentField('Séries (ex: 4):', ex.series || '', { maxLen: 6 });
         if (series === null) return;
         const reps = promptStudentField('Reps (ex: 8-12):', ex.reps || '', { maxLen: 12 });
         if (reps === null) return;
@@ -1651,7 +1651,7 @@ function editStudentExerciseInBlock(blockIdx, exIdx) {
         if (carga === null) return;
         const descanso = promptStudentField('Descanso (opcional):', ex.descanso || '', { maxLen: 12 });
         if (descanso === null) return;
-        const observacao = promptStudentField('Observa��o (opcional):', ex.observacao || ex.obs || '', { maxLen: 160 });
+        const observacao = promptStudentField('Observação (opcional):', ex.observacao || ex.obs || '', { maxLen: 160 });
         if (observacao === null) return;
 
         const note = observacao || '';
@@ -1674,7 +1674,7 @@ function editStudentExerciseInBlock(blockIdx, exIdx) {
 }
 
 function removeStudentExerciseFromBlock(blockIdx, exIdx) {
-    if (!confirm('Remover este exerc�cio?')) return;
+    if (!confirm('Remover este exercício?')) return;
     const studentId = localStorage.getItem('currentStudentId');
     const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
         const block = blocks[blockIdx];
@@ -1723,11 +1723,11 @@ function renderStudentWorkoutMain(options = {}) {
                 <i class="ph-fill ph-pencil-simple"></i>
                 <div class="empty-info">
                     <h3>Monte seu treino</h3>
-                    <p>Crie o primeiro bloco e adicione exerc�cios para treinar amanh�.</p>
+                    <p>Crie o primeiro bloco e adicione exercícios para treinar amanhã.</p>
                 </div>
                 <div style="display:flex; gap:0.8rem; flex-wrap:wrap; margin-top:1rem;">
                     <button class="btn-primary" onclick="addStudentWorkoutBlock()"><i class="ph-bold ph-plus"></i> Criar Treino</button>
-                    <button class="btn-secondary" onclick="openStudentWorkoutEditor()">Modo Edi��o</button>
+                    <button class="btn-secondary" onclick="openStudentWorkoutEditor()">Modo Edição</button>
                 </div>
             </div>`;
         } else {
@@ -1776,16 +1776,16 @@ function renderStudentWorkoutMain(options = {}) {
                                 <div class="exercise-order-badge">${idx + 1}</div>
                                 <div class="ex-name-box">
                                     <span>${escHtml(ex.nome)}</span>
-                                    <div class="ex-sets-mini">${ex.series} series � ${ex.reps} reps ${ex.descanso ? `� ${escHtml(ex.descanso)} descanso` : ''}</div>
+                                    <div class="ex-sets-mini">${ex.series} series • ${ex.reps} reps ${ex.descanso ? `• ${escHtml(ex.descanso)} descanso` : ''}</div>
                                     ${note ? `<p class="exercise-note"><i class="ph-bold ph-info"></i> ${escHtml(note)}</p>` : ''}
                                     ${substitutes.length ? `<div class="analysis-substitute-chips">${substitutes.map(s => `<span>${escHtml(s)}</span>`).join('')}</div>` : ''}
                                     ${ex.supersetWithNext ? `<p class="exercise-note"><i class="ph-bold ph-lightning"></i> Super serie com o proximo exercicio</p>` : ''}
                                     ${editMode ? `
                                     <div class="exercise-edit-row">
-                                        <button class="btn-icon-tiny action-edit" onclick="editStudentExerciseInBlock(${currentWorkoutTab}, ${idx})" title="Editar exerc�cio">
+                                        <button class="btn-icon-tiny action-edit" onclick="editStudentExerciseInBlock(${currentWorkoutTab}, ${idx})" title="Editar exercício">
                                             <i class="ph-bold ph-pencil-simple"></i>
                                         </button>
-                                        <button class="btn-icon-tiny action-trash" onclick="removeStudentExerciseFromBlock(${currentWorkoutTab}, ${idx})" title="Remover exerc�cio">
+                                        <button class="btn-icon-tiny action-trash" onclick="removeStudentExerciseFromBlock(${currentWorkoutTab}, ${idx})" title="Remover exercício">
                                             <i class="ph-bold ph-trash"></i>
                                         </button>
                                     </div>` : ''}
@@ -1795,7 +1795,7 @@ function renderStudentWorkoutMain(options = {}) {
                                 </button>
                             </div>`;
         }).join('')
-        : `<div class="student-ex-empty">${editMode ? 'Nenhum exerc�cio ainda. Use "Adicionar exerc�cio" para come�ar.' : 'Nenhum exerc�cio cadastrado neste treino.'}</div>`;
+        : `<div class="student-ex-empty">${editMode ? 'Nenhum exercício ainda. Use "Adicionar exercício" para começar.' : 'Nenhum exercício cadastrado neste treino.'}</div>`;
 
     mainContent.innerHTML = `
         <div class="routine-card workout-analysis-layout clean-analysis">
@@ -1852,15 +1852,15 @@ function renderStudentWorkoutMain(options = {}) {
                         <div class="student-edit-head">
                             <strong>Seu Treino</strong>
                             <button class="btn-secondary-outline" onclick="toggleStudentWorkoutEditMode()">
-                                ${editMode ? 'Concluir edi��o' : 'Editar treino'}
+                                ${editMode ? 'Concluir edição' : 'Editar treino'}
                             </button>
                         </div>
-                        <p class="student-edit-hint">${editMode ? 'Use os bot�es abaixo para montar o treino.' : 'Ative o modo edi��o para criar e ajustar seu treino.'}</p>
+                        <p class="student-edit-hint">${editMode ? 'Use os botões abaixo para montar o treino.' : 'Ative o modo edição para criar e ajustar seu treino.'}</p>
                         ${editMode ? `
                         <div class="student-edit-actions">
                             <button class="btn-secondary" onclick="addStudentWorkoutBlock()"><i class="ph-bold ph-plus"></i> Adicionar treino</button>
                             <button class="btn-secondary" onclick="renameStudentWorkoutBlock(${currentWorkoutTab})"><i class="ph-bold ph-pencil-simple"></i> Renomear treino</button>
-                            <button class="btn-secondary" onclick="addStudentExerciseToCurrentBlock()"><i class="ph-bold ph-plus-circle"></i> Adicionar exerc�cio</button>
+                            <button class="btn-secondary" onclick="addStudentExerciseToCurrentBlock()"><i class="ph-bold ph-plus-circle"></i> Adicionar exercício</button>
                             <button class="btn-secondary-outline btn-danger-outline" onclick="removeStudentWorkoutBlock(${currentWorkoutTab})"><i class="ph-bold ph-trash"></i> Remover treino</button>
                         </div>` : ''}
                     </div>` : ''}
@@ -1888,7 +1888,7 @@ function switchWorkoutTab(idx) {
     renderStudentWorkoutMain({ withSkeleton: true, delayMs: 160 });
 }
 
-// ─── Treino Subview System ──────────────────────────────────────────────────
+// â”€â”€â”€ Treino Subview System â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function switchTreinoSubview(view) {
     const landing = document.getElementById('treino-landing');
@@ -1952,7 +1952,7 @@ function pushStudentMessageToTrainer(studentId, studentName, payload = {}) {
     } : null;
 
     if (!media && rawDataUrl.length > 1_100_000 && !safeText) {
-        safeText = '[M�dia enviada: pr�via indispon�vel no modo beta]';
+        safeText = '[Mídia enviada: prévia indisponível no modo beta]';
     }
 
     if (!safeText && !media) return;
@@ -1963,8 +1963,8 @@ function pushStudentMessageToTrainer(studentId, studentName, payload = {}) {
         type: 'duvida',
         studentId,
         studentName: safeName,
-        title: `?? D�vida de ${safeName}`,
-        desc: safeText || '[M�dia enviada]',
+        title: `?? Dúvida de ${safeName}`,
+        desc: safeText || '[Mídia enviada]',
         media,
         time: nowIso,
         unread: true
@@ -2189,8 +2189,8 @@ function updateStudentRecordingUI() {
     if (btn) {
         btn.classList.toggle('recording', studentAudioRecording);
         btn.innerHTML = studentAudioRecording
-            ? '<i class="ph-bold ph-stop-circle"></i> Parar grava��o'
-            : '<i class="ph-bold ph-microphone"></i> Gravar �udio real';
+            ? '<i class="ph-bold ph-stop-circle"></i> Parar gravação'
+            : '<i class="ph-bold ph-microphone"></i> Gravar áudio real';
     }
     if (wave) wave.style.display = studentAudioRecording ? 'flex' : 'none';
 }
@@ -2198,11 +2198,11 @@ function updateStudentRecordingUI() {
 async function startStudentAudioRecording() {
     if (studentAudioRecording) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert('Grava��o de �udio n�o suportada neste dispositivo.');
+        alert('Gravação de áudio não suportada neste dispositivo.');
         return;
     }
     if (typeof MediaRecorder === 'undefined') {
-        alert('Seu navegador n�o suporta grava��o de �udio nesta vers�o.');
+        alert('Seu navegador não suporta gravação de áudio nesta versão.');
         return;
     }
 
@@ -2238,13 +2238,13 @@ async function startStudentAudioRecording() {
                 const dataUrl = await fileToDataUrl(blob);
                 const safeDataUrl = dataUrl.length > 1_100_000 ? '' : dataUrl;
                 simulateStudentMediaUpload('audio', {
-                    text: safeDataUrl ? '[�udio gravado no app]' : '[�udio enviado: pr�via indispon�vel]',
+                    text: safeDataUrl ? '[Áudio gravado no app]' : '[Áudio enviado: prévia indisponível]',
                     mediaDataUrl: safeDataUrl,
                     mediaDuration: formatSecondsMMSS(durationSec)
                 });
             } catch (err) {
-                console.error('Falha ao processar �udio gravado', err);
-                alert('N�o foi poss�vel processar o �udio.');
+                console.error('Falha ao processar áudio gravado', err);
+                alert('Não foi possível processar o áudio.');
             } finally {
                 releaseStudentAudioStream();
                 studentAudioRecorder = null;
@@ -2262,7 +2262,7 @@ async function startStudentAudioRecording() {
         }, 20 * 1000);
     } catch (err) {
         console.error('Falha ao iniciar gravacao do aluno', err);
-        alert('N�o foi poss�vel acessar o microfone.');
+        alert('Não foi possível acessar o microfone.');
         releaseStudentAudioStream();
     }
 }
@@ -2323,7 +2323,7 @@ function simulateStudentMediaUpload(kind = 'audio', options = {}) {
 
             const messages = loadStudentChatMessages(studentId, studentName);
             const messageType = kind === 'video' ? 'video' : 'audio';
-            const messageText = options.text || (kind === 'video' ? '[V�deo simulado enviado]' : '[�udio simulado enviado]');
+            const messageText = options.text || (kind === 'video' ? '[Vídeo simulado enviado]' : '[Áudio simulado enviado]');
             const nowIso = new Date().toISOString();
             const localId = `n-${studentId}-${nowIso}-q`;
             messages.push({
@@ -2370,7 +2370,7 @@ function renderStudentDuvidas() {
                 ${messages.length === 0
             ? `<div class="empty-state-card" style="margin-top:0;border-color:rgba(255,255,255,0.03);">
                             <i class="ph-bold ph-chat-circle-dots" style="font-size:1.5rem;opacity:0.5;"></i>
-                            <p style="font-size:0.8rem;color:var(--text-muted);">Envie uma mensagem para iniciar o chat de d�vidas.</p>
+                            <p style="font-size:0.8rem;color:var(--text-muted);">Envie uma mensagem para iniciar o chat de dúvidas.</p>
                         </div>`
             : messages.map(renderStudentChatBubble).join('')
         }
@@ -2385,21 +2385,21 @@ function renderStudentDuvidas() {
 
             <div class="student-chat-compose">
                 <textarea id="student-chat-input" class="q-input" rows="2" maxlength="900"
-                    placeholder="Digite sua d�vida aqui..."
+                    placeholder="Digite sua dúvida aqui..."
                     onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); sendStudentQuickMessage();}"></textarea>
                 <div id="student-chat-recording-wave" class="student-chat-recording-wave" style="display:none;">
                     <span></span><span></span><span></span><span></span><span></span>
-                    <small>Gravando �udio...</small>
+                    <small>Gravando áudio...</small>
                 </div>
                 <div class="student-chat-actions">
                     <button type="button" class="btn-secondary-outline" id="btn-student-record-audio" onclick="toggleStudentAudioRecording()">
-                        <i class="ph-bold ph-microphone"></i> Gravar �udio real
+                        <i class="ph-bold ph-microphone"></i> Gravar áudio real
                     </button>
                     <button type="button" class="btn-secondary-outline" onclick="simulateStudentMediaUpload('audio')">
-                        <i class="ph-bold ph-waveform"></i> Simular �udio
+                        <i class="ph-bold ph-waveform"></i> Simular Áudio
                     </button>
                     <button type="button" class="btn-secondary-outline" onclick="simulateStudentMediaUpload('video')">
-                        <i class="ph-bold ph-video-camera"></i> Simular V�deo
+                        <i class="ph-bold ph-video-camera"></i> Simular Vídeo
                     </button>
                     <button type="button" class="btn-primary" onclick="sendStudentQuickMessage()">
                         <i class="ph-fill ph-paper-plane-right"></i> Enviar
@@ -2466,7 +2466,7 @@ function renderWorkoutHistory() {
         listEl.innerHTML = `
             <div class="perfil-history-empty">
                 <i class="ph-bold ph-barbell"></i>
-                <p>Voc� ainda n�o completou nenhum treino. Inicie um treino pelo Dashboard para come�ar a acompanhar sua evolu��o!</p>
+                <p>Você ainda não completou nenhum treino. Inicie um treino pelo Dashboard para começar a acompanhar sua evolução!</p>
             </div>
         `;
         return;
@@ -2485,8 +2485,8 @@ function renderWorkoutHistory() {
                 <div class="history-workout-left">
                     <div class="history-workout-date">${date}</div>
                     <div class="history-workout-meta">
-                        <span><i class="ph-bold ph-barbell"></i> ${exerciseCount} exerc�cios</span>
-                        <span><i class="ph-bold ph-stack"></i> ${totalSets} s�ries</span>
+                        <span><i class="ph-bold ph-barbell"></i> ${exerciseCount} exercícios</span>
+                        <span><i class="ph-bold ph-stack"></i> ${totalSets} séries</span>
                         <span><i class="ph-bold ph-timer"></i> ${durationMin} min</span>
                     </div>
                     <div class="history-workout-exercises">
@@ -2588,7 +2588,7 @@ function renderTrainerWorkoutHistory(studentId) {
             <div class="evo-card">
                 <div class="evo-icon"><i class="ph-bold ph-gauge"></i></div>
                 <div class="evo-value">${avgRpeAll ? avgRpeAll.toFixed(1) : '--'}</div>
-                <div class="evo-label">RPE M�dio</div>
+                <div class="evo-label">RPE Médio</div>
             </div>
         `;
     }
@@ -2597,7 +2597,7 @@ function renderTrainerWorkoutHistory(studentId) {
         listEl.innerHTML = `
             <div class="perfil-history-empty">
                 <i class="ph-bold ph-barbell"></i>
-                <p>Este aluno ainda n�o completou nenhum treino.</p>
+                <p>Este aluno ainda não completou nenhum treino.</p>
             </div>
         `;
         return;
@@ -2624,15 +2624,15 @@ function renderTrainerWorkoutHistory(studentId) {
                 <div class="history-workout-left">
                     <div class="history-workout-date">${date}</div>
                     <div class="history-workout-meta">
-                        <span><i class="ph-bold ph-barbell"></i> ${exerciseCount} exerc�cios</span>
-                        <span><i class="ph-bold ph-stack"></i> ${totalSets} s�ries</span>
+                        <span><i class="ph-bold ph-barbell"></i> ${exerciseCount} exercícios</span>
+                        <span><i class="ph-bold ph-stack"></i> ${totalSets} séries</span>
                         <span><i class="ph-bold ph-timer"></i> ${durationMin} min</span>
                     </div>
                     <div class="history-feedback">
                         <div class="history-feedback-badges">
                             <span class="history-feedback-chip"><i class="ph-bold ph-smiley"></i> Qualidade: ${qualityLabel}</span>
                             <span class="history-feedback-chip"><i class="ph-bold ph-lightning"></i> Intensidade: ${intensityLabel}</span>
-                            <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> PSE m�dio: ${rpeLabel}</span>
+                            <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> PSE médio: ${rpeLabel}</span>
                         </div>
                         ${notePreview ? `<div class="history-feedback-note">${escHtml(notePreview)}</div>` : ''}
                     </div>
@@ -2670,7 +2670,7 @@ function renderHistoryExerciseDetail(ex) {
                 <span class="hd-ex-chip"><i class="ph-bold ph-crown"></i> Melhor set ${bestLabel}</span>
                 <span class="hd-ex-chip"><i class="ph-bold ph-chart-line-up"></i> Melhor 1RM ${bestOneRMLabel}</span>
                 ${prCount ? `<span class="hd-ex-chip pr"><i class="ph-fill ph-trophy"></i> ${prCount} PRs</span>` : ''}
-                <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exerc�cio.'}</span>
+                <span class="hd-ex-note">${exNote ? escHtml(exNote) : 'Sem notas do exercício.'}</span>
             </div>
             <div class="hd-sets">
                 ${sets.map((s, si) => {
@@ -2688,7 +2688,7 @@ function renderHistoryExerciseDetail(ex) {
                     <div class="hd-set-row ${prTypes.length ? 'has-pr' : ''}">
                         <span class="hd-set-num">${si + 1}</span>
                         <span>${formatMetricNumber(weightVal)} kg</span>
-                        <span>�</span>
+                        <span>×</span>
                         <span>${repsVal} reps</span>
                         <span class="hd-set-vol">Vol ${formatMetricNumber(volumeVal)} kg</span>
                         <span class="hd-set-onerm">1RM ${formatMetricNumber(oneRMVal)} kg</span>
@@ -2730,12 +2730,169 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
         return sum + (ex.sets || []).reduce((inner, s) => inner + getSetPRTypes(s).length, 0);
     }, 0);
 
-    title.textContent = `Treino � ${formatDate(workout.Data_Treino)}`;
+        title.textContent = `Treino — ${formatDate(workout.Data_Treino)}`;
+
+    const exercises = Array.isArray(workout.Exercicios) ? workout.Exercicios : [];
+    const exercisesHtml = exercises.length
+        ? exercises.map(renderHistoryExerciseDetail).join('')
+        : '<div class="hd-empty">Sem exercícios registrados.</div>';
+    const noteHtml = note
+        ? `<div class="history-detail-note">${escHtml(note)}</div>`
+        : '<div class="history-detail-note muted">Sem observações do treino.</div>';
 
     body.innerHTML = `
         <div class="history-detail-stats">
             <div class="hd-stat">
                 <i class="ph-bold ph-timer"></i>
                 <span>${durationMin}:${durationSec.toString().padStart(2, '0')}</span>
-                <small>Dura��o</small>
+                <small>Duração</small>
             </div>
+            <div class="hd-stat">
+                <i class="ph-bold ph-chart-line-up"></i>
+                <span>${rpeLabel}</span>
+                <small>PSE médio</small>
+            </div>
+            <div class="hd-stat">
+                <i class="ph-bold ph-star"></i>
+                <span>${qualityLabel}</span>
+                <small>Qualidade</small>
+            </div>
+            <div class="hd-stat">
+                <i class="ph-bold ph-fire"></i>
+                <span>${intensityLabel}</span>
+                <small>Intensidade</small>
+            </div>
+            <div class="hd-stat">
+                <i class="ph-fill ph-trophy"></i>
+                <span>${prTotal}</span>
+                <small>PRs</small>
+            </div>
+        </div>
+        ${noteHtml}
+        <div class="history-detail-exercises">
+            ${exercisesHtml}
+        </div>
+    `;
+
+    modal.style.display = 'flex';
+    requestAnimationFrame(() => modal.classList.add('active'));
+}
+
+function closeTrainerHistoryDetail() {
+    const modal = document.getElementById('trainer-history-detail-modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => {
+        modal.style.display = 'none';
+    }, 200);
+}
+
+function openExerciseProgressModalEncoded(encodedName) {
+    if (!encodedName) return;
+    openExerciseProgressModal(decodeURIComponent(encodedName));
+}
+
+function openExerciseProgressModal(exerciseName) {
+    const modal = document.getElementById('exercise-progress-modal-overlay');
+    const title = document.getElementById('exercise-progress-title');
+    const body = document.getElementById('exercise-progress-body');
+    if (!modal || !title || !body) return;
+
+    const studentId = localStorage.getItem('currentStudentId');
+    const history = readStorageJSON('workoutHistory', []).filter(w => String(w.ID_Usuario) === String(studentId));
+    const records = history.map(entry => {
+        const ex = (entry.Exercicios || []).find(e => String(e.nome || '').toLowerCase() === String(exerciseName || '').toLowerCase());
+        if (!ex) return null;
+        const sets = Array.isArray(ex.sets) ? ex.sets : [];
+        const maxWeight = sets.reduce((max, s) => Math.max(max, getSetWeightValue(s)), 0);
+        const maxVolume = sets.reduce((max, s) => Math.max(max, getSetVolumeValue(s)), 0);
+        const maxOneRm = sets.reduce((max, s) => Math.max(max, getSetOneRMValue(s)), 0);
+        return {
+            date: entry.Data_Treino,
+            weight: maxWeight,
+            volume: maxVolume,
+            oneRm: maxOneRm
+        };
+    }).filter(Boolean);
+
+    const last = records[records.length - 1];
+    const prWeight = records.reduce((max, r) => Math.max(max, r.weight || 0), 0);
+    const prVolume = records.reduce((max, r) => Math.max(max, r.volume || 0), 0);
+    const prOneRm = records.reduce((max, r) => Math.max(max, r.oneRm || 0), 0);
+
+    title.textContent = `Histórico de Carga - ${exerciseName}`;
+
+    body.innerHTML = `
+        <div class="exercise-progress-head refined">
+            <div class="exercise-progress-stat">
+                <label>Última carga</label>
+                <strong>${last ? formatMetricNumber(last.weight) : '--'} kg</strong>
+            </div>
+            <div class="exercise-progress-stat">
+                <label>PR Peso</label>
+                <strong>${prWeight ? formatMetricNumber(prWeight) : '--'} kg</strong>
+            </div>
+            <div class="exercise-progress-stat">
+                <label>PR Volume</label>
+                <strong>${prVolume ? formatMetricNumber(prVolume) : '--'} kg</strong>
+            </div>
+            <div class="exercise-progress-stat">
+                <label>PR 1RM</label>
+                <strong>${prOneRm ? formatMetricNumber(prOneRm) : '--'} kg</strong>
+            </div>
+        </div>
+        <div class="exercise-progress-list">
+            ${records.length ? records.slice().reverse().map(r => `
+                <div class="exercise-progress-item">
+                    <span>${formatDate(r.date)}</span>
+                    <span>${formatMetricNumber(r.weight)} kg</span>
+                    <span>Vol ${formatMetricNumber(r.volume)} kg</span>
+                    <span>1RM ${formatMetricNumber(r.oneRm)} kg</span>
+                </div>
+            `).join('') : '<p class="muted">Sem registros para este exercício.</p>'}
+        </div>
+    `;
+
+    modal.style.display = 'flex';
+    requestAnimationFrame(() => modal.classList.add('active'));
+}
+
+function closeExerciseProgressModal() {
+    const modal = document.getElementById('exercise-progress-modal-overlay');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => {
+        modal.style.display = 'none';
+    }, 200);
+}
+
+function ensureStyleFallback() {
+    const applyFallback = async () => {
+        try {
+            const bg = getComputedStyle(document.body).backgroundColor;
+            const looksUnstyled = bg === 'rgb(255, 255, 255)' || bg === 'rgba(0, 0, 0, 0)';
+            if (!looksUnstyled) return;
+            const candidates = ['style.css?v=1', '/style.css?v=1', '/public/style.css?v=1'];
+            for (const href of candidates) {
+                const res = await fetch(href);
+                if (!res.ok) continue;
+                const css = await res.text();
+                const styleTag = document.createElement('style');
+                styleTag.setAttribute('data-fallback-style', '1');
+                styleTag.textContent = css;
+                document.head.appendChild(styleTag);
+                break;
+            }
+        } catch {
+            // ignore fallback failures
+        }
+    };
+
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', applyFallback);
+    } else {
+        applyFallback();
+    }
+}
+
+ensureStyleFallback();
