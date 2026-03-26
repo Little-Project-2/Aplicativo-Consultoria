@@ -13,7 +13,7 @@
             <!-- Logo / Header -->
             <div class="gl-header">
                 <div class="gl-logo-icon">
-                    <i class="ph-bold ph-lightning"></i>
+                    <i class="ph-bold ph-barbell"></i>
                 </div>
                 <h1 class="gl-title">Consultoria<span class="gl-title-accent">Fit</span></h1>
                 <p class="gl-subtitle">Acesse sua conta para continuar</p>
@@ -684,10 +684,49 @@
             const pinBtn = pinInput?.closest('form')?.querySelector('button[type="submit"]');
             if (pinBtn) { pinBtn.disabled = true; pinBtn.textContent = 'Verificando…'; }
 
+            // --- OFFLINE / TEST FALLBACK ---
+            try {
+                const localStudents = JSON.parse(localStorage.getItem('trainerStudents') || '[]');
+                let localMatch = localStudents.find(s => String(s.id) === pin || String(s.pin) === pin);
+                
+                // Hardcode fallback for requested accounts if not found in local storage
+                if (!localMatch && (pin === '12345' || pin === '77777')) {
+                    localMatch = {
+                        id: pin,
+                        name: pin === '12345' ? 'Nicolas (Admin)' : 'Diego (Auto Treino)',
+                        trainerCode: '00001'
+                    };
+                }
+
+                if (localMatch) {
+                    console.log('✅ Login local por PIN bem-sucedido (Offline/Teste):', localMatch.name);
+                    
+                    localStorage.setItem('currentStudentId', localMatch.id);
+                    localStorage.setItem('studentName', localMatch.name);
+                    localStorage.setItem('connectedTrainerCode', localMatch.trainerCode || '00001');
+                    if (typeof saveStudentAuthToken === 'function') saveStudentAuthToken(localMatch);
+
+                    if (typeof openStudentDashboardSession === 'function') {
+                        const success = openStudentDashboardSession(localMatch, { persistToken: true });
+                        if (success) {
+                            document.getElementById('global-login-screen')?.classList.remove('active');
+                            if (pinBtn) { pinBtn.disabled = false; pinBtn.textContent = 'Validar Código'; }
+                            return;
+                        }
+                    }
+                    
+                    window.location.href = '/pages/student-dashboard.html';
+                    return;
+                }
+            } catch (e) {
+                console.warn('Falha na verificação de login local', e);
+            }
+            // --- FIM FALLBACK ---
+
             try {
                 const { data: profiles, error } = await window.supabase
                     .from('profiles')
-                    .select('role, pin')
+                    .select('id, role, pin, full_name, trainer_code')
                     .eq('pin', pin)
                     .limit(1);
 
@@ -698,8 +737,39 @@
                     return;
                 }
 
-                console.log('✅ Login por PIN bem-sucedido!');
-                redirectByRole(profiles[0].role);
+                const profile = profiles[0];
+                console.log('✅ Login por PIN bem-sucedido! Role:', profile.role);
+
+                if (profile.role === 'aluno') {
+                    // For PIN login, we bypass normal auth so we mock/construct the student payload
+                    const studentObj = {
+                        id: profile.id,
+                        name: profile.full_name || 'Aluno',
+                        trainerCode: profile.trainer_code || '00001'
+                    };
+                    
+                    localStorage.setItem('currentStudentId', studentObj.id);
+                    localStorage.setItem('studentName', studentObj.name);
+                    localStorage.setItem('connectedTrainerCode', studentObj.trainerCode);
+                    if (typeof saveStudentAuthToken === 'function') saveStudentAuthToken(studentObj);
+                    
+                    if (typeof openStudentDashboardSession === 'function') {
+                        const success = openStudentDashboardSession(studentObj, { persistToken: true });
+                        if (success) {
+                            document.getElementById('global-login-screen')?.classList.remove('active');
+                            return;
+                        }
+                    }
+                    
+                    window.location.href = '/pages/student-dashboard.html';
+                } else if (profile.role === 'treinador') {
+                    // Set trainer vars
+                    localStorage.setItem('currentTrainerCode', profile.trainer_code || profile.pin);
+                    localStorage.setItem('currentTrainerId', profile.id);
+                    redirectByRole(profile.role);
+                } else {
+                    redirectByRole(profile.role);
+                }
 
             } catch (err) {
                 showLoginError('Erro ao verificar o código. Tente mais tarde.');
