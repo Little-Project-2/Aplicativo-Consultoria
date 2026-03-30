@@ -1,0 +1,809 @@
+<div id="student-dashboard-screen" class="screen">
+            <div class="dashboard-layout">
+                <!-- Sidebar -->
+                <aside class="sidebar student">
+                    <div class="sidebar-logo">
+                        <div class="logo-icon glow"
+                            style="width: 40px; height: 40px; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: rgba(57, 255, 20, 0.1);">
+                            <img src="/assets/icons/app-logo.png" alt="Logo" style="width: 100%; height: 100%; object-fit: cover;">
+                        </div>
+                        <div>
+                            <h2 id="side-student-name"
+                                style="font-size: 1.1rem; font-weight: 700; color: var(--text-main);">Aluno</h2>
+                            <p style="font-size: 0.75rem; color: var(--primary-color);">Plano Online</p>
+                        </div>
+                    </div>
+
+                    <nav class="sidebar-nav">
+                        <a href="#" class="nav-item active" id="snav-home" onclick="switchStudentView('home')">
+                            <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <rect x="4" y="4" width="7" height="7" rx="1.5" fill="currentColor"></rect>
+                                <rect x="13" y="4" width="7" height="7" rx="1.5" fill="currentColor"></rect>
+                                <rect x="4" y="13" width="7" height="7" rx="1.5" fill="currentColor"></rect>
+                                <rect x="13" y="13" width="7" height="7" rx="1.5" fill="currentColor"></rect>
+                            </svg>
+                            Dashboard
+                        </a>
+                        <a href="#" class="nav-item" id="snav-treino" onclick="switchStudentView('treino')">
+                            <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M3 9v6M6 7v10M18 7v10M21 9v6M6 12h12" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round"></path>
+                            </svg>
+                            Meu Treino
+                        </a>
+                        <a href="#" class="nav-item" id="snav-dieta" onclick="switchStudentView('dieta')">
+                            <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path
+                                    d="M12 8c-2.8 0-5 2.2-5 5 0 4.2 3.1 7 5 7s5-2.8 5-7c0-2.8-2.2-5-5-5zm0 0c.8-2.1 2.2-3.3 4.2-3.7"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round"></path>
+                            </svg>
+                            Minha Dieta
+                        </a>
+                        <a href="#" class="nav-item" id="snav-perfil" onclick="switchStudentView('perfil')">
+                            <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2">
+                                </circle>
+                                <path d="M5 19c1.4-2.8 3.7-4.2 7-4.2 3.3 0 5.6 1.4 7 4.2" fill="none"
+                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                            </svg>
+                            Meu Perfil
+                        </a>
+                    </nav>
+
+                    <div class="sidebar-footer">
+                        <button class="nav-item btn-logout" type="button" aria-label="Sair da conta" onclick="logout()">
+                            <i class="ph-bold ph-sign-out"></i> Sair
+                        </button>
+                    </div>
+                </aside>
+
+                <!-- Main Content -->
+                <main class="main-content">
+                    <div id="view-student-home" class="view-section">
+                        <div class="dashboard-header">
+                            <div class="user-info">
+                                <h2 id="dash-student-name">Olá, Aluno</h2>
+                                <p class="subtitle" style="display: flex; flex-direction: column; gap: 0.2rem;">
+                                    <span>Treinador: <span id="dash-student-trainer"
+                                            class="highlight-code">Carregando...</span></span>
+                                    <span style="display: flex; align-items: center; gap: 0.4rem;">
+                                        Cód:
+                                        <div class="code-copy-wrapper"
+                                            onclick="copyAccessCode('student-code-ref', 'btn-copy-student-code')"
+                                            title="Clique para copiar">
+                                            <span id="student-code-ref" class="highlight-code"
+                                                style="color:var(--primary-color);">....</span>
+                                            <button class="btn-copy-tiny" type="button" aria-label="Copiar código do aluno" id="btn-copy-student-code">
+                                                <i class="ph-bold ph-copy"></i>
+                                            </button>
+                                        </div>
+                                    </span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="dashboard-stats">
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                        <path d="M3 9v6M6 7v10M18 7v10M21 9v6M6 12h12" fill="none" stroke="currentColor"
+                                            stroke-width="2" stroke-linecap="round"></path>
+                                    </svg>
+                                </div>
+                                <div class="stat-info">
+                                    <h3 id="status-treino" class="text-warning">Pendente</h3>
+                                    <p>Treino</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                        <path
+                                            d="M12 8c-2.8 0-5 2.2-5 5 0 4.2 3.1 7 5 7s5-2.8 5-7c0-2.8-2.2-5-5-5zm0 0c.8-2.1 2.2-3.3 4.2-3.7"
+                                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round"></path>
+                                    </svg>
+                                </div>
+                                <div class="stat-info">
+                                    <h3 id="status-dieta" class="text-warning">Pendente</h3>
+                                    <p>Dieta</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                        <path d="M13 2L5 13h5l-1 9 8-11h-5l1-9z" fill="currentColor"></path>
+                                    </svg>
+                                </div>
+                                <div class="stat-info">
+                                    <h3 id="status-gasto-base">--</h3>
+                                    <p id="status-gasto-base-hint">Meta Calórica Diária</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="student-goals">
+                            <h3 class="section-title">MINHAS METAS</h3>
+                            <div class="goals-grid">
+                                <div class="goal-card">
+                                    <span class="goal-label">Objetivo</span>
+                                    <strong id="goal-main">--</strong>
+                                    <span id="goal-sub" class="goal-sub">Sem objetivo definido</span>
+                                </div>
+                                <div class="goal-card">
+                                    <span class="goal-label">Peso Atual</span>
+                                    <strong id="goal-weight">--</strong>
+                                    <span id="goal-weight-delta" class="goal-sub">Sem histórico</span>
+                                </div>
+                                <div class="goal-card">
+                                    <span class="goal-label">Meta Calórica</span>
+                                    <strong id="goal-kcal">--</strong>
+                                    <span id="goal-kcal-hint" class="goal-sub">meta diária</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="student-notes">
+                            <h3 class="section-title">NOTAS DO TREINADOR</h3>
+                            <div class="notes-card">
+                                <p id="trainer-notes-text" class="notes-text">Sem notas no momento.</p>
+                            </div>
+                        </div>
+
+                        <div class="student-last-workout">
+                            <h3 class="section-title">ÚLTIMO TREINO</h3>
+                            <div id="last-workout-card" class="summary-card">
+                                <!-- Dynamic -->
+                            </div>
+                        </div>
+
+                        <div class="student-diet-summary">
+                            <h3 class="section-title">RESUMO DA DIETA</h3>
+                            <div id="student-diet-summary-list" class="diet-summary-list">
+                                <!-- Dynamic -->
+                            </div>
+                        </div>
+
+                        <div class="student-habits">
+                            <h3 class="section-title">CHECKLIST DO DIA</h3>
+                            <div id="student-habits-list" class="habits-list">
+                                <!-- Dynamic -->
+                            </div>
+                        </div>
+
+                        <div id="student-actions-waiting" class="empty-state-card active">
+                            <i class="ph-fill ph-hourglass-high"></i>
+                            <div class="empty-info">
+                                <h3>Em análise</h3>
+                                <p>O treinador está montando seu protocolo com base no questionário.</p>
+                            </div>
+                        </div>
+
+                        <div id="student-actions-ready" class="dashboard-actions" style="display: none;">
+                            <h3 class="section-title">INICIAR TREINO</h3>
+                            <div id="student-workout-start-options"
+                                style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                <!-- Dynamic Workout Start Cards -->
+                            </div>
+
+                            <h3 class="section-title" style="margin-top: 2rem;">MEU PROTOCOLO</h3>
+
+                            <button class="action-card" onclick="switchStudentView('treino')">
+                                <i class="ph-bold ph-calendar-check"></i>
+                                <div style="flex:1; text-align: left;">
+                                    <span style="display: block; font-weight: 600;">Plano de Treino</span>
+                                    <span style="font-size: 0.75rem; color: var(--text-muted);">Visualizar fichas e
+                                        exercícios</span>
+                                </div>
+                                <i class="ph-bold ph-caret-right"
+                                    style="color: var(--text-muted); font-size: 1rem;"></i>
+                            </button>
+                            <button class="action-card" onclick="switchStudentView('dieta')">
+                                <i class="ph-bold ph-book-open-text"></i>
+                                <div style="flex:1; text-align: left;">
+                                    <span style="display: block; font-weight: 600;">Plano Alimentar</span>
+                                    <span style="font-size: 0.75rem; color: var(--text-muted);">Visualizar dieta e
+                                        macros</span>
+                                </div>
+                                <i class="ph-bold ph-caret-right"
+                                    style="color: var(--text-muted); font-size: 1rem;"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- VIEW: TREINO (Full screen inside layout) -->
+                    <div id="view-student-treino" class="view-section" style="display: none;">
+
+                        <!-- Landing: Two Options -->
+                        <div id="treino-landing" class="treino-landing">
+                            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem;">
+                                <button class="btn-top-back" type="button" aria-label="Voltar para o início" onclick="switchStudentView('home')"
+                                    style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                                    <i class="ph-bold ph-arrow-left"></i>
+                                </button>
+                                <span style="font-weight: 600; color: var(--text-muted);">INÍCIO</span>
+                            </div>
+                            <div class="dashboard-header" style="margin-top:0;">
+                                <div class="user-info">
+                                    <h2>Meu Treino</h2>
+                                    <p class="subtitle">Escolha o que deseja fazer</p>
+                                </div>
+                            </div>
+
+                            <div class="treino-options-grid">
+                                <button class="treino-option-card" type="button" onclick="switchTreinoSubview('analise')">
+                                    <div class="treino-option-icon active-icon">
+                                        <i class="ph-bold ph-list-magnifying-glass"></i>
+                                    </div>
+                                    <div class="treino-option-info">
+                                        <h3>Analisar Meu Treino</h3>
+                                        <p>Veja os exercícios e detalhes do treino montado pelo seu treinador. Tire
+                                            dúvidas diretamente.</p>
+                                    </div>
+                                    <i class="ph-bold ph-caret-right treino-option-arrow"></i>
+                                </button>
+
+                                <button class="treino-option-card" type="button" onclick="switchTreinoSubview('historico')">
+                                    <div class="treino-option-icon history-icon">
+                                        <i class="ph-bold ph-clock-counter-clockwise"></i>
+                                    </div>
+                                    <div class="treino-option-info">
+                                        <h3>Histórico de Treinos</h3>
+                                        <p>Acompanhe seus treinos anteriores, veja a evolução de cargas e volume ao
+                                            longo do tempo.</p>
+                                    </div>
+                                    <i class="ph-bold ph-caret-right treino-option-arrow"></i>
+                                </button>
+                            </div>
+
+                            <!-- New: Mentoria / Dúvidas Section -->
+                            <div class="student-duvidas-section" style="margin-top: 2rem;">
+                                <h3 class="section-title" style="margin-bottom: 1rem; color: var(--text-main);">Minhas
+                                    Dúvidas</h3>
+                                <div id="student-duvidas-list" class="student-duvidas-list">
+                                    <!-- Injetado via JS -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sub-view: Analisar Treino -->
+                        <div id="treino-analise" style="display:none;">
+                            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                                <button class="btn-top-back" type="button" aria-label="Voltar para as opções de treino" onclick="switchTreinoSubview('landing')"
+                                    style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                                    <i class="ph-bold ph-arrow-left"></i>
+                                </button>
+                                <span style="font-weight: 600; color: var(--text-muted);">VOLTAR</span>
+                            </div>
+
+                            <div class="dashboard-header" style="margin-top:0.5rem;">
+                                <div class="user-info">
+                                    <h2><i class="ph-bold ph-list-magnifying-glass"
+                                            style="color:var(--primary-color);"></i> Analisar Meu Treino</h2>
+                                    <p class="subtitle">Painel completo de execução, progresso e suporte do treinador
+                                    </p>
+                                </div>
+                                <button class="btn-duvida-treino" type="button" aria-label="Enviar dúvida ao treinador" onclick="openDuvidaModal()">
+                                    <i class="ph-bold ph-question"></i> Dúvida
+                                </button>
+                            </div>
+
+                            <div id="workout-tabs-nav" class="workout-tabs-nav">
+                                <!-- Dynamic Tabs (A, B, C...) -->
+                            </div>
+
+                            <div id="student-workout-content-main" class="routine-content-area">
+                                <!-- Dynamic Routine Card populated by JS -->
+                            </div>
+                        </div>
+
+                        <!-- Sub-view: Histórico -->
+                        <div id="treino-historico" style="display:none;">
+                            <button class="btn-treino-back" type="button" aria-label="Voltar para opções de treino" onclick="switchTreinoSubview('landing')">
+                                <i class="ph-bold ph-arrow-left"></i> Voltar
+                            </button>
+
+                            <div class="dashboard-header" style="margin-top:0.5rem;">
+                                <div class="user-info">
+                                    <h2><i class="ph-bold ph-clock-counter-clockwise"
+                                            style="color:var(--primary-color);"></i> Histórico de Treinos</h2>
+                                    <p class="subtitle">Acompanhe sua evolução</p>
+                                </div>
+                            </div>
+
+                            <!-- Evolution Summary -->
+                            <div id="history-evolution-cards" class="history-evolution-grid">
+                                <!-- Dynamic: total sessions, volume, PRs -->
+                            </div>
+
+                            <div class="history-filters">
+                                <div class="history-filter-item">
+                                    <label for="history-filter-period">Período</label>
+                                    <select id="history-filter-period" class="q-input" onchange="renderWorkoutHistory()">
+                                        <option value="all">Todos</option>
+                                        <option value="30">Últimos 30 dias</option>
+                                        <option value="90">Últimos 90 dias</option>
+                                        <option value="365">Últimos 12 meses</option>
+                                    </select>
+                                </div>
+                                <div class="history-filter-item">
+                                    <label for="history-filter-muscle">Foco</label>
+                                    <select id="history-filter-muscle" class="q-input" onchange="renderWorkoutHistory()">
+                                        <option value="all">Todos</option>
+                                        <option value="Peito">Peito</option>
+                                        <option value="Costas">Costas</option>
+                                        <option value="Ombros">Ombros</option>
+                                        <option value="Bíceps">Bíceps</option>
+                                        <option value="Tríceps">Tríceps</option>
+                                        <option value="Quadríceps">Quadríceps</option>
+                                        <option value="Posterior">Posterior</option>
+                                        <option value="Glúteos">Glúteos</option>
+                                        <option value="Core">Core</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Workout History List -->
+                            <div id="history-workout-list" class="history-workout-list">
+                                <!-- Dynamic cards -->
+                            </div>
+                        </div>
+
+                        <!-- Modal: Dúvida -->
+                        <div id="duvida-modal-overlay" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal">
+                                <div class="perfil-modal-header">
+                                    <h3><i class="ph-bold ph-question" style="color:var(--primary-color);"></i> Enviar
+                                        Dúvida ao Treinador</h3>
+                                    <button class="btn-icon" type="button" aria-label="Fechar modal de dúvida" onclick="closeDuvidaModal()">
+                                        <i class="ph-bold ph-x"></i>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body">
+                                    <div class="perfil-modal-field">
+                                        <label>ASSUNTO</label>
+                                        <select id="duvida-assunto" class="q-input">
+                                            <option value="exercicio">Dúvida sobre exercício</option>
+                                            <option value="execucao">Dúvida sobre execução</option>
+                                            <option value="substituicao">Substituição de exercício</option>
+                                            <option value="carga">Dúvida sobre carga</option>
+                                            <option value="outro">Outro</option>
+                                        </select>
+                                    </div>
+                                    <div class="perfil-modal-field">
+                                        <label>SUA DÚVIDA</label>
+                                        <textarea id="duvida-texto" class="q-input" rows="4"
+                                            placeholder="Descreva sua dúvida com detalhes..."></textarea>
+                                    </div>
+                                </div>
+                                <div class="perfil-modal-footer">
+                                    <button class="btn-secondary" onclick="closeDuvidaModal()"
+                                        style="width:auto; padding: 0.75rem 1.5rem;">Cancelar</button>
+                                    <button class="btn-primary" onclick="enviarDuvida()"
+                                        style="width:auto; padding: 0.75rem 1.5rem;">
+                                        <i class="ph-bold ph-paper-plane-tilt"></i> Enviar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Modal: Workout Detail -->
+                        <div id="history-detail-modal" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal" style="max-width:520px;">
+                                <div class="perfil-modal-header">
+                                    <h3 id="history-detail-title">Detalhes do Treino</h3>
+                                    <button class="btn-icon" type="button" aria-label="Fechar detalhes do treino" onclick="closeHistoryDetailModal()">
+                                        <i class="ph-bold ph-x"></i>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body" id="history-detail-body"
+                                    style="max-height:60vh;overflow-y:auto;">
+                                    <!-- Dynamic -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Modal: Confirmação Universal -->
+                        <div id="confirmation-modal-overlay" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal" style="max-width:400px;">
+                                <div class="perfil-modal-header">
+                                    <h3 id="confirmation-modal-title">Confirmar Ação</h3>
+                                    <button class="btn-icon" type="button" aria-label="Fechar confirmação" onclick="closeConfirmationModal()">
+                                        <i class="ph-bold ph-x"></i>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body">
+                                    <p id="confirmation-modal-message"
+                                        style="margin-bottom: 1.5rem; font-size: 0.9rem; line-height: 1.5; color: var(--text-muted);">
+                                    </p>
+                                    <div class="perfil-modal-field">
+                                        <label id="confirmation-input-label">Digite "remover" para confirmar</label>
+                                        <input type="text" id="confirmation-input" class="q-input" autocomplete="off"
+                                            placeholder="remover">
+                                    </div>
+                                </div>
+                                <div class="perfil-modal-footer">
+                                    <button class="btn-secondary" onclick="closeConfirmationModal()"
+                                        style="width:auto; padding: 0.75rem 1.5rem;">Cancelar</button>
+                                    <button id="confirmation-modal-confirm-btn" class="btn-primary"
+                                        style="width:auto; padding: 0.75rem 1.5rem; background: #ef4444; color: white;">
+                                        Excluir
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- VIEW: DIETA -->
+                    <div id="view-student-dieta" class="view-section" style="display: none;">
+                        <div style="display: flex; align-items: center; gap: 1rem; margin: 1rem 0 2rem;">
+                            <button class="btn-top-back" type="button" aria-label="Voltar para o início" onclick="switchStudentView('home')"
+                                style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                                <i class="ph-bold ph-arrow-left"></i>
+                            </button>
+                            <span style="font-weight: 600; color: var(--text-muted);">INÍCIO</span>
+                        </div>
+                        <div class="dashboard-header">
+                            <div class="user-info">
+                                <h2>Minha Dieta</h2>
+                                <p class="subtitle">Cada refeição conta</p>
+                            </div>
+                        </div>
+                        <div id="student-diet-content-main" class="protocol-content-list">
+                            <!-- Dynamic Content -->
+                        </div>
+                    </div>
+
+                    <!-- VIEW: MEU PERFIL -->
+                    <div id="view-student-perfil" class="view-section" style="display: none;">
+                        <div style="display: flex; align-items: center; gap: 1rem; margin: 1rem 0 2rem;">
+                            <button class="btn-top-back" type="button" aria-label="Voltar para o início" onclick="switchStudentView('home')"
+                                style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                                <i class="ph-bold ph-arrow-left"></i>
+                            </button>
+                            <span style="font-weight: 600; color: var(--text-muted);">INÍCIO</span>
+                        </div>
+                        <!-- Profile Header Card -->
+                        <div class="perfil-header-card">
+                            <div class="perfil-avatar" id="perfil-avatar">
+                                <i class="ph-bold ph-user"></i>
+                            </div>
+                            <div class="perfil-header-info">
+                                <h2 id="perfil-nome">Aluno</h2>
+                                <div class="perfil-badges">
+                                    <span class="perfil-badge active"><i class="ph-bold ph-lightning"></i> PLANO
+                                        ATIVO</span>
+                                    <span class="perfil-badge muted"><i class="ph-bold ph-calendar-blank"></i> <span
+                                            id="perfil-membro-desde">Membro desde Mar 2026</span></span>
+                                </div>
+                            </div>
+                            <button class="btn-perfil-edit" type="button" aria-label="Editar perfil" onclick="openPerfilUpdateModal('geral')">
+                                <i class="ph-bold ph-pencil-simple"></i> Editar Perfil
+                            </button>
+                        </div>
+                        <div class="perfil-quick-actions">
+                            <button class="btn-secondary" type="button" onclick="backToStudentHomeView()">
+                                <i class="ph-bold ph-house"></i> Ir para Início
+                            </button>
+                            <button class="btn-secondary btn-perfil-logout" type="button" onclick="logout()">
+                                <i class="ph-bold ph-sign-out"></i> Sair da Conta
+                            </button>
+                        </div>
+
+                        <!-- Physical Metrics Section -->
+                        <div class="perfil-section-title">
+                            <i class="ph-fill ph-chart-line-up"></i>
+                            <h3>Métricas Físicas</h3>
+                        </div>
+                        <div class="perfil-metrics-grid" id="perfil-metrics-grid">
+                            <!-- Generated by JS -->
+                        </div>
+
+                        <!-- Weight Progress Chart -->
+                        <div class="perfil-section-title" style="margin-top: 2rem;">
+                            <i class="ph-fill ph-chart-line"></i>
+                            <h3>Progresso de Peso</h3>
+                            <select id="perfil-chart-range" class="perfil-range-select" onchange="renderPerfilChart()">
+                                <option value="6">Últimos 6 registros</option>
+                                <option value="12">Últimos 12 registros</option>
+                                <option value="all">Todos</option>
+                            </select>
+                        </div>
+                        <div class="perfil-chart-card">
+                            <canvas id="perfil-weight-chart" width="600" height="220"></canvas>
+                            <div id="perfil-chart-empty" class="perfil-chart-empty" style="display:none;">
+                                <i class="ph-bold ph-chart-line-up"></i>
+                                <p>Atualize seu peso para ver o gráfico de progresso</p>
+                            </div>
+                        </div>
+
+                        <div class="perfil-section-title" style="margin-top: 2rem;">
+                            <i class="ph-fill ph-camera"></i>
+                            <h3>Fotos de Progresso</h3>
+                        </div>
+                        <div class="perfil-photo-card">
+                            <div class="perfil-photo-actions">
+                                <label class="btn-secondary" for="progress-photo-input">
+                                    <i class="ph-bold ph-upload-simple"></i> Enviar fotos
+                                </label>
+                                <input id="progress-photo-input" type="file" accept="image/*" multiple
+                                    onchange="handleProgressPhotoUpload(event)" style="display:none;">
+                                <span class="photo-hint">Até 6 fotos por upload</span>
+                            </div>
+                            <div id="progress-photo-grid" class="progress-photo-grid">
+                                <!-- Dynamic -->
+                            </div>
+                        </div>
+
+                        <!-- Informações Pessoais -->
+                        <div class="perfil-section-title" style="margin-top: 2rem;">
+                            <i class="ph-fill ph-identification-card"></i>
+                            <h3>Informações Pessoais</h3>
+                        </div>
+                        <div class="perfil-info-grid" id="perfil-info-grid">
+                            <!-- Generated by JS -->
+                        </div>
+
+                        <!-- Recent Update History -->
+                        <div class="perfil-section-title" style="margin-top: 2rem;">
+                            <i class="ph-fill ph-clock-counter-clockwise"></i>
+                            <h3>Histórico de Alterações</h3>
+                        </div>
+                        <div class="perfil-history-list" id="perfil-history-list">
+                            <!-- Generated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Modal de Atualização -->
+                    <div id="perfil-update-modal" class="perfil-modal-overlay" style="display:none;">
+                        <div class="perfil-modal">
+                            <div class="perfil-modal-header">
+                                <h3 id="perfil-modal-title">Atualizar Métrica</h3>
+                                <button class="btn-icon" type="button" aria-label="Fechar modal de atualização" onclick="closePerfilUpdateModal()">
+                                    <i class="ph-bold ph-x"></i>
+                                </button>
+                            </div>
+                            <div class="perfil-modal-body" id="perfil-modal-body">
+                                <!-- Dynamic fields -->
+                            </div>
+                            <div class="perfil-modal-footer">
+                                <button class="btn-secondary" onclick="closePerfilUpdateModal()"
+                                    style="width:auto; padding: 0.75rem 1.5rem;">Cancelar</button>
+                                <button class="btn-primary" onclick="savePerfilUpdate()"
+                                    style="width:auto; padding: 0.75rem 1.5rem;">
+                                    <i class="ph-bold ph-floppy-disk"></i> Salvar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- VIEW: LOG WORKOUT (HEVY STYLE) -->
+                    <div id="view-student-log-workout" class="view-section" style="display: none;">
+                        <div class="dashboard-header log-workout-sticky-header">
+                            <div class="user-info">
+                                <h2 id="log-workout-title">Treino em Andamento</h2>
+                                <div
+                                    style="display: flex; align-items: center; gap: 0.5rem; color: var(--primary-color); font-weight: 700;">
+                                    <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                        <circle cx="12" cy="13" r="7.5" fill="none" stroke="currentColor"
+                                            stroke-width="2"></circle>
+                                        <path d="M12 13V9m0 4 2.6 1.6" fill="none" stroke="currentColor"
+                                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                                        <path d="M9 3h6" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round"></path>
+                                    </svg>
+                                    <span id="log-workout-timer">00:00</span>
+                                </div>
+                                <div class="log-workout-controls">
+                                    <button id="rest-auto-toggle" class="rest-auto-toggle" onclick="toggleRestAutoStart()"></button>
+                                    <span id="workout-save-indicator" class="workout-save-indicator"></span>
+                                </div>
+                            </div>
+                            <button class="btn-primary"
+                                style="width: auto; padding: 0.6rem 1.2rem; background: var(--primary-color); color: #121214;"
+                                onclick="handleFinishWorkout()">
+                                Finalizar
+                            </button>
+                        </div>
+
+                        <div id="log-workout-content" class="log-content-list">
+                            <!-- Dynamic Exercise Cards -->
+                        </div>
+
+                        <!-- Rest Timer Overlay (Floating) -->
+                        <div id="rest-timer-overlay" class="rest-timer-pill" style="display: none;">
+                            <div class="rest-timer-progress">
+                                <div id="rest-progress-fill" class="rest-progress-fill"></div>
+                            </div>
+                            <div class="rest-timer-content">
+                                <div class="rest-info">
+                                    <span class="rest-label">DESCANSO</span>
+                                    <span id="rest-countdown" class="rest-time">01:00</span>
+                                </div>
+                                <div class="rest-actions">
+                                    <button class="btn-rest-skip" onclick="skipRestTimer()">Pular</button>
+                                    <button class="btn-rest-add" onclick="adjustRestTimer(30)">+30s</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Modal rapido: PSE antes do OK -->
+                        <div id="set-effort-quick-modal" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal set-effort-quick-card">
+                                <div class="perfil-modal-header">
+                                    <h3>Qual foi a percepção de esforço nessa série</h3>
+                                    <button class="btn-icon" type="button" aria-label="Fechar modal de esforço" onclick="closeSetEffortQuickModal()">
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true"
+                                            focusable="false">
+                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+                                                stroke-width="2.2" stroke-linecap="round"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body">
+                                    <div class="seqm-options pse-grid">
+                                        <button type="button" class="seqm-btn pse-btn pse-color-btn" data-pse="1" onclick="chooseQuickSetPse(1)">1</button>
+                                        <button type="button" class="seqm-btn pse-btn pse-color-btn" data-pse="2" onclick="chooseQuickSetPse(2)">2</button>
+                                        <button type="button" class="seqm-btn pse-btn pse-color-btn" data-pse="3" onclick="chooseQuickSetPse(3)">3</button>
+                                        <button type="button" class="seqm-btn pse-btn pse-color-btn" data-pse="4" onclick="chooseQuickSetPse(4)">4</button>
+                                        <button type="button" class="seqm-btn pse-btn pse-color-btn" data-pse="5" onclick="chooseQuickSetPse(5)">5</button>
+                                    </div>
+                                    <p class="pse-hint">1 = muito leve / 3 = moderado / 5 = falha</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Modal rapido: Execucao da serie -->
+                        <div id="set-exec-quick-modal" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal set-effort-quick-card">
+                                <div class="perfil-modal-header">
+                                    <h3>Como foi a execução dessa série</h3>
+                                    <button class="btn-icon" type="button" aria-label="Fechar modal de execução" onclick="closeSetExecutionQuickModal()">
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true"
+                                            focusable="false">
+                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+                                                stroke-width="2.2" stroke-linecap="round"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body">
+                                    <div class="seqm-options pse-grid">
+                                        <button type="button" class="seqm-btn pse-btn" onclick="chooseQuickSetExecution(1)">1</button>
+                                        <button type="button" class="seqm-btn pse-btn" onclick="chooseQuickSetExecution(2)">2</button>
+                                        <button type="button" class="seqm-btn pse-btn" onclick="chooseQuickSetExecution(3)">3</button>
+                                        <button type="button" class="seqm-btn pse-btn" onclick="chooseQuickSetExecution(4)">4</button>
+                                        <button type="button" class="seqm-btn pse-btn" onclick="chooseQuickSetExecution(5)">5</button>
+                                    </div>
+                                    <p class="pse-hint">1 = ruim / 3 = ok / 5 = perfeita</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="exercise-progress-modal-overlay" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal" style="max-width:680px;">
+                                <div class="perfil-modal-header">
+                                    <h3 id="exercise-progress-title">Historico de Carga</h3>
+                                    <button class="btn-icon" type="button" aria-label="Fechar histórico de carga" onclick="closeExerciseProgressModal()">
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true"
+                                            focusable="false">
+                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+                                                stroke-width="2.2" stroke-linecap="round"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body" id="exercise-progress-body"
+                                    style="max-height:70vh;overflow-y:auto;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Modal: Feedback final do treino -->
+                        <div id="workout-feedback-modal-overlay" class="perfil-modal-overlay" style="display:none;">
+                            <div class="perfil-modal workout-feedback-modal">
+                                <div class="perfil-modal-header">
+                                    <h3>
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true"
+                                            focusable="false" style="color:var(--primary-color);">
+                                            <path
+                                                d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3z"
+                                                fill="currentColor"></path>
+                                        </svg>
+                                        Avaliar treino
+                                    </h3>
+                                    <button class="btn-icon" type="button" aria-label="Fechar avaliação do treino" onclick="closeWorkoutFeedbackModal()">
+                                        <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true"
+                                            focusable="false">
+                                            <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor"
+                                                stroke-width="2.2" stroke-linecap="round"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div class="perfil-modal-body">
+                                    <div class="perfil-modal-field">
+                                        <label>QUALIDADE GERAL</label>
+                                        <div class="wfb-rating-row">
+                                            <button type="button" class="wfb-emoji-btn" data-rating="1"
+                                                onclick="setWorkoutFeedbackRating(1)">?</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="2"
+                                                onclick="setWorkoutFeedbackRating(2)">?</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="3"
+                                                onclick="setWorkoutFeedbackRating(3)">?</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="4"
+                                                onclick="setWorkoutFeedbackRating(4)">?</button>
+                                            <button type="button" class="wfb-emoji-btn" data-rating="5"
+                                                onclick="setWorkoutFeedbackRating(5)">?</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="perfil-modal-field">
+                                        <label>INTENSIDADE PERCEBIDA</label>
+                                        <div class="wfb-intensity-row">
+                                            <button type="button" class="wfb-intensity-btn" data-level="leve"
+                                                onclick="setWorkoutFeedbackIntensity('leve')">Leve</button>
+                                            <button type="button" class="wfb-intensity-btn active" data-level="moderado"
+                                                onclick="setWorkoutFeedbackIntensity('moderado')">Moderado</button>
+                                            <button type="button" class="wfb-intensity-btn" data-level="pesado"
+                                                onclick="setWorkoutFeedbackIntensity('pesado')">Pesado</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="perfil-modal-field">
+                                        <label>OBSERVACAO (OPCIONAL)</label>
+                                        <textarea id="workout-feedback-notes" class="q-input" rows="3"
+                                            placeholder="Ex: muito cansativo no final, ombro esquerdo cansou cedo..."></textarea>
+                                    </div>
+                                </div>
+                                <div class="perfil-modal-footer">
+                                    <button class="btn-secondary" onclick="closeWorkoutFeedbackModal()"
+                                        style="width:auto; padding: 0.75rem 1.5rem;">Voltar</button>
+                                    <button class="btn-primary" onclick="confirmWorkoutFeedbackAndFinish()"
+                                        style="width:auto; padding: 0.75rem 1.5rem;">
+                                        <i class="ph-bold ph-check"></i> Finalizar treino
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Student Workout Summary ── -->
+                    <div id="view-student-workout-summary" class="view-section" style="display: none; padding: 1.5rem;">
+                        <div class="summary-header"
+                            style="text-align: center; margin-bottom: 2rem; animation: slideUp 0.6s ease;">
+                            <div class="summary-icon-celebration" style="font-size: 3rem; margin-bottom: 1rem;">🎉
+                            </div>
+                            <h2 class="summary-main-title"
+                                style="font-size: 2rem; background: linear-gradient(135deg, #fff 0%, var(--primary-color) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                                Treino Concluído!</h2>
+                            <p style="color: var(--text-muted); margin-top: 0.5rem;">Excelente trabalho hoje.</p>
+                        </div>
+
+                        <div id="summary-stats-grid" class="summary-stats-grid">
+                            <!-- Stats Cards (Duration, Volume, PRs) -->
+                        </div>
+
+                        <div class="summary-divider"
+                            style="margin: 2rem 0; height: 1px; background: rgba(255, 255, 255, 0.05);"></div>
+
+                        <h3
+                            style="margin-bottom: 1rem; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.1rem;">
+                            Resumo dos Exercícios</h3>
+                        <div id="summary-exercise-list" class="summary-exercise-list">
+                            <!-- Exercise Cards -->
+                        </div>
+
+                        <div class="summary-actions" style="margin-top: 3rem; text-align: center;">
+                            <button class="btn-secondary" onclick="applyLastWorkoutAsTemplate()"
+                                style="padding: 0.9rem 2.4rem; font-size: 0.95rem; margin-bottom: 0.75rem;">
+                                Alterar modelo padrão
+                            </button>
+                            <button class="btn-primary" onclick="closeWorkoutSummary()"
+                                style="padding: 1rem 3rem; font-size: 1rem;">
+                                Voltar ao Início
+                            </button>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+

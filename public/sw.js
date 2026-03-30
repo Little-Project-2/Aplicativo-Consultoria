@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 ﻿const PRECACHE_CACHE = "consultoria-precache-v8";
 const RUNTIME_CACHE = "consultoria-runtime-v8";
 const OFFLINE_URL = "/offline.html";
@@ -131,6 +130,3 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(staleWhileRevalidate(request));
 });
-=======
-importScripts('./sw.js');
->>>>>>> cb829ded9eeab78a73518960449e1a6f6eacaa85

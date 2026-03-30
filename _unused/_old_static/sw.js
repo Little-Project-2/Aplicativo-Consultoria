@@ -1,25 +1,26 @@
-<<<<<<< HEAD
-﻿const PRECACHE_CACHE = "consultoria-precache-v8";
-const RUNTIME_CACHE = "consultoria-runtime-v8";
-const OFFLINE_URL = "/offline.html";
+const PRECACHE_CACHE = "consultoria-precache-v5";
+const RUNTIME_CACHE = "consultoria-runtime-v5";
+const OFFLINE_URL = "./offline.html";
 
 const PRECACHE_URLS = [
-  "/",
-  "/index.html",
-  "/manifest.json",
+  "./",
+  "./index.html",
+  "./trainer.html",
+  "./style.css",
+  "./script.js",
+  "./pwa-register.js",
+  "./service-worker.js",
+  "./manifest.json",
+  "./manifest.webmanifest",
   OFFLINE_URL,
-  "/assets/vendor/phosphor/phosphor-local.css",
-  "/assets/vendor/phosphor/bold/style.css",
-  "/assets/vendor/phosphor/bold/Phosphor-Bold.woff2",
-  "/assets/vendor/phosphor/fill/style.css",
-  "/assets/vendor/phosphor/fill/Phosphor-Fill.woff2",
-  "/assets/vendor/phosphor/light/style.css",
-  "/assets/vendor/phosphor/light/Phosphor-Light.woff2",
-  "/assets/icons/icon-192.png",
-  "/assets/icons/icon-512.png",
-  "/assets/icons/apple-touch-icon.png",
-  "/assets/logo.svg",
-  "/assets/logo-small.svg"
+  "./assets/vendor/phosphor/phosphor-local.css",
+  "./assets/vendor/phosphor/bold/style.css",
+  "./assets/vendor/phosphor/bold/Phosphor-Bold.woff2",
+  "./assets/vendor/phosphor/fill/style.css",
+  "./assets/vendor/phosphor/fill/Phosphor-Fill.woff2",
+  "./assets/icons/icon-192.png",
+  "./assets/icons/icon-512.png",
+  "./assets/icons/apple-touch-icon.png"
 ];
 
 self.addEventListener("message", (event) => {
@@ -90,7 +91,7 @@ async function navigationResponse(request) {
   const cache = await caches.open(RUNTIME_CACHE);
   const cached =
     (await cache.match(request, { ignoreSearch: true })) ||
-    (await caches.match("/index.html"));
+    (await caches.match("./index.html"));
 
   const networkPromise = fetch(request)
     .then((response) => {
@@ -109,6 +110,23 @@ async function navigationResponse(request) {
   const offline = await caches.match(OFFLINE_URL);
   return offline || Response.error();
 }
+
+async function handleCompletedWorkoutsSync() {
+  // Stub de Background Sync para futuros envios ao backend.
+  // Aqui você pode buscar registros offline em IndexedDB e enviá-los para uma API.
+  try {
+    // Mantém a função resolvendo mesmo sem backend configurado.
+    return true;
+  } catch (err) {
+    return true;
+  }
+}
+
+self.addEventListener("sync", (event) => {
+  if (event.tag === "sync-completed-workouts") {
+    event.waitUntil(handleCompletedWorkoutsSync());
+  }
+});
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
@@ -131,6 +149,3 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(staleWhileRevalidate(request));
 });
-=======
-importScripts('./sw.js');
->>>>>>> cb829ded9eeab78a73518960449e1a6f6eacaa85

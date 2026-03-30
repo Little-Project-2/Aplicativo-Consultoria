@@ -1,0 +1,79 @@
+﻿<div id="exercise-drawer-overlay" class="exercise-drawer-overlay" onclick="closeExerciseDrawer()"></div>
+<div id="exercise-drawer" class="exercise-drawer" role="dialog" aria-modal="true" aria-label="Catalogo de Exercicios">
+    <div class="exercise-drawer-header">
+        <div>
+            <h2>Exercicios</h2>
+            <p class="subtitle">Adicione e consulte exercicios sem sair do dashboard.</p>
+        </div>
+        <div class="exercise-drawer-actions">
+            <button class="btn-secondary btn-sm" onclick="closeExerciseDrawer()">Fechar</button>
+        </div>
+    </div>
+
+    <div class="exercise-drawer-body">
+        <div class="exercise-create-card">
+            <div>
+                <strong>Novo exercicio</strong>
+                <p class="subtitle" style="margin-top:0.2rem;">Inclua no catalogo da consultoria.</p>
+            </div>
+            <div class="exercise-create-form">
+                <input id="exercise-new-name" class="q-input" type="text" placeholder="Nome do exercicio">
+                <select id="exercise-new-group" class="q-input">
+                    <option value="Peito">Peito</option>
+                    <option value="Dorsais">Dorsais</option>
+                    <option value="Pernas">Pernas</option>
+                    <option value="Ombros">Ombros</option>
+                    <option value="Biceps">Biceps</option>
+                    <option value="Triceps">Triceps</option>
+                    <option value="Abdominais">Abdominais</option>
+                    <option value="Cardio">Cardio</option>
+                    <option value="CorpoInteiro">Corpo inteiro</option>
+                </select>
+                <select id="exercise-new-equipment" class="q-input">
+                    <option value="Nenhum">Nenhum</option>
+                    <option value="Barra">Barra</option>
+                    <option value="Haltere">Haltere</option>
+                    <option value="Maquina">Maquina</option>
+                    <option value="Banda">Banda</option>
+                    <option value="Kettlebell">Kettlebell</option>
+                    <option value="Disco">Disco</option>
+                    <option value="Outro">Outro</option>
+                </select>
+                <button class="btn-primary btn-sm" onclick="addCustomExercise()">Salvar exercicio</button>
+            </div>
+        </div>
+
+        <!-- VIEW: EXERCICIOS (Catalogo) -->
+        <div id="view-exercicios">
+            <div class="ex-catalog">
+                <!-- Search -->
+                <div class="ex-catalog-search">
+                    <i class="ph-bold ph-magnifying-glass"></i>
+                    <input type="text" id="ex-catalog-search-input" placeholder="Pesquisar exercicio..."
+                        oninput="searchExercises(this.value)" autocomplete="off">
+                </div>
+
+                <!-- Filter Chips -->
+                <div class="ex-chips-row">
+                    <button class="ex-chip active" data-group="todos"
+                        onclick="filterExercisesByGroup('todos')">Todos</button>
+                    <button class="ex-chip" data-group="Peito"
+                        onclick="filterExercisesByGroup('Peito')">Peito</button>
+                    <button class="ex-chip" data-group="Costas"
+                        onclick="filterExercisesByGroup('Costas')">Costas</button>
+                    <button class="ex-chip" data-group="Pernas"
+                        onclick="filterExercisesByGroup('Pernas')">Pernas</button>
+                    <button class="ex-chip" data-group="Ombros"
+                        onclick="filterExercisesByGroup('Ombros')">Ombros</button>
+                    <button class="ex-chip" data-group="Bracos"
+                        onclick="filterExercisesByGroup('Bracos')">Bracos</button>
+                </div>
+
+                <!-- Exercise List -->
+                <div class="ex-catalog-list" id="ex-catalog-list">
+                    <!-- Injetado via JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
