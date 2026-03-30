@@ -1,12 +1,10 @@
-import React from 'react';
+﻿import React from 'react';
 
 export function StudentRow({ student }) {
-  const isInactive = student.status === 'inactive';
-  
   return (
     <div className="student-row">
       <div className="student-status-col">
-        <span className={`status-badge ${student.status}`}>{student.statusText || 'Ativo'}</span>
+        <span className={`status-badge ${student.status || 'active'}`}>{student.status_text || student.statusText || 'Ativo'}</span>
       </div>
       <div className="student-id-col">
         <div className="student-avatar-sm">

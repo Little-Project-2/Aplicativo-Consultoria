@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 
 function TrainerMessagesView() {
   return (
@@ -8,10 +8,10 @@ function TrainerMessagesView() {
           <div className="chat-sidebar-header"><h3>Conversas</h3></div>
           <div className="chat-search">
             <i className="ph-bold ph-magnifying-glass"></i>
-            <input type="text" placeholder="Buscar aluno..." />
+            <input className="q-input" type="text" placeholder="Buscar aluno..." />
           </div>
           <div className="chat-list">
-             <div className="empty-state">Nenhuma conversa ativa</div>
+            <div className="empty-state">Nenhuma conversa ativa</div>
           </div>
         </aside>
         <main className="chat-window">
@@ -27,3 +27,4 @@ function TrainerMessagesView() {
 }
 
 export default TrainerMessagesView;
+

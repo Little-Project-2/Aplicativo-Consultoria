@@ -1,11 +1,20 @@
-import React from 'react';
+﻿import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { clearSession, getSession } from '../state/session';
+import { supabase } from '../lib/supabaseClient';
 
 function Sidebar({ pendingCount, duvidasCount }) {
   const navigate = useNavigate();
+  const session = getSession();
 
-  const handleLogout = () => {
-    // Limpar tokens se necessário
+  const handleLogout = async () => {
+    clearSession();
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // ignore
+    }
+    localStorage.removeItem('currentStudentId');
     navigate('/');
   };
 
@@ -32,7 +41,7 @@ function Sidebar({ pendingCount, duvidasCount }) {
           </svg>
         </div>
         <div>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>Nicolas</h2>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>{session?.name || 'Treinador'}</h2>
           <p style={{ fontSize: '0.75rem', color: 'var(--primary-color)' }}>Trainer Admin</p>
         </div>
       </div>
@@ -54,6 +63,9 @@ function Sidebar({ pendingCount, duvidasCount }) {
         </NavLink>
         <NavLink to="/trainer/configuracoes" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
           <i className="ph-bold ph-gear"></i> Configurações
+        </NavLink>
+        <NavLink to="/status" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <i className="ph-bold ph-plugs"></i> Status Supabase
         </NavLink>
       </nav>
 

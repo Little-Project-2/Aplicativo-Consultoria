@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 
 function TrainerExercisesView() {
   return (
@@ -7,7 +7,7 @@ function TrainerExercisesView() {
         <h2>Catálogo de Exercícios</h2>
       </div>
       <div className="welcome-card">
-        <p>O catálogo de exercícios está sendo migrado. Em breve você poderá gerenciar seus movimentos aqui em React.</p>
+        <p>O catálogo de exercícios está pronto para receber seus movimentos. Em breve você poderá cadastrar e organizar tudo aqui.</p>
       </div>
     </div>
   );

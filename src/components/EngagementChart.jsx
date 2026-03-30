@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 
 function EngagementChart({ total, counts }) {
   const width = 300;
@@ -17,7 +17,7 @@ function EngagementChart({ total, counts }) {
   const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
   const areaPath = `${linePath} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`;
 
-  const labels = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom']; // Simplificado
+  const labels = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
 
   return (
     <div className="engagement-card">
