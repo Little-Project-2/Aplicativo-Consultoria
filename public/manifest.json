@@ -1,58 +1,4 @@
 {
-<<<<<<< HEAD
-    "name":  "Aplicativo Consultoria",
-    "short_name":  "Consultoria",
-    "description":  "Plataforma de consultoria esportiva para alunos e treinador.",
-    "id":  "/",
-    "start_url":  "/",
-    "scope":  "/",
-    "display":  "standalone",
-    "orientation":  "portrait",
-    "background_color":  "#080808",
-    "theme_color":  "#080808",
-    "lang":  "pt-BR",
-    "categories":  [
-                       "health",
-                       "fitness",
-                       "lifestyle",
-                       "productivity"
-                   ],
-    "icons":  [
-                  {
-                      "src":  "assets/logo.svg",
-                      "sizes":  "512x512",
-                      "type":  "image/svg+xml"
-                  },
-                  {
-                      "src":  "assets/icons/icon-192.png",
-                      "sizes":  "192x192",
-                      "type":  "image/png"
-                  },
-                  {
-                      "src":  "assets/icons/icon-512.png",
-                      "sizes":  "512x512",
-                      "type":  "image/png"
-                  },
-                  {
-                      "src":  "assets/icons/icon-512.png",
-                      "sizes":  "512x512",
-                      "type":  "image/png",
-                      "purpose":  "any maskable"
-                  }
-              ],
-    "shortcuts":  [
-                      {
-                          "name":  "Area do Aluno",
-                          "short_name":  "Aluno",
-                          "url":  "/"
-                      },
-                      {
-                          "name":  "Area do Treinador",
-                          "short_name":  "Treinador",
-                          "url":  "/trainer"
-                      }
-                  ]
-=======
   "name": "Aplicativo Consultoria",
   "short_name": "Consultoria",
   "description": "Plataforma de consultoria esportiva para alunos e treinador.",
@@ -72,17 +18,22 @@
   ],
   "icons": [
     {
-      "src": "assets/icons/app-logo.png",
+      "src": "assets/logo.svg",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/svg+xml"
     },
     {
-      "src": "assets/icons/app-logo.png",
+      "src": "assets/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "assets/icons/app-logo.png",
+      "src": "assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
@@ -100,5 +51,4 @@
       "url": "./trainer.html"
     }
   ]
->>>>>>> cb829ded9eeab78a73518960449e1a6f6eacaa85
 }

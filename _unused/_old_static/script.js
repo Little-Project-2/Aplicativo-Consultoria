@@ -5,6 +5,22 @@
     if (app) app.classList.remove('wide');
 }
 
+
+const memoryStore = new Map();
+function memoryGetItem(key) {
+    if (!memoryStore.has(key)) return null;
+    return memoryStore.get(key);
+}
+function memorySetItem(key, value) {
+    memoryStore.set(String(key), String(value));
+}
+function memoryRemoveItem(key) {
+    memoryStore.delete(String(key));
+}
+function memoryClear() {
+    memoryStore.clear();
+}
+
 const ADMIN_STUDENT_CODE = '12345';
 const ADMIN_STUDENT_NAME = 'Nicolas';
 const SELF_TRAINING_STUDENT_CODE = '77777';
@@ -56,7 +72,7 @@ const DEMO_MEAL_BLOCKS = [
 
 function readStorageJSON(key, fallback = []) {
     try {
-        const raw = localStorage.getItem(key);
+        const raw = memoryGetItem(key);
         if (!raw) return fallback;
         const parsed = JSON.parse(raw);
         if (Array.isArray(fallback) && !Array.isArray(parsed)) return fallback;
@@ -68,9 +84,9 @@ function readStorageJSON(key, fallback = []) {
         ) {
             return fallback;
         }
-        return parsed ?? fallback;
+        return parsed ? fallback;
     } catch (err) {
-        console.warn(`Falha ao ler localStorage["${key}"]`, err);
+        console.warn(`Falha ao ler storage["${key}"]`, err);
         return fallback;
     }
 }
@@ -83,15 +99,15 @@ function saveStudentAuthToken(student) {
     if (!student || !student.id) return;
     const payload = {
         studentId: String(student.id),
-        trainerCode: String(student.trainerCode || localStorage.getItem('connectedTrainerCode') || ''),
-        name: String(student.name || localStorage.getItem('studentName') || 'Aluno'),
+        trainerCode: String(student.trainerCode || memoryGetItem('connectedTrainerCode') || ''),
+        name: String(student.name || memoryGetItem('studentName') || 'Aluno'),
         issuedAt: new Date().toISOString()
     };
-    localStorage.setItem(STUDENT_AUTH_TOKEN_KEY, JSON.stringify(payload));
+    memorySetItem(STUDENT_AUTH_TOKEN_KEY, JSON.stringify(payload));
 }
 
 function clearStudentAuthToken() {
-    localStorage.removeItem(STUDENT_AUTH_TOKEN_KEY);
+    memoryRemoveItem(STUDENT_AUTH_TOKEN_KEY);
 }
 
 function openStudentDashboardSession(student, opts = {}) {
@@ -99,9 +115,9 @@ function openStudentDashboardSession(student, opts = {}) {
     const studentDashboardScreen = document.getElementById('student-dashboard-screen');
     if (!studentDashboardScreen) return false;
 
-    localStorage.setItem('currentStudentId', String(student.id));
-    localStorage.setItem('studentName', String(student.name || 'Aluno'));
-    localStorage.setItem('connectedTrainerCode', String(student.trainerCode || '00001'));
+    memorySetItem('currentStudentId', String(student.id));
+    memorySetItem('studentName', String(student.name || 'Aluno'));
+    memorySetItem('connectedTrainerCode', String(student.trainerCode || '00001'));
 
     if (opts.persistToken !== false) {
         saveStudentAuthToken(student);
@@ -623,7 +639,7 @@ function ensureSelfTrainingStudent() {
             pending: false,
             trainerCode: current.trainerCode || '00001',
             lastWorkoutAt: current.lastWorkoutAt || selfLastWorkout.toISOString(),
-            assessmentPending: current.assessmentPending ?? false,
+            assessmentPending: current.assessmentPending ? false,
             workoutBlocks: Array.isArray(current.workoutBlocks) && current.workoutBlocks.length > 0
                 ? current.workoutBlocks
                 : defaultWorkoutBlocks,
@@ -633,7 +649,7 @@ function ensureSelfTrainingStudent() {
         };
     }
 
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    memorySetItem('trainerStudents', JSON.stringify(students));
 }
 
 function ensureAdminStudent() {
@@ -686,21 +702,21 @@ function ensureAdminStudent() {
             pending: false,
             trainerCode: current.trainerCode || '00001',
             lastWorkoutAt: current.lastWorkoutAt || adminLastWorkout.toISOString(),
-            assessmentPending: current.assessmentPending ?? true,
+            assessmentPending: current.assessmentPending ? true,
             workoutBlocks: Array.isArray(current.workoutBlocks) && current.workoutBlocks.length > 0 ? current.workoutBlocks : DEMO_WORKOUT_BLOCKS,
             mealBlocks: Array.isArray(current.mealBlocks) && current.mealBlocks.length > 0 ? current.mealBlocks : DEMO_MEAL_BLOCKS,
             metricHistory: Array.isArray(current.metricHistory) && current.metricHistory.length > 0 ? current.metricHistory : [baselineMetric]
         };
     }
 
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    memorySetItem('trainerStudents', JSON.stringify(students));
 }
 
 function goToHome() {
     // Keep remember-me token, clear only active session data.
-    localStorage.removeItem('currentStudentId');
-    localStorage.removeItem('connectedTrainerCode');
-    localStorage.removeItem('studentName');
+    memoryRemoveItem('currentStudentId');
+    memoryRemoveItem('connectedTrainerCode');
+    memoryRemoveItem('studentName');
     hideAllScreens();
     const home = document.getElementById('home-screen');
     if (home) home.classList.add('active');
@@ -709,7 +725,7 @@ function goToHome() {
 function logout() {
     if (workoutState && !confirmExitActiveWorkout()) return;
     if (confirm('Deseja realmente sair?')) {
-        localStorage.clear();
+        memoryClear();
         location.reload(); // Hard refresh to clear state
     }
 }
@@ -726,37 +742,134 @@ const SYNC_KEYS = [
     'customExercises',
     'trainer_settings_v1'
 ];
+const APP_STATE_SYNC_ENABLED = false;
 
 let syncPushTimer = null;
 let syncPullTimer = null;
 let syncPullInFlight = false;
 let isApplyingRemoteState = false;
+let supabaseStudentsPollTimer = null;
 
 function isSupabaseReady() {
     return typeof window.supabase?.from === 'function';
 }
 
+
+const SUPABASE_TABLES = {
+    trainers: 'trainers',
+    students: 'students'
+};
+
+let supabaseStudentsSyncTimer = null;
+
+function normalizeStudentRow(row) {
+    if (!row) return null;
+    const student = row.data && typeof row.data === 'object' ? row.data : {};
+    student.id = student.id || row.id || '';
+    student.trainerCode = student.trainerCode || row.trainer_code || '';
+    return student;
+}
+
+async function getTrainerByCodeRemote(code) {
+    if (!isSupabaseReady() || !code) return null;
+    const { data, error } = await window.supabase
+        .from(SUPABASE_TABLES.trainers)
+        .select('*')
+        .eq('code', String(code))
+        .maybeSingle();
+    if (error) {
+        console.warn('Supabase trainer fetch failed', error.message);
+        return null;
+    }
+    return data || null;
+}
+
+async function ensureTrainerExistsRemote(code, fallbackName = 'Treinador', fallbackConsultoria = '') {
+    if (!isSupabaseReady() || !code) return null;
+    const existing = await getTrainerByCodeRemote(code);
+    if (existing) return existing;
+    const row = {
+        code: String(code),
+        name: fallbackName,
+        consultoria_name: fallbackConsultoria,
+        services: 'treino',
+        updated_at: new Date().toISOString()
+    };
+    const { error } = await window.supabase
+        .from(SUPABASE_TABLES.trainers)
+        .upsert(row, { onConflict: 'code' });
+    if (error) {
+        console.warn('Supabase trainer upsert failed', error.message);
+        return null;
+    }
+    return row;
+}
+
+async function syncStudentsFromSupabase(trainerCode) {
+    if (!isSupabaseReady() || !trainerCode) return;
+    const { data, error } = await window.supabase
+        .from(SUPABASE_TABLES.students)
+        .select('*')
+        .eq('trainer_code', String(trainerCode));
+    if (error) {
+        console.warn('Supabase students sync failed', error.message);
+        return;
+    }
+    if (!data) return;
+    const students = data.map(normalizeStudentRow).filter(Boolean);
+    
+    if (isSupabaseReady()) {
+        const fallbackName = pendingTrainerCode === '00001' ? 'Administrador Teste' : 'Treinador';
+        const fallbackConsultoria = fallbackName ? `Consultoria de ${fallbackName.split(' ')[0]} ` : '';
+        await ensureTrainerExistsRemote(pendingTrainerCode, fallbackName, fallbackConsultoria);
+    }
+
+saveStudentData(students);
+    renderStudents();
+    renderPendingRequests();
+    updateTrainerStats();
+}
+
+function queueSupabaseStudentsSync(students) {
+    if (!isSupabaseReady()) return;
+    if (supabaseStudentsSyncTimer) clearTimeout(supabaseStudentsSyncTimer);
+    const payload = JSON.parse(JSON.stringify(students || []));
+    supabaseStudentsSyncTimer = setTimeout(async () => {
+        const rows = payload.map((student) => ({
+            id: String(student.id || ''),
+            trainer_code: String(student.trainerCode || student.trainer_code || ''),
+            data: student,
+            updated_at: new Date().toISOString()
+        })).filter((row) => row.id);
+        if (rows.length === 0) return;
+        const { error } = await window.supabase
+            .from(SUPABASE_TABLES.students)
+            .upsert(rows, { onConflict: 'id' });
+        if (error) console.warn('Supabase students upsert failed', error.message);
+    }, 400);
+}
+
 function getActiveSyncTrainerCode() {
     return (
-        localStorage.getItem('currentTrainerCode') ||
-        localStorage.getItem('connectedTrainerCode') ||
-        localStorage.getItem('trainerCodeDefault') ||
+        memoryGetItem('currentTrainerCode') ||
+        memoryGetItem('connectedTrainerCode') ||
+        memoryGetItem('trainerCodeDefault') ||
         ''
     );
 }
 
 function getLocalStateUpdatedAt() {
-    return localStorage.getItem('app_state_updated_at') || '';
+    return memoryGetItem('app_state_updated_at') || '';
 }
 
 function setLocalStateUpdatedAt(ts) {
-    if (ts) localStorage.setItem('app_state_updated_at', ts);
+    if (ts) memorySetItem('app_state_updated_at', ts);
 }
 
 function getLocalSyncPayload() {
     const payload = {};
     SYNC_KEYS.forEach((key) => {
-        const raw = localStorage.getItem(key);
+        const raw = memoryGetItem(key);
         if (raw === null || raw === undefined) return;
         try {
             payload[key] = JSON.parse(raw);
@@ -769,11 +882,10 @@ function getLocalSyncPayload() {
 
 function setStorageValue(key, value) {
     if (value === undefined) return;
-    const rawSet = window.__rawSetItem || localStorage.setItem.bind(localStorage);
     if (typeof value === 'string') {
-        rawSet(key, value);
+        memorySetItem(key, value);
     } else {
-        rawSet(key, JSON.stringify(value));
+        memorySetItem(key, JSON.stringify(value));
     }
 }
 
@@ -790,6 +902,7 @@ function applyRemotePayload(payload) {
 }
 
 async function pushAppState(reason = '') {
+    if (!APP_STATE_SYNC_ENABLED) return;
     if (!isSupabaseReady()) return;
     const trainerCode = getActiveSyncTrainerCode();
     if (!trainerCode) return;
@@ -816,6 +929,7 @@ async function pushAppState(reason = '') {
 }
 
 async function pullAppStateIfNewer() {
+    if (!APP_STATE_SYNC_ENABLED) return;
     if (!isSupabaseReady()) return;
     if (syncPullInFlight) return;
     const trainerCode = getActiveSyncTrainerCode();
@@ -855,12 +969,14 @@ async function pullAppStateIfNewer() {
 }
 
 function scheduleRemoteSync(reason = '') {
+    if (!APP_STATE_SYNC_ENABLED) return;
     if (!isSupabaseReady()) return;
     if (syncPushTimer) clearTimeout(syncPushTimer);
     syncPushTimer = setTimeout(() => pushAppState(reason), 800);
 }
 
 function startSyncPolling() {
+    if (!APP_STATE_SYNC_ENABLED) return;
     if (!isSupabaseReady()) return;
     if (syncPullTimer) return;
     syncPullTimer = setInterval(() => {
@@ -903,17 +1019,15 @@ function handleRemoteStateApplied() {
 }
 
 if (!window.__syncPatched) {
-    const originalSetItem = localStorage.setItem.bind(localStorage);
-    const originalRemoveItem = localStorage.removeItem.bind(localStorage);
-    window.__rawSetItem = originalSetItem;
-    window.__rawRemoveItem = originalRemoveItem;
+    const originalSetItem = memorySetItem;
+    const originalRemoveItem = memoryRemoveItem;
 
-    localStorage.setItem = (key, value) => {
+    memorySetItem = (key, value) => {
         originalSetItem(key, value);
         if (SYNC_KEYS.includes(key) && !isApplyingRemoteState) scheduleRemoteSync(`set:${key}`);
     };
 
-    localStorage.removeItem = (key) => {
+    memoryRemoveItem = (key) => {
         originalRemoveItem(key);
         if (SYNC_KEYS.includes(key) && !isApplyingRemoteState) scheduleRemoteSync(`remove:${key}`);
     };
@@ -943,7 +1057,7 @@ syncChannel.onmessage = (event) => {
         if (typeof renderDuvidas === 'function') renderDuvidas();
 
         // If student matches, refresh their view
-        const currentStudentId = localStorage.getItem('currentStudentId');
+        const currentStudentId = memoryGetItem('currentStudentId');
         if (currentStudentId) {
             // Re-render workout landing to show replies
             if (typeof renderStudentWorkoutMain === 'function') {
@@ -959,7 +1073,7 @@ syncChannel.onmessage = (event) => {
     if (type === 'STUDENT_ACCEPTED' || type === 'STUDENT_REJECTED') {
         if (typeof updateTrainerStats === 'function') updateTrainerStats();
         // If student is logged in, they might need to see the "Ready" status
-        const studentId = localStorage.getItem('currentStudentId');
+        const studentId = memoryGetItem('currentStudentId');
         if (studentId) {
             initStudentDashboard();
         }
@@ -1013,7 +1127,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (tryAutoStudentLogin()) return;
 
     // Legacy fallback for sessions without token
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     if (studentId) {
         const students = readStorageJSON('trainerStudents', []);
         const legacyStudent = students.find(s => String(s.id) === String(studentId));
@@ -1022,9 +1136,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
         }
-        localStorage.removeItem('currentStudentId');
-        localStorage.removeItem('connectedTrainerCode');
-        localStorage.removeItem('studentName');
+        memoryRemoveItem('currentStudentId');
+        memoryRemoveItem('connectedTrainerCode');
+        memoryRemoveItem('studentName');
     }
 
     const home = document.getElementById('home-screen');
@@ -1067,7 +1181,7 @@ window.addEventListener('storage', (e) => {
 
     // Sync Student Dashboard
     if (e.key === 'trainerStudents') {
-        const studentId = localStorage.getItem('currentStudentId');
+        const studentId = memoryGetItem('currentStudentId');
         const studentDash = document.getElementById('student-dashboard-screen');
         if (studentId && studentDash && studentDash.classList.contains('active')) {
             initStudentDashboard();
@@ -1157,15 +1271,15 @@ function closeTrainerProfileMenu() {
 }
 
 function logoutTrainerFromMenu() {
-    localStorage.removeItem('trainerSessionCode');
-    localStorage.removeItem('trainerName');
-    localStorage.removeItem('currentTrainerCode');
+    memoryRemoveItem('trainerSessionCode');
+    memoryRemoveItem('trainerName');
+    memoryRemoveItem('currentTrainerCode');
     window.location.href = 'index.html';
 }
 
 function editTrainerProfile() {
-    const trainerName = localStorage.getItem('trainerName') || 'Treinador';
-    const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
+    const trainerName = memoryGetItem('trainerName') || 'Treinador';
+    const trainerCode = memoryGetItem('currentTrainerCode') || '00001';
 
     alert(`✏️ Editar Perfil\n\nNome: ${trainerName}\nCódigo: ${trainerCode}\n\nEsta funcionalidade será implementada em breve.`);
     closeTrainerProfileMenu();
@@ -1173,7 +1287,7 @@ function editTrainerProfile() {
 
 function viewTrainerStats() {
     const students = readStorageJSON('trainerStudents', []);
-    const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
+    const trainerCode = memoryGetItem('currentTrainerCode') || '00001';
     const myStudents = students.filter(s => s.trainerCode === trainerCode);
 
     const total = myStudents.length;
@@ -1186,7 +1300,7 @@ function viewTrainerStats() {
 }
 
 function shareTrainerCode() {
-    const trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
+    const trainerCode = memoryGetItem('currentTrainerCode') || '00001';
     const message = `Meu código de consultoria: ${trainerCode}\n\nJunte-se ao meu programa de treino e nutrição!`;
 
     if (navigator.share) {
@@ -1294,7 +1408,7 @@ function handleProfileCreation() {
 
     const newUser = { name, email, password: pass, role, joinedAt: new Date().toISOString() };
     users.push(newUser);
-    localStorage.setItem('registeredUsers', JSON.stringify(users));
+    memorySetItem('registeredUsers', JSON.stringify(users));
 
     alert('Conta criada com sucesso! Voce ja esta logado.');
     processLogin(newUser);
@@ -1335,18 +1449,18 @@ function processLogin(user) {
 
     if (user.role === 'trainer') {
         // Find or create a trainer code for this user
-        let trainerCode = localStorage.getItem('currentTrainerCode') || '00001';
-        localStorage.setItem('trainerName', safeUserName.split(' ')[0]);
-        localStorage.setItem('currentTrainerCode', trainerCode);
+        let trainerCode = memoryGetItem('currentTrainerCode') || '00001';
+        memorySetItem('trainerName', safeUserName.split(' ')[0]);
+        memorySetItem('currentTrainerCode', trainerCode);
         window.location.href = 'trainer.html';
     } else {
-        localStorage.setItem('studentName', safeUserName);
+        memorySetItem('studentName', safeUserName);
         // Find if this user already has an ID, or generate one
-        let studentId = localStorage.getItem('currentStudentId') || Math.floor(10000 + Math.random() * 90000).toString();
+        let studentId = memoryGetItem('currentStudentId') || Math.floor(10000 + Math.random() * 90000).toString();
         if (studentId === ADMIN_STUDENT_CODE || studentId === SELF_TRAINING_STUDENT_CODE) {
             studentId = Math.floor(10000 + Math.random() * 90000).toString();
         }
-        localStorage.setItem('currentStudentId', studentId);
+        memorySetItem('currentStudentId', studentId);
 
         hideAllScreens();
         document.getElementById('app').classList.add('wide');
@@ -1388,7 +1502,7 @@ function switchStudentView(view) {
     // Specific logic for each view
     if (view === 'treino') {
         currentWorkoutTab = 0;
-        const studentId = localStorage.getItem('currentStudentId');
+        const studentId = memoryGetItem('currentStudentId');
         const students = readStorageJSON('trainerStudents', []);
         const student = students.find(s => s.id === studentId);
         if (studentCanEditWorkout(student)) {
@@ -1447,7 +1561,7 @@ function toggleStudentWorkoutEditMode(force) {
         studentWorkoutEditMode = !studentWorkoutEditMode;
     }
     if (wasEditing && !studentWorkoutEditMode) {
-        const studentId = localStorage.getItem('currentStudentId');
+        const studentId = memoryGetItem('currentStudentId');
         const students = readStorageJSON('trainerStudents', []);
         const student = students.find(s => String(s.id) === String(studentId));
         if (student && studentCanEditWorkout(student)) {
@@ -1488,11 +1602,11 @@ function notifyTrainerWorkoutUpdate(student, options = {}) {
     const totalExercises = blocks.reduce((acc, block) => acc + (Array.isArray(block.exercises) ? block.exercises.length : 0), 0);
     const lastKey = `workout_update_last_${studentId}`;
     const now = Date.now();
-    const lastSent = parseInt(localStorage.getItem(lastKey) || '0', 10);
+    const lastSent = parseInt(memoryGetItem(lastKey) || '0', 10);
     const minIntervalMs = 30_000;
     if (!options.force && now - lastSent < minIntervalMs) return;
 
-    const studentName = sanitizeUserInput(student?.name || localStorage.getItem('studentName') || 'Aluno', { maxLen: 90 }) || 'Aluno';
+    const studentName = sanitizeUserInput(student?.name || memoryGetItem('studentName') || 'Aluno', { maxLen: 90 }) || 'Aluno';
     const notifs = readStorageJSON('trainerNotifications', []);
     notifs.unshift({
         type: 'duvida',
@@ -1504,13 +1618,13 @@ function notifyTrainerWorkoutUpdate(student, options = {}) {
         time: new Date().toISOString(),
         unread: true
     });
-    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
-    localStorage.setItem(lastKey, String(now));
+    memorySetItem('trainerNotifications', JSON.stringify(notifs));
+    memorySetItem(lastKey, String(now));
     syncChannel.postMessage({ type: 'NEW_DOUBT', payload: { studentId } });
 }
 
 function promptStudentField(label, defaultValue = '', options = {}) {
-    const raw = prompt(label, defaultValue ?? '');
+    const raw = prompt(label, defaultValue ? '');
     if (raw === null) return null;
     return sanitizeUserInput(raw, {
         maxLen: Number.isFinite(options.maxLen) ? options.maxLen : 90,
@@ -1519,7 +1633,7 @@ function promptStudentField(label, defaultValue = '', options = {}) {
 }
 
 function addStudentWorkoutBlock() {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     let didAdd = false;
     const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
         const defaultTitle = `Treino ${String.fromCharCode(65 + blocks.length)}`;
@@ -1542,7 +1656,7 @@ function addStudentWorkoutBlock() {
 }
 
 function renameStudentWorkoutBlock(blockIdx) {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     let didRename = false;
     const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
         if (!blocks[blockIdx]) return;
@@ -1565,7 +1679,7 @@ function renameStudentWorkoutBlock(blockIdx) {
 
 function removeStudentWorkoutBlock(blockIdx) {
     if (!confirm('Remover este treino?')) return;
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
         if (!blocks[blockIdx]) return;
         blocks.splice(blockIdx, 1);
@@ -1587,7 +1701,7 @@ function addStudentExerciseToCurrentBlock() {
 }
 
 function addStudentExerciseToBlock(blockIdx) {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     let didAdd = false;
     const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
         const block = blocks[blockIdx];
@@ -1634,7 +1748,7 @@ function addStudentExerciseToBlock(blockIdx) {
 }
 
 function editStudentExerciseInBlock(blockIdx, exIdx) {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     let didEdit = false;
     const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
         const block = blocks[blockIdx];
@@ -1674,7 +1788,7 @@ function editStudentExerciseInBlock(blockIdx, exIdx) {
 
 function removeStudentExerciseFromBlock(blockIdx, exIdx) {
     if (!confirm('Remover este exercício?')) return;
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const student = updateStudentWorkoutBlocks(studentId, (blocks) => {
         const block = blocks[blockIdx];
         if (!block || !Array.isArray(block.exercises)) return;
@@ -1693,7 +1807,7 @@ function renderStudentWorkoutMain(options = {}) {
     const withSkeleton = !!options.withSkeleton;
     const delayMs = Number.isFinite(options.delayMs) ? options.delayMs : 240;
 
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
     const canEditWorkout = studentCanEditWorkout(student);
@@ -1969,7 +2083,7 @@ function pushStudentMessageToTrainer(studentId, studentName, payload = {}) {
         unread: true
     });
 
-    localStorage.setItem('trainerNotifications', JSON.stringify(notifications));
+    memorySetItem('trainerNotifications', JSON.stringify(notifications));
     syncChannel.postMessage({ type: 'NEW_DOUBT', payload: { studentId } });
 }
 
@@ -2027,12 +2141,12 @@ function loadStudentChatMessages(studentId, studentName) {
     });
 
     const merged = Array.from(map.values()).sort((a, b) => new Date(a.time) - new Date(b.time));
-    localStorage.setItem(storageKey, JSON.stringify(merged));
+    memorySetItem(storageKey, JSON.stringify(merged));
     return merged;
 }
 
 function saveStudentChatMessages(studentId, messages) {
-    localStorage.setItem(getStudentChatStorageKey(studentId), JSON.stringify(messages || []));
+    memorySetItem(getStudentChatStorageKey(studentId), JSON.stringify(messages || []));
 }
 
 function renderStudentChatBubble(msg) {
@@ -2090,8 +2204,8 @@ function renderStudentChatBubble(msg) {
 }
 
 function sendStudentQuickMessage() {
-    const studentId = localStorage.getItem('currentStudentId');
-    const studentName = localStorage.getItem('studentName') || 'Aluno';
+    const studentId = memoryGetItem('currentStudentId');
+    const studentName = memoryGetItem('studentName') || 'Aluno';
     const input = document.getElementById('student-chat-input');
     if (!studentId || !input) return;
 
@@ -2295,8 +2409,8 @@ window.addEventListener('blur', () => {
 });
 
 function simulateStudentMediaUpload(kind = 'audio', options = {}) {
-    const studentId = localStorage.getItem('currentStudentId');
-    const studentName = localStorage.getItem('studentName') || 'Aluno';
+    const studentId = memoryGetItem('currentStudentId');
+    const studentName = memoryGetItem('studentName') || 'Aluno';
     if (!studentId) return;
 
     const uploadBox = document.getElementById('student-chat-upload');
@@ -2359,8 +2473,8 @@ function renderStudentDuvidas() {
     const listEl = document.getElementById('student-duvidas-list');
     if (!listEl) return;
 
-    const studentId = localStorage.getItem('currentStudentId');
-    const studentName = localStorage.getItem('studentName') || 'Aluno';
+    const studentId = memoryGetItem('currentStudentId');
+    const studentName = memoryGetItem('studentName') || 'Aluno';
     const messages = loadStudentChatMessages(studentId, studentName);
 
     listEl.innerHTML = `
@@ -2414,7 +2528,7 @@ function renderStudentDuvidas() {
 }
 
 function renderWorkoutHistory() {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const history = readStorageJSON('workoutHistory', [])
         .filter(w => w.ID_Usuario === studentId)
         .reverse();
@@ -2781,7 +2895,7 @@ function closeTrainerHistoryDetailModal() {
 }
 
 function openHistoryDetail(originalIdx) {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const history = readStorageJSON('workoutHistory', [])
         .filter(w => w.ID_Usuario === studentId);
 
@@ -2859,7 +2973,7 @@ function openExerciseProgressModal(exerciseName) {
     const body = document.getElementById('exercise-progress-body');
     if (!overlay || !title || !body) return;
 
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const points = getExerciseProgressSeries(studentId, exerciseName);
 
     title.textContent = `Historico de Carga - ${exerciseName}`;
@@ -3029,7 +3143,7 @@ function confirmDeleteWorkout(idx) {
 function deleteWorkoutEntry(idx) {
     const history = readStorageJSON('workoutHistory', []);
     history.splice(idx, 1);
-    localStorage.setItem('workoutHistory', JSON.stringify(history));
+    memorySetItem('workoutHistory', JSON.stringify(history));
     renderWorkoutHistory();
     syncChannel.postMessage({ type: 'workout_history_updated' });
 }
@@ -3043,7 +3157,7 @@ function confirmDeleteMetric(idxInHistory) {
 }
 
 function deleteMetricEntry(idx) {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     const sIdx = students.findIndex(s => s.id === studentId);
 
@@ -3058,7 +3172,7 @@ function deleteMetricEntry(idx) {
             students[sIdx].currentBF = latest.bodyFat || students[sIdx].currentBF;
         }
 
-        localStorage.setItem('trainerStudents', JSON.stringify(students));
+        memorySetItem('trainerStudents', JSON.stringify(students));
         renderStudentPerfil();
         syncChannel.postMessage({ type: 'student_data_updated' });
     }
@@ -3089,7 +3203,7 @@ function enviarDuvida() {
         return;
     }
 
-    const studentName = localStorage.getItem('studentName') || 'Aluno';
+    const studentName = memoryGetItem('studentName') || 'Aluno';
     const assuntoLabels = {
         'exercicio': 'Dúvida sobre exercício',
         'execucao': 'Dúvida sobre execução',
@@ -3098,7 +3212,7 @@ function enviarDuvida() {
         'outro': 'Outro'
     };
 
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
 
     // Send as notification to trainer
     let notifs = readStorageJSON('trainerNotifications', []);
@@ -3111,7 +3225,7 @@ function enviarDuvida() {
         time: new Date().toISOString(),
         unread: true
     });
-    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+    memorySetItem('trainerNotifications', JSON.stringify(notifs));
 
     // Broadcast change
     syncChannel.postMessage({ type: 'NEW_DOUBT' });
@@ -3184,9 +3298,9 @@ function computeDietMacroData(student) {
 }
 
 window.updateWater = function (delta) {
-    let count = parseInt(localStorage.getItem('water_cups') || '0', 10);
+    let count = parseInt(memoryGetItem('water_cups') || '0', 10);
     count = Math.max(0, count + delta);
-    localStorage.setItem('water_cups', count);
+    memorySetItem('water_cups', count);
     const el = document.getElementById('water-counter-display');
     if (el) el.innerText = count;
 };
@@ -3194,7 +3308,7 @@ window.updateWater = function (delta) {
 function renderStudentDietContent(student) {
     const macro = computeDietMacroData(student);
     const meals = Array.isArray(student?.mealBlocks) ? student.mealBlocks : [];
-    const savedWater = localStorage.getItem('water_cups') || '0';
+    const savedWater = memoryGetItem('water_cups') || '0';
 
     const summaryCard = `
         <div class="diet-macro-summary-card">
@@ -3284,7 +3398,7 @@ function handleMealCheckClick(buttonEl) {
 }
 
 function renderStudentDietMain() {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
 
@@ -3348,7 +3462,7 @@ function handleUnifiedLogin() {
     if (isTrainer) {
         // Redirect to trainer dashboard
         // Note: For simplicity, we could store 'trainerSessionCode' to auto-login in trainer.html
-        localStorage.setItem('trainerSessionCode', code);
+        memorySetItem('trainerSessionCode', code);
         window.location.href = 'trainer.html';
         return;
     }
@@ -3468,7 +3582,7 @@ function switchQTab(tabName) {
     // Note: renderQuestions() was removed to preserve the full HTML questionnaire layout
 }
 
-function submitQuestionnaire() {
+async function submitQuestionnaire() {
     // Collect specific student data
     const nome = sanitizeUserInput(document.getElementById('q_nome')?.value, { maxLen: 90 }) || 'Aluno';
     const ageRaw = parseInt(document.getElementById('q_idade')?.value, 10);
@@ -3486,9 +3600,51 @@ function submitQuestionnaire() {
     }
 
     if (!pendingTrainerCode || pendingTrainerCode.length !== 5) {
-        alert('Conexão com treinador inválida. Refaça o processo de conexão.');
+        alert('Conex?o com treinador inv?lida. Refa?a o processo de conex?o.');
         return;
     }
+
+    const getCheckedValues = (selector) => Array.from(document.querySelectorAll(selector)).map(el => el.value);
+    const getRadioValue = (name, fallback = '') => document.querySelector(`input[name="${name}"]:checked`)?.value || fallback;
+    const getInputValue = (id, maxLen = 200) => sanitizeUserInput(document.getElementById(id)?.value, { maxLen });
+
+    const questionnaire = {
+        saude: {
+            dor: getRadioValue('q_dor', 'nao'),
+            dor_desc: getInputValue('q_dor_desc', 200),
+            condicoes: getCheckedValues('input[name="q_cond"]:checked'),
+            med: getRadioValue('q_med', 'nao'),
+            med_desc: getInputValue('q_med_desc', 200),
+            cirurgia: getRadioValue('q_cirurgia', 'nao'),
+            cirurgia_desc: getInputValue('q_cirurgia_desc', 200)
+        },
+        nutricao: {
+            restricoes: getCheckedValues('input[name="q_restr"]:checked'),
+            nao_come: getInputValue('q_nao_come', 200),
+            intestino: getRadioValue('q_intestino', 'sim'),
+            refeicoes: getRadioValue('q_refeicoes', '4')
+        },
+        rotina: {
+            sono: getInputValue('q_sono', 10),
+            descansado: getRadioValue('q_descansado', 'sim'),
+            estresse: getInputValue('q_estresse', 10),
+            fumo: getRadioValue('q_fumo', 'nao'),
+            alcool: getRadioValue('q_alcool', 'nao'),
+            trabalho: getRadioValue('q_trab', 'sentado')
+        },
+        treino: {
+            tempo_pratica: getInputValue('q_tempo_pratica', 120),
+            exercicios_ama: getInputValue('q_exercicios_ama', 200),
+            exercicios_detesta: getInputValue('q_exercicios_detesta', 200),
+            dias: getCheckedValues('input[name="q_dias"]:checked'),
+            duracao: getRadioValue('q_duracao', '60')
+        },
+        metas: {
+            incomoda: sanitizeUserInput(document.getElementById('q_incomoda')?.value, { maxLen: 300, allowNewlines: true }),
+            objetivo_3_meses: sanitizeUserInput(document.getElementById('q_objetivo')?.value, { maxLen: 300, allowNewlines: true }),
+            consultoria_antes: sanitizeUserInput(document.getElementById('q_consultoria_antes')?.value, { maxLen: 300, allowNewlines: true })
+        }
+    };
 
     let id = Math.floor(10000 + Math.random() * 90000).toString();
     const usedIds = new Set((readStorageJSON('trainerStudents', [])).map(s => String(s.id)));
@@ -3505,7 +3661,7 @@ function submitQuestionnaire() {
         goal: goal,
         active: false,
         pending: true,
-        trainerCode: pendingTrainerCode, // Store for re-login
+        trainerCode: pendingTrainerCode,
         joinedAt: new Date().toISOString(),
         metricHistory: [{
             date: new Date().toISOString(),
@@ -3513,36 +3669,51 @@ function submitQuestionnaire() {
             height: parseFloat(height),
             bodyFat: null
         }],
-        personalRecords: {} // Initialize PRs
+        personalRecords: {},
+        questionnaire: questionnaire
     };
     newStudent.tmbBase = Math.round(calcTMBMifflin(newStudent.weight, newStudent.height, newStudent.age, newStudent.gender));
 
+    if (isSupabaseReady()) {
+        const fallbackName = pendingTrainerCode === '00001' ? 'Administrador Teste' : 'Treinador';
+        const fallbackConsultoria = fallbackName ? `Consultoria de ${fallbackName.split(' ')[0]} ` : '';
+        await ensureTrainerExistsRemote(pendingTrainerCode, fallbackName, fallbackConsultoria);
+    }
+
     let students = readStorageJSON('trainerStudents', []);
     students.push(newStudent);
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
 
     let notifs = readStorageJSON('trainerNotifications', []);
     notifs.unshift({
         type: 'questionnaire',
-        title: 'Questionário Respondido!',
-        desc: `Um novo aluno acabou de enviar o questionário inicial.`,
+        title: 'Question?rio Respondido!',
+        desc: `Um novo aluno acabou de enviar o question?rio inicial.`,
         time: 'Agora mesmo',
         unread: true
     });
-    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+    memorySetItem('trainerNotifications', JSON.stringify(notifs));
 
     // Save current session info + remember-me token
     openStudentDashboardSession(newStudent);
 }
 
-// â”€â”€â”€ Student Dashboard (Real Data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ?? Student Dashboard (Real Data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function initStudentDashboard() {
     pullAppStateIfNewer();
     startSyncPolling();
-    const studentId = localStorage.getItem('currentStudentId');
-    const trainerCode = localStorage.getItem('connectedTrainerCode');
-    const studentName = localStorage.getItem('studentName') || 'Aluno';
+    if (trainerCode && trainerCode !== '00000') {
+        syncStudentsFromSupabase(trainerCode);
+        if (!supabaseStudentsPollTimer) {
+            supabaseStudentsPollTimer = setInterval(() => {
+                syncStudentsFromSupabase(trainerCode);
+            }, 20000);
+        }
+    }
+    const studentId = memoryGetItem('currentStudentId');
+    const trainerCode = memoryGetItem('connectedTrainerCode');
+    const studentName = memoryGetItem('studentName') || 'Aluno';
 
     document.getElementById('dash-student-name').innerText = `Olá, ${studentName.split(' ')[0]} `;
     document.getElementById('dash-student-trainer').innerText = trainerCode || 'Consultoria';
@@ -3701,7 +3872,7 @@ function setProtocolStatus(isReady) {
 
 // Detail Views for Students
 function openStudentWorkout() {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
 
@@ -3745,7 +3916,7 @@ function closeStudentWorkout() {
 }
 
 function openStudentDiet() {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
 
@@ -3768,13 +3939,14 @@ function closeStudentDiet() {
 let _perfilModalField = '';
 
 function getStudentData() {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     return { studentId, students, student: students.find(s => s.id === studentId) };
 }
 
 function saveStudentData(students) {
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    memorySetItem('trainerStudents', JSON.stringify(students));
+    queueSupabaseStudentsSync(students);
 }
 
 function calcIMC(weight, height) {
@@ -3784,12 +3956,12 @@ function calcIMC(weight, height) {
 }
 
 function parseDecimalSafe(value) {
-    const parsed = parseFloat(String(value ?? '').replace(',', '.'));
+    const parsed = parseFloat(String(value ? '').replace(',', '.'));
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function parseIntegerSafe(value) {
-    const parsed = parseInt(String(value ?? ''), 10);
+    const parsed = parseInt(String(value ? ''), 10);
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -4314,7 +4486,7 @@ function savePerfilUpdate() {
         if (nome) student.name = nome;
         if (idade) student.age = idade;
         if (objetivo) student.goal = objetivo;
-        if (nome) localStorage.setItem('studentName', nome);
+        if (nome) memorySetItem('studentName', nome);
         changed = true;
     }
 
@@ -4371,14 +4543,14 @@ function connectTrainer() {
     }
 
     if (code === '00001') {
-        localStorage.setItem('trainerName', 'Admin');
-        localStorage.setItem('currentTrainerCode', '00001');
+        memorySetItem('trainerName', 'Admin');
+        memorySetItem('currentTrainerCode', '00001');
     } else {
         const trainers = readStorageJSON('allTrainers', []);
         const t = trainers.find(x => x.code === code);
         if (t) {
-            localStorage.setItem('trainerName', t.name.split(' ')[0]);
-            localStorage.setItem('currentTrainerCode', t.code);
+            memorySetItem('trainerName', t.name.split(' ')[0]);
+            memorySetItem('currentTrainerCode', t.code);
         } else {
             alert('Código não cadastrado.');
             return;
@@ -4414,10 +4586,10 @@ function createConsultoria() {
         consultoriaName: `Consultoria de ${firstName} `,
         services: services.value
     });
-    localStorage.setItem('allTrainers', JSON.stringify(trainers));
+    memorySetItem('allTrainers', JSON.stringify(trainers));
 
-    localStorage.setItem('trainerName', firstName);
-    localStorage.setItem('currentTrainerCode', newCode);
+    memorySetItem('trainerName', firstName);
+    memorySetItem('currentTrainerCode', newCode);
 
     document.getElementById('dash-trainer-name').innerText = firstName;
     document.getElementById('dash-trainer-code').innerText = newCode;
@@ -4431,27 +4603,27 @@ function createConsultoria() {
 // TRAINER DASHBOARD LOGIC (Runs on trainer.html)
 function initTrainerDashboard() {
     // If we have a trainerSessionCode from index.html unified login
-    const sessionCode = localStorage.getItem('trainerSessionCode');
+    const sessionCode = memoryGetItem('trainerSessionCode');
     if (sessionCode) {
         if (sessionCode === '00001') {
-            localStorage.setItem('trainerName', 'Admin');
-            localStorage.setItem('currentTrainerCode', '00001');
+            memorySetItem('trainerName', 'Admin');
+            memorySetItem('currentTrainerCode', '00001');
         } else {
             const trainers = readStorageJSON('allTrainers', []);
             const t = trainers.find(x => x.code === sessionCode);
             if (t) {
-                localStorage.setItem('trainerName', t.name.split(' ')[0]);
-                localStorage.setItem('currentTrainerCode', t.code);
+                memorySetItem('trainerName', t.name.split(' ')[0]);
+                memorySetItem('currentTrainerCode', t.code);
             }
         }
-        localStorage.removeItem('trainerSessionCode'); // Consume it
+        memoryRemoveItem('trainerSessionCode'); // Consume it
     }
 
-    const trainerName = localStorage.getItem('trainerName') || 'Treinador';
-    const trainerCode = localStorage.getItem('currentTrainerCode') || '00000';
+    const trainerName = memoryGetItem('trainerName') || 'Treinador';
+    const trainerCode = memoryGetItem('currentTrainerCode') || '00000';
     const canAutoEnterDashboard = !!sessionCode || (!!trainerCode && trainerCode !== '00000');
-    if (!localStorage.getItem('trainerCodeDefault') && trainerCode && trainerCode !== '00000') {
-        localStorage.setItem('trainerCodeDefault', trainerCode);
+    if (!memoryGetItem('trainerCodeDefault') && trainerCode && trainerCode !== '00000') {
+        memorySetItem('trainerCodeDefault', trainerCode);
     }
 
     pullAppStateIfNewer();
@@ -4636,7 +4808,7 @@ function initTrainerDashboard() {
 
     // Add swipe hint for mobile users
     const showSwipeHint = () => {
-        if (localStorage.getItem('swipeHintShown')) return;
+        if (memoryGetItem('swipeHintShown')) return;
 
         const hint = document.createElement('div');
         hint.style.cssText = `
@@ -4660,7 +4832,7 @@ function initTrainerDashboard() {
         document.body.appendChild(hint);
 
         setTimeout(() => hint.remove(), 4000);
-        localStorage.setItem('swipeHintShown', 'true');
+        memorySetItem('swipeHintShown', 'true');
     };
 
     // Show hint after a short delay
@@ -4690,7 +4862,7 @@ function loadTrainerSettings() {
 function updateTrainerSettings(partial) {
     const current = loadTrainerSettings();
     const next = { ...current, ...partial };
-    localStorage.setItem(TRAINER_SETTINGS_KEY, JSON.stringify(next));
+    memorySetItem(TRAINER_SETTINGS_KEY, JSON.stringify(next));
     return next;
 }
 
@@ -4822,7 +4994,7 @@ function syncTrainerInviteCodeUI(code) {
 function setTrainerInviteCode(code) {
     const sanitized = sanitizeCodeInput(code, 5);
     if (!sanitized) return;
-    localStorage.setItem('currentTrainerCode', sanitized);
+    memorySetItem('currentTrainerCode', sanitized);
     syncTrainerInviteCodeUI(sanitized);
 }
 
@@ -4832,7 +5004,7 @@ function generateTrainerInviteCode() {
 }
 
 function resetTrainerInviteCode() {
-    const fallback = localStorage.getItem('trainerCodeDefault') || '00001';
+    const fallback = memoryGetItem('trainerCodeDefault') || '00001';
     setTrainerInviteCode(fallback);
 }
 
@@ -4851,7 +5023,7 @@ function loadTrainerSettingsToUI() {
     const pushToggle = document.getElementById('notif-push');
     if (pushToggle) pushToggle.checked = !!settings.notifyPush;
     renderTrainerSpecialties(settings.specialties);
-    syncTrainerInviteCodeUI(localStorage.getItem('currentTrainerCode') || '00000');
+    syncTrainerInviteCodeUI(memoryGetItem('currentTrainerCode') || '00000');
     applyTrainerBranding(settings);
 }
 
@@ -4875,7 +5047,7 @@ function saveTrainerSettings() {
 }
 
 function resetTrainerSettings() {
-    localStorage.removeItem(TRAINER_SETTINGS_KEY);
+    memoryRemoveItem(TRAINER_SETTINGS_KEY);
     loadTrainerSettingsToUI();
 }
 
@@ -5158,7 +5330,7 @@ function openWhatsAppForStudent(studentIdx, event) {
         phoneRaw = sanitizeUserInput(phoneRaw, { maxLen: 20 });
         if (!phoneRaw) return;
         students[studentIdx].whatsapp = phoneRaw;
-        localStorage.setItem('trainerStudents', JSON.stringify(students));
+        memorySetItem('trainerStudents', JSON.stringify(students));
     }
 
     const phone = phoneRaw.replace(/\D/g, '');
@@ -5167,7 +5339,7 @@ function openWhatsAppForStudent(studentIdx, event) {
         return;
     }
 
-    const coachName = localStorage.getItem('trainerName') || 'Treinador';
+    const coachName = memoryGetItem('trainerName') || 'Treinador';
     const studentName = s.name || 'aluno';
     const msg = encodeURIComponent(`Olá ${studentName}, aqui é ${coachName}.`);
     window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
@@ -5487,7 +5659,7 @@ function selectChat(studentId) {
     });
 
     if (changed) {
-        localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+        memorySetItem('trainerNotifications', JSON.stringify(notifs));
         updateTrainerStats();
         syncChannel.postMessage({ type: 'DOUBT_RESOLVED' });
     }
@@ -5510,7 +5682,7 @@ function markActiveChatAsRead() {
         }
     });
     if (!changed) return;
-    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+    memorySetItem('trainerNotifications', JSON.stringify(notifs));
     updateTrainerStats();
     renderDuvidas();
     syncChannel.postMessage({ type: 'DOUBT_RESOLVED' });
@@ -5745,7 +5917,7 @@ function sendTrainerChat() {
         }
     });
 
-    localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+    memorySetItem('trainerNotifications', JSON.stringify(notifs));
     input.value = '';
     clearTrainerAttachment();
     renderDuvidas();
@@ -5875,7 +6047,7 @@ function markDuvidaAsRead(idx) {
     let notifs = readStorageJSON('trainerNotifications', []);
     if (notifs[idx]) {
         notifs[idx].unread = false;
-        localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+        memorySetItem('trainerNotifications', JSON.stringify(notifs));
 
         // Broadcast change
         syncChannel.postMessage({ type: 'DOUBT_RESOLVED' });
@@ -5896,7 +6068,7 @@ function responderDuvida(idx) {
         notifs[idx].unread = false;
         notifs[idx].reply = replyText;
         notifs[idx].repliedAt = new Date().toISOString();
-        localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+        memorySetItem('trainerNotifications', JSON.stringify(notifs));
 
         // Broadcast change
         syncChannel.postMessage({ type: 'DOUBT_REPLY', payload: { studentId: notifs[idx].studentId } });
@@ -5914,7 +6086,7 @@ function acceptStudent(idx) {
     students[idx].pending = false;
     students[idx].active = true;
     students[idx].acceptedAt = new Date().toISOString();
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    memorySetItem('trainerStudents', JSON.stringify(students));
 
     // Broadcast change
     syncChannel.postMessage({ type: 'STUDENT_ACCEPTED', payload: { studentId: students[idx].id } });
@@ -5934,7 +6106,7 @@ function rejectStudent(idx) {
     if (!confirm('Tem certeza que deseja recusar esta solicitação?')) return;
     let students = readStorageJSON('trainerStudents', []);
     students.splice(idx, 1);
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    memorySetItem('trainerStudents', JSON.stringify(students));
 
     // Broadcast change
     syncChannel.postMessage({ type: 'STUDENT_REJECTED' });
@@ -5959,7 +6131,7 @@ function markNotifRead(index, btnElement) {
     let notifs = readStorageJSON('trainerNotifications', []);
     if (notifs[index]) {
         notifs[index].unread = false;
-        localStorage.setItem('trainerNotifications', JSON.stringify(notifs));
+        memorySetItem('trainerNotifications', JSON.stringify(notifs));
     }
     // Update UI instantly without full reload
     const item = btnElement.closest('.notification-item');
@@ -6198,7 +6370,7 @@ function queueWorkoutPlanAutosave() {
         if (!student) return;
         student.workoutBlocks = workoutBlocks;
         students[currentStudentIdx] = student;
-        localStorage.setItem('trainerStudents', JSON.stringify(students));
+        memorySetItem('trainerStudents', JSON.stringify(students));
     }, 350);
 }
 
@@ -6429,13 +6601,13 @@ function renderMeals() {
                     <span class="font-medium">${escHtml(item.nome)}</span>
                     <input type="text" class="food-input food-qty-input" value="${escHtml(item.qtd || '')}" placeholder="150g"
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'qtd', this.value)">
-                    <input type="number" class="food-input" value="${item.kcal ?? ''}" placeholder="0"
+                    <input type="number" class="food-input" value="${item.kcal ? ''}" placeholder="0"
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'kcal', this.value)">
-                    <input type="number" class="food-input" value="${item.prot ?? ''}" placeholder="0"
+                    <input type="number" class="food-input" value="${item.prot ? ''}" placeholder="0"
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'prot', this.value)">
-                    <input type="number" class="food-input" value="${item.carb ?? ''}" placeholder="0"
+                    <input type="number" class="food-input" value="${item.carb ? ''}" placeholder="0"
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'carb', this.value)">
-                    <input type="number" class="food-input" value="${item.gord ?? ''}" placeholder="0"
+                    <input type="number" class="food-input" value="${item.gord ? ''}" placeholder="0"
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'gord', this.value)">
                     <button class="btn-icon-minimal" onclick="deleteFoodItem(${mIdx},${iIdx})">
                         <i class="ph-bold ph-trash" style="color:#ef4444;font-size:0.85rem;"></i>
@@ -6471,11 +6643,11 @@ function updateMealItemField(mIdx, iIdx, field, value) {
 
     let normalized = value;
     if (['kcal', 'prot', 'carb', 'gord'].includes(field)) {
-        normalized = String(value ?? '').replace(',', '.').replace(/[^\d.]/g, '');
+        normalized = String(value ? '').replace(',', '.').replace(/[^\d.]/g, '');
         const num = parseFloat(normalized);
         normalized = Number.isFinite(num) ? num : '';
     } else if (field === 'qtd') {
-        normalized = String(value ?? '');
+        normalized = String(value ? '');
     }
 
     item[field] = normalized;
@@ -6609,7 +6781,7 @@ function saveStudentPlan() {
     students[currentStudentIdx].mealBlocks = mealBlocks;
     students[currentStudentIdx].dietMeta = diet;
     students[currentStudentIdx].active = true; // Mark protocol as active when saved
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    memorySetItem('trainerStudents', JSON.stringify(students));
 
     // Visual feedback
     const btn = document.querySelector('.btn-save-plan');
@@ -6650,7 +6822,7 @@ function confirmRemoveStudent() {
     if (currentStudentIdx === null) return;
     let students = readStorageJSON('trainerStudents', []);
     students.splice(currentStudentIdx, 1);
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    memorySetItem('trainerStudents', JSON.stringify(students));
 
     closeRemoveModal();
     closeStudentProfile();
@@ -6691,16 +6863,16 @@ const SET_TYPE_OPTIONS = [
 
 function saveWorkoutBackup() {
     if (workoutState) {
-        localStorage.setItem('active_workout_backup', JSON.stringify(workoutState));
+        memorySetItem('active_workout_backup', JSON.stringify(workoutState));
     }
 }
 
 function clearWorkoutBackup() {
-    localStorage.removeItem('active_workout_backup');
+    memoryRemoveItem('active_workout_backup');
 }
 
 function getWorkoutBackup() {
-    const backup = localStorage.getItem('active_workout_backup');
+    const backup = memoryGetItem('active_workout_backup');
     if (!backup) return null;
     try {
         return JSON.parse(backup);
@@ -6725,7 +6897,7 @@ function resumeWorkoutBackup() {
 }
 
 function refreshWorkoutBackupIndicator() {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
     if (student) renderWorkoutStartOptions(student);
@@ -6848,11 +7020,11 @@ function appendCompletedSetLog(entry) {
     const logs = readStorageJSON('completed_sets_log', []);
     if (logs.some(item => item.id === entry.id)) return;
     logs.push(entry);
-    localStorage.setItem('completed_sets_log', JSON.stringify(logs));
+    memorySetItem('completed_sets_log', JSON.stringify(logs));
 }
 
 function startWorkoutSession(blockIdx = 0) {
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
 
@@ -6877,8 +7049,8 @@ function startWorkoutSession(blockIdx = 0) {
             const sets = templateSets
                 ? templateSets.map((tpl, sIdx) => ({
                     id: `set-${idx}-${sIdx}`,
-                    weight: tpl.weight ?? ex.carga || '',
-                    reps: tpl.reps ?? ex.reps || '',
+                    weight: tpl.weight ? ex.carga || '',
+                    reps: tpl.reps ? ex.reps || '',
                     type: tpl.type || 'normal',
                     intensityLevel: 0,
                     rpe: '',
@@ -7110,7 +7282,7 @@ function getSetPRTooltip(set) {
 }
 
 function getSetWeightValue(set) {
-    const raw = set?.peso ?? set?.weight ?? 0;
+    const raw = set?.peso ? set?.weight ? 0;
     const parsed = parseFloat(String(raw).replace(',', '.'));
     return Number.isFinite(parsed) ? parsed : 0;
 }
@@ -7343,16 +7515,16 @@ function toggleSetCompletion(exIdx, setIdx) {
             appendCompletedSetLog({
                 id: `${workoutState.sessionId}-${exIdx}-${setIdx}`,
                 sessionId: workoutState.sessionId,
-                studentId: localStorage.getItem('currentStudentId'),
+                studentId: memoryGetItem('currentStudentId'),
                 workoutTitle: workoutState.title,
                 exercise: exercise.nome,
                 serie: setIdx + 1,
                 peso: parseFloat(set.weight) || 0,
                 reps: parseInt(set.reps) || 0,
                 intensidade: set.intensityLevel || 0,
-                rpe: set.rpe ?? null,
-                rir: set.rir ?? null,
-                execucao: set.execucao ?? null,
+                rpe: set.rpe ? null,
+                rir: set.rir ? null,
+                execucao: set.execucao ? null,
                 completedAt: new Date().toISOString()
             });
             set.logged = true;
@@ -7824,7 +7996,7 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
     const elapsed = Math.floor((Date.now() - workoutState.startTime) / 1000);
 
     // Build the requested JSON structure
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
 
     // Calculate volume only for completed sets
     const totalVolume = workoutState.exercises.reduce((v, ex) =>
@@ -7863,7 +8035,7 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
     // SAVE TO HISTORY
     const history = readStorageJSON('workoutHistory', []);
     history.push(workoutArchive);
-    localStorage.setItem('workoutHistory', JSON.stringify(history));
+    memorySetItem('workoutHistory', JSON.stringify(history));
 
     // UPDATE PERSONAL RECORDS PERMANENTLY
     const students = readStorageJSON('trainerStudents', []);
@@ -7891,7 +8063,7 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
             students[sIdx].personalRecords[ex.nome] = currentMelhores;
         });
 
-        localStorage.setItem('trainerStudents', JSON.stringify(students));
+        memorySetItem('trainerStudents', JSON.stringify(students));
     }
 
     if (workoutTimerInterval) clearInterval(workoutTimerInterval);
@@ -7984,7 +8156,7 @@ function applyLastWorkoutAsTemplate() {
         return;
     }
 
-    const studentId = localStorage.getItem('currentStudentId');
+    const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     const sIdx = students.findIndex(s => String(s.id) === String(studentId));
     if (sIdx < 0) return;
@@ -8005,19 +8177,19 @@ function applyLastWorkoutAsTemplate() {
         if (!past || !Array.isArray(past.sets) || past.sets.length === 0) return;
 
         const templates = past.sets.map((s) => ({
-            weight: Number.isFinite(s.peso) ? s.peso : (s.weight ?? ex.carga ?? ''),
-            reps: Number.isFinite(s.reps) ? s.reps : (s.reps ?? ex.reps ?? ''),
+            weight: Number.isFinite(s.peso) ? s.peso : (s.weight ? ex.carga ? ''),
+            reps: Number.isFinite(s.reps) ? s.reps : (s.reps ? ex.reps ? ''),
             type: s.type || s.setType || 'normal'
         }));
 
         ex.setTemplates = templates;
         ex.series = String(templates.length);
-        ex.carga = templates[0]?.weight ?? ex.carga ?? '';
-        ex.reps = templates[0]?.reps ?? ex.reps ?? '';
+        ex.carga = templates[0]?.weight ? ex.carga ? '';
+        ex.reps = templates[0]?.reps ? ex.reps ? '';
     });
 
     students[sIdx].workoutBlocks = blocks;
-    localStorage.setItem('trainerStudents', JSON.stringify(students));
+    memorySetItem('trainerStudents', JSON.stringify(students));
     if (typeof scheduleRemoteSync === 'function') scheduleRemoteSync('apply-template');
     alert('Modelo padrão atualizado com base no último treino.');
 }
@@ -8250,7 +8422,7 @@ function addCustomExercise() {
         hasHistory: false,
         custom: true
     });
-    localStorage.setItem('customExercises', JSON.stringify(next));
+    memorySetItem('customExercises', JSON.stringify(next));
     nameInput.value = '';
     renderExerciseCatalog();
 }

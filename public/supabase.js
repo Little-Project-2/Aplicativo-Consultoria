@@ -1,10 +1,10 @@
 // supabase.js
 
-// Projeto Supabase (publico)
+// URL e chave Anon do Supabase
 const supabaseUrl = 'https://kvesydpaggznsvownbgu.supabase.co';
-const supabasePublishableKey = 'sb_publishable_svprWwGQO3L5DRka80VP5w_7wc2lQc2';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt2ZXN5ZHBhZ2d6bnN2b3duYmd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5MTMwNjAsImV4cCI6MjA5MDQ4OTA2MH0.uuzcWMBn_QzetdN7PsHRduoWU-t4KMyy6qlT_oHEMYg';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt2ZXN5ZHBhZ2d6bnN2b3duYmd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5MTMwNjAsImV4cCI6MjA5MDQ4OTA2MH0.uuzcWMBn_QzetdN7PsHRduoWU-t4KMyy6qlT_oHEMYg';
 
+// Supabase.createClient e injetado globalmente pela CDN
 const supabaseMemoryStorage = (() => {
     const store = new Map();
     return {
@@ -14,8 +14,7 @@ const supabaseMemoryStorage = (() => {
     };
 })();
 
-// Supabase.createClient e injetado globalmente pela CDN
-const supabaseClient = supabase.createClient(supabaseUrl, supabaseAnonKey, {
+const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey, {
     auth: {
         persistSession: true,
         autoRefreshToken: true,

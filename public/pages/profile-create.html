@@ -10,19 +10,19 @@
         <h2>Criar sua Conta</h2>
         <p class="subtitle">Rápido, seguro e gratuito</p>
 
-        <!-- Success Banner (shown after sign-up email is sent) -->
+        <!-- Success Banner -->
         <div id="signup-success-banner" style="display:none; margin-bottom:1rem; padding:1rem; border-radius:14px;
             background:rgba(57,255,20,0.08); border:1px solid rgba(57,255,20,0.3); color:#39ff14;
-            font-size:0.9rem; font-weight:500; text-align:center; line-height:1.5;">
+            font-size:0.9rem; font-weight:500; text-align:center; line-height:1.6;">
             <i class="ph-bold ph-envelope-open" style="font-size:1.5rem; display:block; margin-bottom:0.4rem;"></i>
-            <strong>Conta criada!</strong><br>
+            <strong>Conta criada com sucesso!</strong><br>
             Verifique sua caixa de entrada e clique no link de confirmação para ativar sua conta.
         </div>
 
         <!-- Error Banner -->
         <div id="signup-error-banner" style="display:none; margin-bottom:1rem; padding:0.8rem 1rem; border-radius:12px;
             background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.35); color:#fc8181;
-            font-size:0.875rem; font-weight:500; display:none; align-items:center; gap:0.5rem;">
+            font-size:0.875rem; font-weight:500; align-items:center; gap:0.5rem;">
             <i class="ph-bold ph-warning-circle" style="flex-shrink:0;"></i>
             <span id="signup-error-text">Erro desconhecido.</span>
         </div>
@@ -72,9 +72,9 @@
                 <span>Aceito os Termos de Uso e Privacidade</span>
             </label>
 
-            <button type="submit" class="btn-primary" id="signup-submit-btn" style="margin-top: 1rem;">
+            <button type="submit" class="btn-primary" id="signup-submit-btn" style="margin-top: 1rem; display:flex; align-items:center; justify-content:center; gap:0.5rem;">
                 <span id="signup-btn-text">Criar Conta</span>
-                <span id="signup-btn-spinner" style="display:none; width:16px; height:16px; border:2.5px solid rgba(0,0,0,0.3); border-top-color:#050505; border-radius:50%; animation:spin 0.7s linear infinite; display:none; margin:0 auto;"></span>
+                <span id="signup-btn-spinner" style="display:none; width:16px; height:16px; border:2.5px solid rgba(0,0,0,0.25); border-top-color:#050505; border-radius:50%; animation:spin 0.7s linear infinite;"></span>
             </button>
         </form>
 
@@ -85,6 +85,8 @@
     </div>
 
     <script>
+        /* ─── UI Helpers ─────────────────────────────────────────── */
+
         function showSignupError(msg) {
             const banner = document.getElementById('signup-error-banner');
             const text   = document.getElementById('signup-error-text');
@@ -103,26 +105,30 @@
             const text = document.getElementById('signup-btn-text');
             const spin = document.getElementById('signup-btn-spinner');
             if (!btn) return;
-            btn.disabled           = isLoading;
-            if (text) text.style.display = isLoading ? 'none' : 'inline';
+            btn.disabled = isLoading;
+            if (text) text.style.display = isLoading ? 'none'         : 'inline';
             if (spin) spin.style.display = isLoading ? 'inline-block' : 'none';
         }
 
         function friendlySignupError(err) {
             if (!err) return 'Não foi possível criar a conta. Tente novamente.';
             const e = err.toLowerCase();
-            if (e.includes('already registered') || e.includes('user already exists'))
+            if (e.includes('already registered') || e.includes('user already exists') || e.includes('already been registered'))
                 return 'Este e-mail já está cadastrado. Tente fazer login.';
-            if (e.includes('password') && e.includes('short'))
+            if (e.includes('password') && (e.includes('short') || e.includes('characters')))
                 return 'A senha deve ter pelo menos 8 caracteres.';
             if (e.includes('password') && e.includes('weak'))
                 return 'Senha muito fraca. Use letras, números e símbolos.';
-            if (e.includes('invalid email') || e.includes('email format'))
+            if (e.includes('invalid email') || e.includes('email format') || e.includes('valid email'))
                 return 'Endereço de e-mail inválido.';
+            if (e.includes('rate limit') || e.includes('too many'))
+                return 'Muitas tentativas. Aguarde um momento e tente novamente.';
             if (e.includes('network') || e.includes('fetch'))
                 return 'Problema de conexão. Verifique sua internet.';
             return err;
         }
+
+        /* ─── Sign-Up / Profile Creation ─────────────────────────── */
 
         async function handleProfileCreation() {
             const nome    = document.getElementById('reg-name')?.value?.trim();
@@ -131,7 +137,7 @@
             const confirm = document.getElementById('reg-pass-confirm')?.value;
             const role    = document.querySelector('input[name="reg-role"]:checked')?.value || 'aluno';
 
-            // ── Validations ──────────────────────────────────────────────
+            /* Validations */
             if (!nome || !email || !senha) {
                 showSignupError('Preencha todos os campos obrigatórios.');
                 return;
@@ -149,57 +155,63 @@
             setSignupLoading(true);
 
             try {
-                // ── 1. Sign Up on Supabase Auth ──────────────────────────
+                /* ── 1. Supabase Auth : signUp ──────────────────────── */
                 const { data, error } = await window.supabase.auth.signUp({
                     email,
                     password: senha,
                     options: {
                         emailRedirectTo: window.location.origin,
-                        data: { nome, role }   // stored in user_metadata
+                        data: { name: nome, role }   // saved in auth.users.raw_user_meta_data
                     }
                 });
 
                 if (error) {
+                    console.error('❌ Auth signUp error:', error);
                     showSignupError(friendlySignupError(error.message));
                     return;
                 }
 
                 const user = data.user;
                 if (!user) {
-                    showSignupError('Cadastro não finalizado. Tente novamente.');
+                    showSignupError('Cadastro não concluído. Tente novamente.');
                     return;
                 }
 
-                // ── 2. Create profile row in 'profiles' table ─────────────
-                // Use 'upsert' in case a previous partial signup left a row
+                console.log('✅ Auth user criado:', user.id);
+
+                /* ── 2. Insert profile row ──────────────────────────── 
+                   Column names come from supabase_schema.sql:
+                   profiles(id uuid, role text, name text, status text, …)
+                   Note: `email` and `nome` do NOT exist as columns — use `name`.
+                ────────────────────────────────────────────────────── */
                 const { error: profileError } = await window.supabase
                     .from('profiles')
                     .upsert({
                         id:     user.id,
-                        nome,
-                        email,
-                        role,
-                        status: 'pendente'
+                        name:   nome,
+                        role:   role,
+                        status: role === 'treinador' ? 'ativo' : 'pendente'
                     }, { onConflict: 'id' });
 
                 if (profileError) {
-                    // Non-fatal: profile may not exist yet if email isn't confirmed.
-                    // Log it but don't block the user.
-                    console.warn('Aviso: perfil não inserido imediatamente:', profileError.message);
+                    // Log full error for debugging
+                    console.error('❌ Profile insert error:', profileError.code, profileError.message, profileError.details);
+                    // If RLS blocked it, it means email confirmation is ON.
+                    // The DB trigger (see supabase_schema.sql) will create the profile on confirmation.
+                    if (profileError.code === '42501' || profileError.message?.includes('policy') || profileError.message?.includes('row-level')) {
+                        console.warn('⚠️ RLS blocked profile insert. Desative a confirmação de e-mail em Authentication > Settings no dashboard do Supabase.');
+                    }
+                } else {
+                    console.log('✅ Perfil criado na tabela profiles!');
                 }
 
-                // ── 3. Show success state ────────────────────────────────
-                const form = document.getElementById('signup-form');
-                if (form) form.style.display = 'none';
-
-                const successBanner = document.getElementById('signup-success-banner');
-                if (successBanner) successBanner.style.display = 'block';
-
-                console.log('✅ Conta criada! Aguardando confirmação de e-mail.');
+                /* ── 3. Success UI ──────────────────────────────────── */
+                document.getElementById('signup-form').style.display = 'none';
+                document.getElementById('signup-success-banner').style.display = 'block';
 
             } catch (err) {
                 showSignupError('Ocorreu um erro inesperado. Tente mais tarde.');
-                console.error('Sign-up error:', err);
+                console.error('❌ Sign-up catch error:', err);
             } finally {
                 setSignupLoading(false);
             }

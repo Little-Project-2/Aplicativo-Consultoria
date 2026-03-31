@@ -74,7 +74,7 @@
                                         onchange="toggleConditional('cond-dor', false)"><span>Não</span></label>
                             </div>
                             <div class="conditional-input" id="cond-dor">
-                                <input type="text" class="q-input"
+                                <input type="text" id="q_dor_desc" class="q-input"
                                     placeholder="Quais articulações? (joelho, ombro, coluna...)" autocomplete="off">
                             </div>
                         </div>
@@ -106,7 +106,7 @@
                                         onchange="toggleConditional('cond-med', false)"><span>Não</span></label>
                             </div>
                             <div class="conditional-input" id="cond-med">
-                                <input type="text" class="q-input" placeholder="Quais medicamentos?" autocomplete="off">
+                                <input type="text" id="q_med_desc" class="q-input" placeholder="Quais medicamentos?" autocomplete="off">
                             </div>
                         </div>
 
@@ -119,7 +119,7 @@
                                         onchange="toggleConditional('cond-cirurgia', false)"><span>Não</span></label>
                             </div>
                             <div class="conditional-input" id="cond-cirurgia">
-                                <input type="text" class="q-input" placeholder="Qual cirurgia e há quanto tempo?"
+                                <input type="text" id="q_cirurgia_desc" class="q-input" placeholder="Qual cirurgia e há quanto tempo?"
                                     autocomplete="off">
                             </div>
                         </div>
@@ -157,7 +157,7 @@
 
                         <div class="q-field">
                             <label>ALIMENTOS QUE NÃO COME DE JEITO NENHUM</label>
-                            <input type="text" class="q-input" placeholder="Ex: brócolis, fígado..." autocomplete="off">
+                            <input type="text" id="q_nao_come" class="q-input" placeholder="Ex: brócolis, fígado..." autocomplete="off">
                         </div>
 
                         <div class="q-field">
@@ -204,7 +204,7 @@
                         <div class="q-field">
                             <label>HORAS DE SONO POR NOITE</label>
                             <div class="slider-container">
-                                <input type="range" class="q-slider" min="4" max="12" value="7"
+                                <input type="range" id="q_sono" class="q-slider" min="4" max="12" value="7"
                                     oninput="document.getElementById('val-sono').innerText = this.value + 'h'">
                                 <span class="slider-val" id="val-sono">7h</span>
                             </div>
@@ -223,7 +223,7 @@
                         <div class="q-field">
                             <label>NÍVEL DE ESTRESSE (1-10)</label>
                             <div class="slider-container">
-                                <input type="range" class="q-slider" min="1" max="10" value="5"
+                                <input type="range" id="q_estresse" class="q-slider" min="1" max="10" value="5"
                                     oninput="document.getElementById('val-estresse').innerText = this.value">
                                 <span class="slider-val" id="val-estresse">5</span>
                             </div>
@@ -283,19 +283,19 @@
 
                         <div class="q-field">
                             <label>TEMPO DE PRATICA DE MUSCULACAO</label>
-                            <input type="text" class="q-input" placeholder="Ex: 2 anos, 6 meses, iniciante..."
+                            <input type="text" id="q_tempo_pratica" class="q-input" placeholder="Ex: 2 anos, 6 meses, iniciante..."
                                 autocomplete="off">
                         </div>
 
                         <div class="q-field">
                             <label>EXERCÍCIOS QUE AMA FAZER</label>
-                            <input type="text" class="q-input" placeholder="Ex: Supino, Agachamento..."
+                            <input type="text" id="q_exercicios_ama" class="q-input" placeholder="Ex: Supino, Agachamento..."
                                 autocomplete="off">
                         </div>
 
                         <div class="q-field">
                             <label>EXERCÍCIOS QUE DETESTA</label>
-                            <input type="text" class="q-input" placeholder="Ex: Leg Press, Abdominal..."
+                            <input type="text" id="q_exercicios_detesta" class="q-input" placeholder="Ex: Leg Press, Abdominal..."
                                 autocomplete="off">
                         </div>
 
@@ -352,7 +352,7 @@
 
                         <div class="q-field">
                             <label>O QUE MAIS TE INCOMODA NO CORPO HOJE?</label>
-                            <textarea class="q-input" rows="2"
+                            <textarea id="q_incomoda" class="q-input" rows="2"
                                 placeholder="Ex: barriga, braços finos, postura..."></textarea>
                         </div>
 
@@ -364,7 +364,7 @@
 
                         <div class="q-field">
                             <label>JÁ FEZ CONSULTORIA ANTES? O QUE GOSTOU/ODIOU?</label>
-                            <textarea class="q-input" rows="2"
+                            <textarea id="q_consultoria_antes" class="q-input" rows="2"
                                 placeholder="Ex: Sim, mas o treinador nunca mudava o treino..."></textarea>
                         </div>
 
