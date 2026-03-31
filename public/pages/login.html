@@ -1,0 +1,707 @@
+<div id="global-login-screen" class="screen">
+
+    <!-- Full-page background wrapper -->
+    <div class="gl-login-bg">
+        <div class="gl-glow gl-glow-1"></div>
+        <div class="gl-glow gl-glow-2"></div>
+    </div>
+
+    <!-- Glassmorphism Card -->
+    <div class="gl-card-wrapper">
+        <div class="gl-card">
+
+            <!-- Logo / Header -->
+            <div class="gl-header">
+                <div class="gl-logo-icon">
+                    <i class="ph-bold ph-lightning"></i>
+                </div>
+                <h1 class="gl-title">Consultoria<span class="gl-title-accent">Fit</span></h1>
+                <p class="gl-subtitle">Acesse sua conta para continuar</p>
+            </div>
+
+            <!-- Error Banner -->
+            <div id="login-error-banner" class="gl-error-banner" style="display:none;">
+                <i class="ph-bold ph-warning-circle"></i>
+                <span id="login-error-text">Erro desconhecido.</span>
+            </div>
+
+            <!-- Email/Password Form -->
+            <form class="gl-form" onsubmit="event.preventDefault(); handleEmailLogin();">
+                <div class="gl-input-group">
+                    <label class="gl-label" for="login-email">E-MAIL</label>
+                    <div class="gl-input-wrapper">
+                        <i class="ph-bold ph-envelope gl-input-icon"></i>
+                        <input
+                            type="email"
+                            id="login-email"
+                            class="gl-input"
+                            placeholder="seu@email.com"
+                            required
+                            autocomplete="email"
+                        >
+                    </div>
+                </div>
+
+                <div class="gl-input-group">
+                    <label class="gl-label" for="login-pass">SENHA</label>
+                    <div class="gl-input-wrapper">
+                        <i class="ph-bold ph-lock gl-input-icon"></i>
+                        <input
+                            type="password"
+                            id="login-pass"
+                            class="gl-input"
+                            placeholder="••••••••"
+                            required
+                            autocomplete="current-password"
+                        >
+                        <button type="button" class="gl-toggle-pass" onclick="togglePasswordVisibility()" id="toggle-pass-btn" aria-label="Mostrar senha">
+                            <i class="ph-bold ph-eye" id="toggle-pass-icon"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <button type="submit" class="gl-btn-submit" id="login-submit-btn">
+                    <span id="login-btn-text">Entrar</span>
+                    <span id="login-btn-spinner" class="gl-spinner" style="display:none;"></span>
+                </button>
+            </form>
+
+            <!-- Divider -->
+            <div class="gl-divider"><span>OU</span></div>
+
+            <!-- Google Login -->
+            <button class="gl-btn-google" onclick="handleGoogleLogin()">
+                <i class="ph-bold ph-google-logo"></i>
+                Entrar com Google
+            </button>
+
+            <!-- Code Login -->
+            <button class="gl-btn-code" onclick="toggleElement('gl-code-section')">
+                <i class="ph-bold ph-hash"></i>
+                Entrar com Código de 5 Dígitos
+            </button>
+
+            <div id="gl-code-section" style="display:none;">
+                <form class="gl-form" onsubmit="event.preventDefault(); handleUnifiedLogin();" style="margin-top: 0.5rem;">
+                    <div class="gl-input-group" style="margin-bottom: 0.75rem;">
+                        <div class="gl-input-wrapper">
+                            <i class="ph-bold ph-hash gl-input-icon"></i>
+                            <input
+                                type="tel"
+                                id="global-code"
+                                class="gl-input gl-input-code"
+                                placeholder="00000"
+                                maxlength="5"
+                                autocomplete="off"
+                                inputmode="numeric"
+                                oninput="this.value=this.value.replace(/[^0-9]/g,'').substring(0,5)"
+                            >
+                        </div>
+                    </div>
+                    <button type="submit" class="gl-btn-submit" style="margin-top: 0;">Validar Código</button>
+                </form>
+            </div>
+
+            <!-- Footer -->
+            <p class="gl-footer-text">
+                Não tem uma conta?
+                <a href="#" onclick="goToProfileCreate()" class="gl-footer-link">Criar Perfil</a>
+            </p>
+
+        </div>
+    </div>
+
+    <style>
+        /* ─── LOGIN GLASSMORPHISM SCREEN ─────────────────────────── */
+        #global-login-screen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 1rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Background glows */
+        .gl-login-bg {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .gl-glow {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(90px);
+            opacity: 0.18;
+        }
+
+        .gl-glow-1 {
+            width: 420px;
+            height: 420px;
+            background: #39ff14;
+            top: -80px;
+            left: -60px;
+            animation: glowPulse 4s ease-in-out infinite alternate;
+        }
+
+        .gl-glow-2 {
+            width: 380px;
+            height: 380px;
+            background: #2a2a2a;
+            bottom: -60px;
+            right: -60px;
+            animation: glowPulse 5s ease-in-out 1s infinite alternate;
+        }
+
+        @keyframes glowPulse {
+            from { opacity: 0.12; transform: scale(1); }
+            to   { opacity: 0.24; transform: scale(1.08); }
+        }
+
+        /* Card wrapper */
+        .gl-card-wrapper {
+            position: relative;
+            z-index: 2;
+            width: 100%;
+            max-width: 420px;
+            animation: slideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(28px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* The glass card */
+        .gl-card {
+            background: rgba(18, 18, 18, 0.72);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            padding: 2.5rem 2rem;
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.5),
+                inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+
+        /* Header */
+        .gl-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .gl-logo-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 18px;
+            background: rgba(57, 255, 20, 0.1);
+            border: 1px solid rgba(57, 255, 20, 0.25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1rem;
+            box-shadow: 0 0 20px rgba(57, 255, 20, 0.15);
+        }
+
+        .gl-logo-icon i {
+            font-size: 2rem;
+            color: #39ff14;
+        }
+
+        .gl-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #fff;
+            margin: 0;
+            letter-spacing: -0.02em;
+        }
+
+        .gl-title-accent {
+            color: #39ff14;
+        }
+
+        .gl-subtitle {
+            font-size: 0.875rem;
+            color: rgba(255, 255, 255, 0.45);
+            margin: 0.4rem 0 0;
+        }
+
+        /* Error banner */
+        .gl-error-banner {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.35);
+            border-radius: 12px;
+            padding: 0.75rem 1rem;
+            color: #fc8181;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 1.25rem;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .gl-error-banner i {
+            font-size: 1.1rem;
+            flex-shrink: 0;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Form */
+        .gl-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .gl-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .gl-label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .gl-input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .gl-input-icon {
+            position: absolute;
+            left: 1rem;
+            color: rgba(255, 255, 255, 0.3);
+            font-size: 1rem;
+            pointer-events: none;
+        }
+
+        .gl-input {
+            width: 100%;
+            padding: 0.875rem 1rem 0.875rem 2.75rem;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.09);
+            border-radius: 12px;
+            color: #fff;
+            font-size: 0.95rem;
+            font-family: 'Inter', sans-serif;
+            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+            outline: none;
+        }
+
+        .gl-input::placeholder {
+            color: rgba(255, 255, 255, 0.2);
+        }
+
+        .gl-input:focus {
+            border-color: rgba(57, 255, 20, 0.5);
+            background: rgba(57, 255, 20, 0.04);
+            box-shadow: 0 0 0 3px rgba(57, 255, 20, 0.1);
+        }
+
+        .gl-input-code {
+            text-align: center;
+            letter-spacing: 0.5rem;
+            font-size: 1.4rem;
+            font-weight: 700;
+            font-family: monospace;
+        }
+
+        /* Toggle password visibility */
+        .gl-toggle-pass {
+            position: absolute;
+            right: 1rem;
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.3);
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            transition: color 0.2s;
+        }
+
+        .gl-toggle-pass:hover {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        /* Submit button */
+        .gl-btn-submit {
+            width: 100%;
+            padding: 0.9rem;
+            border-radius: 12px;
+            border: none;
+            background: #39ff14;
+            color: #050505;
+            font-size: 1rem;
+            font-weight: 700;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            box-shadow: 0 0 18px rgba(57, 255, 20, 0.35);
+            transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
+            margin-top: 0.5rem;
+        }
+
+        .gl-btn-submit:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 0 28px rgba(57, 255, 20, 0.55);
+            filter: brightness(1.05);
+        }
+
+        .gl-btn-submit:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .gl-btn-submit:disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
+        }
+
+        /* Spinner */
+        .gl-spinner {
+            width: 18px;
+            height: 18px;
+            border: 2.5px solid rgba(0, 0, 0, 0.3);
+            border-top-color: #050505;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Divider */
+        .gl-divider {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin: 1.5rem 0;
+            color: rgba(255, 255, 255, 0.2);
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+
+        .gl-divider::before,
+        .gl-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        /* Google button */
+        .gl-btn-google {
+            width: 100%;
+            padding: 0.8rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.04);
+            color: rgba(255, 255, 255, 0.75);
+            font-size: 0.9rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+            transition: background 0.2s, border-color 0.2s, color 0.2s;
+            margin-bottom: 0.75rem;
+        }
+
+        .gl-btn-google:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+
+        /* Code button */
+        .gl-btn-code {
+            width: 100%;
+            padding: 0.8rem;
+            border-radius: 12px;
+            border: 1px solid rgba(57, 255, 20, 0.15);
+            background: rgba(57, 255, 20, 0.05);
+            color: rgba(57, 255, 20, 0.7);
+            font-size: 0.9rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+            transition: background 0.2s, border-color 0.2s, color 0.2s;
+        }
+
+        .gl-btn-code:hover {
+            background: rgba(57, 255, 20, 0.1);
+            border-color: rgba(57, 255, 20, 0.35);
+            color: #39ff14;
+        }
+
+        #gl-code-section {
+            margin-top: 1rem;
+        }
+
+        /* Footer */
+        .gl-footer-text {
+            text-align: center;
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.35);
+            margin-top: 1.75rem;
+            margin-bottom: 0;
+        }
+
+        .gl-footer-link {
+            color: #39ff14;
+            font-weight: 600;
+            text-decoration: none;
+            transition: opacity 0.2s;
+        }
+
+        .gl-footer-link:hover {
+            opacity: 0.8;
+        }
+    </style>
+
+    <script>
+        // ─── UI HELPERS ───────────────────────────────────────────────────────────────
+
+        function showLoginError(msg) {
+            const banner = document.getElementById('login-error-banner');
+            const text   = document.getElementById('login-error-text');
+            if (!banner || !text) return;
+            text.textContent = msg;
+            banner.style.display = 'flex';
+            // Auto-hide after 6s
+            clearTimeout(banner._hideTimer);
+            banner._hideTimer = setTimeout(() => hideLoginError(), 6000);
+        }
+
+        function hideLoginError() {
+            const banner = document.getElementById('login-error-banner');
+            if (banner) banner.style.display = 'none';
+        }
+
+        function setLoginLoading(isLoading) {
+            const btn  = document.getElementById('login-submit-btn');
+            const text = document.getElementById('login-btn-text');
+            const spin = document.getElementById('login-btn-spinner');
+            if (!btn) return;
+            btn.disabled           = isLoading;
+            text.style.display     = isLoading ? 'none'         : 'inline';
+            spin.style.display     = isLoading ? 'inline-block' : 'none';
+        }
+
+        function togglePasswordVisibility() {
+            const input = document.getElementById('login-pass');
+            const icon  = document.getElementById('toggle-pass-icon');
+            if (!input) return;
+            const showing = input.type === 'text';
+            input.type       = showing ? 'password' : 'text';
+            icon.className   = showing ? 'ph-bold ph-eye' : 'ph-bold ph-eye-slash';
+        }
+
+        /** Maps raw Supabase error strings to friendly Portuguese messages */
+        function friendlyError(err) {
+            if (!err) return 'Não foi possível fazer login. Tente novamente.';
+            const e = err.toLowerCase();
+            if (e.includes('invalid login') || e.includes('invalid_credentials') || e.includes('email not confirmed'))
+                return 'E-mail ou senha incorretos. Verifique e tente novamente.';
+            if (e.includes('email rate limit') || e.includes('too many requests'))
+                return 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
+            if (e.includes('network') || e.includes('fetch'))
+                return 'Problemas de conexão. Verifique sua internet e tente novamente.';
+            return err;
+        }
+
+        // ─── ROLE-BASED REDIRECT ─────────────────────────────────────────────────────
+
+        function redirectByRole(role) {
+            if (role === 'treinador') {
+                if (typeof goToPage === 'function') goToPage('trainer-dashboard');
+                else window.location.href = '/trainer.html';
+            } else {
+                if (typeof goToPage === 'function') goToPage('student-dashboard');
+                else window.location.href = '/pages/student-dashboard.html';
+            }
+        }
+
+        // ─── SESSION AUTO-RESTORE ────────────────────────────────────────────────────
+        // Deferred: waits until the SPA's goToPage() is fully initialised before
+        // attempting to redirect. Prevents the "login screen flash" after login.
+
+        async function trySilentRedirect() {
+            try {
+                if (!window.supabase) return;
+                const { data } = await window.supabase.auth.getSession();
+                if (!data?.session) return;
+
+                const { data: profile } = await window.supabase
+                    .from('profiles')
+                    .select('role')
+                    .eq('id', data.session.user.id)
+                    .single();
+
+                if (profile?.role) {
+                    console.log('✅ Sessão existente. Redirecionando silenciosamente…');
+                    redirectByRole(profile.role);
+                }
+            } catch (_) {
+                // Silently ignore — user stays on login form
+            }
+        }
+
+        // Poll until goToPage is defined (SPA ready), then run the session check once.
+        (function waitForSPA() {
+            if (typeof goToPage === 'function') {
+                trySilentRedirect();
+            } else {
+                // Try again on the next animation frame (max ~100 retries ≈ ~1.6 s)
+                let attempts = 0;
+                const poll = setInterval(() => {
+                    attempts++;
+                    if (typeof goToPage === 'function' || attempts > 100) {
+                        clearInterval(poll);
+                        if (typeof goToPage === 'function') trySilentRedirect();
+                    }
+                }, 16);
+            }
+        })();
+
+
+        // ─── EMAIL / PASSWORD LOGIN ───────────────────────────────────────────────────
+
+        async function handleEmailLogin() {
+            const email = document.getElementById('login-email')?.value?.trim();
+            const senha = document.getElementById('login-pass')?.value;
+
+            if (!email || !senha) {
+                showLoginError('Preencha o e-mail e a senha para continuar.');
+                return;
+            }
+
+            hideLoginError();
+            setLoginLoading(true);
+
+            try {
+                const { data, error } = await window.supabase.auth.signInWithPassword({
+                    email,
+                    password: senha
+                });
+
+                if (error) {
+                    showLoginError(friendlyError(error.message));
+                    return;
+                }
+
+                // Fetch role from profiles table
+                const { data: profile, error: profileErr } = await window.supabase
+                    .from('profiles')
+                    .select('role')
+                    .eq('id', data.user.id)
+                    .single();
+
+                if (profileErr || !profile) {
+                    showLoginError('Perfil não encontrado. Entre em contato com o suporte.');
+                    return;
+                }
+
+                console.log('✅ Login bem-sucedido! Role:', profile.role);
+                redirectByRole(profile.role);
+
+            } catch (err) {
+                showLoginError('Ocorreu um erro inesperado. Tente mais tarde.');
+                console.error('Login error:', err);
+            } finally {
+                setLoginLoading(false);
+            }
+        }
+
+        // ─── GOOGLE LOGIN ─────────────────────────────────────────────────────────────
+
+        async function handleGoogleLogin() {
+            try {
+                const { error } = await window.supabase.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: {
+                        // After OAuth, Supabase redirects back here and the session is set.
+                        // The checkExistingSession() above will then handle routing.
+                        redirectTo: window.location.origin + '/'
+                    }
+                });
+                if (error) showLoginError(friendlyError(error.message));
+            } catch (err) {
+                showLoginError('Não foi possível iniciar o login com Google.');
+                console.error('Google OAuth error:', err);
+            }
+        }
+
+        // ─── 5-DIGIT PIN LOGIN ────────────────────────────────────────────────────────
+        // PIN is stored as a column `pin` in the `profiles` table.
+        // This performs a secure server-side lookup — never exposes all PINs to the client.
+
+        async function handleUnifiedLogin() {
+            const pinInput = document.getElementById('global-code');
+            const pin = pinInput?.value?.trim();
+
+            if (!pin || pin.length !== 5) {
+                showLoginError('Digite um código de 5 dígitos válido.');
+                return;
+            }
+
+            hideLoginError();
+
+            // Reuse the submit button of the PIN form for loading feedback
+            const pinBtn = pinInput?.closest('form')?.querySelector('button[type="submit"]');
+            if (pinBtn) { pinBtn.disabled = true; pinBtn.textContent = 'Verificando…'; }
+
+            try {
+                const { data: profiles, error } = await window.supabase
+                    .from('profiles')
+                    .select('role, pin')
+                    .eq('pin', pin)
+                    .limit(1);
+
+                if (error) throw error;
+
+                if (!profiles || profiles.length === 0) {
+                    showLoginError('Código inválido. Verifique e tente novamente.');
+                    return;
+                }
+
+                console.log('✅ Login por PIN bem-sucedido!');
+                redirectByRole(profiles[0].role);
+
+            } catch (err) {
+                showLoginError('Erro ao verificar o código. Tente mais tarde.');
+                console.error('PIN login error:', err);
+            } finally {
+                if (pinBtn) { pinBtn.disabled = false; pinBtn.textContent = 'Validar Código'; }
+            }
+        }
+    </script>
+</div>

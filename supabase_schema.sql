@@ -33,9 +33,12 @@ for each row execute function public.set_updated_at();
 create table if not exists public.students (
   id text primary key,
   trainer_code text references public.trainers(code) on delete set null,
+  auth_user_id text,
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz default now()
 );
+
+create index if not exists students_auth_user_id_idx on public.students(auth_user_id);
 
 drop trigger if exists set_updated_at_students on public.students;
 create trigger set_updated_at_students

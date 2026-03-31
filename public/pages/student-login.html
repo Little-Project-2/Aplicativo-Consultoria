@@ -1,0 +1,23 @@
+<div id="student-screen" class="screen">
+    <button class="btn-back" onclick="goToHome()">
+        <i class="ph-bold ph-arrow-left"></i> Voltar
+    </button>
+
+    <div class="student-login-container">
+        <div class="logo-icon inactive-icon lg">
+            <i class="ph-bold ph-barbell"></i>
+        </div>
+        <h2>Área do Aluno</h2>
+        <p class="subtitle">Insira o código enviado pelo seu treinador</p>
+
+        <form class="login-form" onsubmit="event.preventDefault(); connectStudent();">
+            <div class="input-group">
+                <label for="trainer-code">CÓDIGO DO TREINADOR</label>
+                <input type="tel" id="trainer-code" placeholder="00000" maxlength="5" autocomplete="off"
+                    inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'').substring(0,5)"
+                    style="letter-spacing:0.4rem; font-size:1.5rem; text-align:center; font-family:monospace;">
+            </div>
+            <button type="submit" class="btn-primary">Conectar</button>
+        </form>
+    </div>
+</div>
