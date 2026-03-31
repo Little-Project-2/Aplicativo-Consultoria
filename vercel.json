@@ -1,0 +1,8 @@
+{
+  "buildCommand": "echo \"skip build\"",
+  "outputDirectory": "public",
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}
