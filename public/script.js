@@ -84,7 +84,7 @@ function readStorageJSON(key, fallback = []) {
         ) {
             return fallback;
         }
-        return parsed ? fallback;
+        return parsed ?? fallback;
     } catch (err) {
         console.warn(`Falha ao ler storage["${key}"]`, err);
         return fallback;
