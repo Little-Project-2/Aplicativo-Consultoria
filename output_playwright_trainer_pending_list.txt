@@ -1,0 +1,6 @@
+﻿### Result
+true
+### Ran Playwright code
+```js
+await page.evaluate('() => (document.getElementById(\'pending-student-list\')?.textContent.includes(\'Aluno Teste\'))');
+```

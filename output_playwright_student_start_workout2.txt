@@ -1,0 +1,4 @@
+﻿### Page
+- Page URL: http://localhost:4173/index.html
+### Modal state
+- ["confirm" dialog with message "Você tem um treino em andamento. Deseja sair mesmo assim? O progresso ficará salvo para continuar depois."]: can be handled by dialog-accept or dialog-dismiss

@@ -1,0 +1,9 @@
+﻿### Result
+{
+  "pendingHas": true,
+  "activeHas": false
+}
+### Ran Playwright code
+```js
+await page.evaluate('() => (new Promise(r => setTimeout(r, 800)).then(() => ({ pendingHas: document.getElementById(\'pending-student-list\')?.textContent.includes(\'Aluno Teste\'), activeHas: document.getElementById(\'trainer-student-list\')?.textContent.includes(\'Aluno Teste\') })))');
+```

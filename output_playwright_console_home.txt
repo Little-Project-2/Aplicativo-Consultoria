@@ -1,0 +1,7 @@
+﻿### Result
+Total messages: 4 (Errors: 3, Warnings: 0)
+
+[LOG] Supabase inicializado com sucesso! is @ http://localhost:4173/supabase.js:56
+[ERROR] Failed to load resource: the server responded with a status of 501 (Unsupported method ('POST')) @ http://localhost:4173/_vercel/insights/view:0
+[ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://localhost:4173/favicon.ico:0
+Unexpected token ','

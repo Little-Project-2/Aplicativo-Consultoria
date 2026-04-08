@@ -1,0 +1,21 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e6]: 
+      - paragraph [ref=e7]: Consultoria Esportiva Premium
+      - heading "Seu corpo, sua melhor versão. Treino e dieta de elite." [level=1] [ref=e8]
+      - paragraph [ref=e9]: Acompanhamento próximo do treinador, ajustes inteligentes e foco total em performance no seu dia a dia.
+      - button " Iniciar Meu Protocolo" [ref=e10] [cursor=pointer]:
+        - generic [ref=e11]: 
+        - text: Iniciar Meu Protocolo
+    - generic [ref=e12]:
+      - heading "Escolha seu acesso" [level=2] [ref=e13]
+      - generic [ref=e14]:
+        - button " Entrar como Aluno" [ref=e15] [cursor=pointer]:
+          - generic [ref=e17]: 
+          - generic [ref=e18]: Entrar como Aluno
+        - link " Painel do Treinador" [ref=e19] [cursor=pointer]:
+          - /url: trainer.html
+          - generic [ref=e21]: 
+          - generic [ref=e22]: Painel do Treinador
+  - text:                                                                                

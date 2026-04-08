@@ -1,0 +1,6 @@
+﻿### Result
+"unregistered"
+### Ran Playwright code
+```js
+await page.evaluate('() => (navigator.serviceWorker.getRegistrations().then(rs => Promise.all(rs.map(r => r.unregister())).then(() => \'unregistered\')))');
+```

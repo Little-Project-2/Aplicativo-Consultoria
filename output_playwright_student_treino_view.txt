@@ -1,0 +1,12 @@
+﻿### Result
+"block"
+### Ran Playwright code
+```js
+await page.evaluate('() => ((() => { switchStudentView(\'treino\'); const el = document.getElementById(\'view-student-treino\'); return el ? getComputedStyle(el).display : \'missing\'; })())');
+```
+### Page
+- Page URL: http://localhost:4173/index.html
+- Page Title: Consultoria Fitness – Treino e Dieta de Elite
+- Console: 14 errors, 0 warnings
+### Events
+- New console entries: .playwright-cli\console-2026-04-07T01-52-50-841Z.log#L22-L27

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 
 <head>
@@ -24,6 +24,7 @@
     <meta name="twitter:image" content="https://aplicativo-consultoria.vercel.app/assets/icons/icon-512.png">
     <title>Consultoria Fitness – Treino e Dieta de Elite</title>
     <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="assets/icons/icon-192.png" type="image/png">
     <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
     <link rel="preload" href="assets/vendor/phosphor/bold/Phosphor-Bold.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="assets/vendor/phosphor/fill/Phosphor-Fill.woff2" as="font" type="font/woff2" crossorigin>
@@ -32,7 +33,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script defer src="https://cdn.vercel-insights.com/v1/script.js"></script>
+    <script>
+        if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+            const s = document.createElement('script');
+            s.defer = true;
+            s.src = 'https://cdn.vercel-insights.com/v1/script.js';
+            document.head.appendChild(s);
+        }
+    </script>
     <style>
         /* Improved Delete Button for History Items */
         .btn-delete-history {
@@ -199,3 +207,4 @@
 </body>
 
 </html>
+

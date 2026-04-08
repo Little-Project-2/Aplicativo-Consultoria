@@ -1,0 +1,8 @@
+﻿### Page
+- Page URL: http://localhost:4173/index.html
+- Page Title: Consultoria Fitness – Treino e Dieta de Elite
+- Console: 3 errors, 0 warnings
+### Snapshot
+```yaml
+
+```

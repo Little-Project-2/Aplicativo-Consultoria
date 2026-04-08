@@ -6,19 +6,57 @@
 }
 
 
-const memoryStore = new Map();
+const appStorage = (() => {
+    const memoryStore = new Map();
+    const safeMemory = {
+        getItem: (key) => (memoryStore.has(key) ? memoryStore.get(key) : null),
+        setItem: (key, value) => memoryStore.set(String(key), String(value)),
+        removeItem: (key) => memoryStore.delete(String(key)),
+        clear: () => memoryStore.clear()
+    };
+
+    const hasLocalStorage = (() => {
+        try {
+            const testKey = '__consultoria_test__';
+            window.localStorage.setItem(testKey, '1');
+            window.localStorage.removeItem(testKey);
+            return true;
+        } catch (err) {
+            return false;
+        }
+    })();
+
+    let activeBackend = hasLocalStorage ? window.localStorage : safeMemory;
+
+    return {
+        getItem: (key) => activeBackend.getItem(String(key)),
+        setItem: (key, value) => {
+            try {
+                activeBackend.setItem(String(key), String(value));
+            } catch (err) {
+                if (activeBackend !== safeMemory) {
+                    activeBackend = safeMemory;
+                    activeBackend.setItem(String(key), String(value));
+                }
+            }
+        },
+        removeItem: (key) => activeBackend.removeItem(String(key)),
+        clear: () => activeBackend.clear(),
+        isPersistent: () => activeBackend === window.localStorage
+    };
+})();
+
 function memoryGetItem(key) {
-    if (!memoryStore.has(key)) return null;
-    return memoryStore.get(key);
+    return appStorage.getItem(key);
 }
 function memorySetItem(key, value) {
-    memoryStore.set(String(key), String(value));
+    appStorage.setItem(key, value);
 }
 function memoryRemoveItem(key) {
-    memoryStore.delete(String(key));
+    appStorage.removeItem(key);
 }
 function memoryClear() {
-    memoryStore.clear();
+    appStorage.clear();
 }
 
 const ADMIN_STUDENT_CODE = '12345';
@@ -69,6 +107,14 @@ const DEMO_MEAL_BLOCKS = [
         ]
     }
 ];
+
+function getDefaultWorkoutBlocks() {
+    return JSON.parse(JSON.stringify(DEMO_WORKOUT_BLOCKS));
+}
+
+function getDefaultMealBlocks() {
+    return JSON.parse(JSON.stringify(DEMO_MEAL_BLOCKS));
+}
 
 function readStorageJSON(key, fallback = []) {
     try {
@@ -599,7 +645,7 @@ function ensureSelfTrainingStudent() {
         bodyFat: 18,
         height: 178
     };
-    const defaultWorkoutBlocks = JSON.parse(JSON.stringify(DEMO_WORKOUT_BLOCKS));
+    const defaultWorkoutBlocks = getDefaultWorkoutBlocks();
 
     const selfStudent = {
         id: SELF_TRAINING_STUDENT_CODE,
@@ -616,7 +662,7 @@ function ensureSelfTrainingStudent() {
         dailyKcal: 2600,
         trainerCode: '00001',
         workoutBlocks: defaultWorkoutBlocks,
-        mealBlocks: JSON.parse(JSON.stringify(DEMO_MEAL_BLOCKS)),
+        mealBlocks: getDefaultMealBlocks(),
         lastWorkoutAt: selfLastWorkout.toISOString(),
         assessmentPending: false,
         metricHistory: [baselineMetric],
@@ -639,17 +685,17 @@ function ensureSelfTrainingStudent() {
             pending: false,
             trainerCode: current.trainerCode || '00001',
             lastWorkoutAt: current.lastWorkoutAt || selfLastWorkout.toISOString(),
-            assessmentPending: current.assessmentPending ? false,
+            assessmentPending: current.assessmentPending ?? false,
             workoutBlocks: Array.isArray(current.workoutBlocks) && current.workoutBlocks.length > 0
                 ? current.workoutBlocks
                 : defaultWorkoutBlocks,
             mealBlocks: Array.isArray(current.mealBlocks) && current.mealBlocks.length > 0
                 ? current.mealBlocks
-                : JSON.parse(JSON.stringify(DEMO_MEAL_BLOCKS))
+                : getDefaultMealBlocks()
         };
     }
 
-    memorySetItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
 }
 
 function ensureAdminStudent() {
@@ -702,14 +748,14 @@ function ensureAdminStudent() {
             pending: false,
             trainerCode: current.trainerCode || '00001',
             lastWorkoutAt: current.lastWorkoutAt || adminLastWorkout.toISOString(),
-            assessmentPending: current.assessmentPending ? true,
+            assessmentPending: current.assessmentPending ?? true,
             workoutBlocks: Array.isArray(current.workoutBlocks) && current.workoutBlocks.length > 0 ? current.workoutBlocks : DEMO_WORKOUT_BLOCKS,
             mealBlocks: Array.isArray(current.mealBlocks) && current.mealBlocks.length > 0 ? current.mealBlocks : DEMO_MEAL_BLOCKS,
             metricHistory: Array.isArray(current.metricHistory) && current.metricHistory.length > 0 ? current.metricHistory : [baselineMetric]
         };
     }
 
-    memorySetItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
 }
 
 function goToHome() {
@@ -817,14 +863,15 @@ async function syncStudentsFromSupabase(trainerCode) {
     }
     if (!data) return;
     const students = data.map(normalizeStudentRow).filter(Boolean);
-    
     if (isSupabaseReady()) {
-        const fallbackName = pendingTrainerCode === '00001' ? 'Administrador Teste' : 'Treinador';
+        const fallbackName = trainerCode === '00001' ? 'Administrador Teste' : 'Treinador';
         const fallbackConsultoria = fallbackName ? `Consultoria de ${fallbackName.split(' ')[0]} ` : '';
-        await ensureTrainerExistsRemote(pendingTrainerCode, fallbackName, fallbackConsultoria);
+        await ensureTrainerExistsRemote(trainerCode, fallbackName, fallbackConsultoria);
     }
 
-saveStudentData(students);
+    saveStudentData(students);
+    mergeWorkoutHistoryFromStudents(students);
+    syncChatMessagesFromStudents(students);
     renderStudents();
     renderPendingRequests();
     updateTrainerStats();
@@ -1624,7 +1671,7 @@ function notifyTrainerWorkoutUpdate(student, options = {}) {
 }
 
 function promptStudentField(label, defaultValue = '', options = {}) {
-    const raw = prompt(label, defaultValue ? '');
+    const raw = prompt(label, defaultValue || '');
     if (raw === null) return null;
     return sanitizeUserInput(raw, {
         maxLen: Number.isFinite(options.maxLen) ? options.maxLen : 90,
@@ -2084,7 +2131,12 @@ function pushStudentMessageToTrainer(studentId, studentName, payload = {}) {
     });
 
     memorySetItem('trainerNotifications', JSON.stringify(notifications));
+    updateStudentRecord(studentId, { lastMessageAt: nowIso });
     syncChannel.postMessage({ type: 'NEW_DOUBT', payload: { studentId } });
+    if (document.getElementById('duvidas-nav-badge')) {
+        updateTrainerStats();
+        renderDuvidas();
+    }
 }
 
 function buildStudentChatFromNotifications(studentId, studentName) {
@@ -2146,7 +2198,9 @@ function loadStudentChatMessages(studentId, studentName) {
 }
 
 function saveStudentChatMessages(studentId, messages) {
-    memorySetItem(getStudentChatStorageKey(studentId), JSON.stringify(messages || []));
+    const trimmed = Array.isArray(messages) ? messages.slice(-200) : [];
+    memorySetItem(getStudentChatStorageKey(studentId), JSON.stringify(trimmed));
+    setStudentChatMessages(studentId, trimmed);
 }
 
 function renderStudentChatBubble(msg) {
@@ -3172,7 +3226,7 @@ function deleteMetricEntry(idx) {
             students[sIdx].currentBF = latest.bodyFat || students[sIdx].currentBF;
         }
 
-        memorySetItem('trainerStudents', JSON.stringify(students));
+        saveStudentData(students);
         renderStudentPerfil();
         syncChannel.postMessage({ type: 'student_data_updated' });
     }
@@ -3481,7 +3535,7 @@ function handleUnifiedLogin() {
 
 let pendingTrainerCode = '';
 
-function connectStudent() {
+async function connectStudent() {
     const code = sanitizeCodeInput(document.getElementById('trainer-code')?.value, 5);
     const codeInput = document.getElementById('trainer-code');
     if (codeInput) codeInput.value = code;
@@ -3529,6 +3583,15 @@ function connectStudent() {
         if (t) {
             coachName = t.name;
             consultoriaName = t.consultoriaName || `Consultoria de ${t.name.split(' ')[0]} `;
+        } else if (isSupabaseReady()) {
+            const remoteTrainer = await getTrainerByCodeRemote(code);
+            if (remoteTrainer) {
+                coachName = remoteTrainer.name || 'Treinador';
+                consultoriaName = remoteTrainer.consultoria_name || `Consultoria de ${coachName.split(' ')[0]} `;
+            } else {
+                alert('Código de treinador não encontrado.');
+                return;
+            }
         } else {
             alert('Código de treinador não encontrado.');
             return;
@@ -3600,7 +3663,7 @@ async function submitQuestionnaire() {
     }
 
     if (!pendingTrainerCode || pendingTrainerCode.length !== 5) {
-        alert('Conex?o com treinador inv?lida. Refa?a o processo de conex?o.');
+        alert('Conexão com treinador inválida. Refaça o processo de conexão.');
         return;
     }
 
@@ -3663,6 +3726,8 @@ async function submitQuestionnaire() {
         pending: true,
         trainerCode: pendingTrainerCode,
         joinedAt: new Date().toISOString(),
+        workoutBlocks: getDefaultWorkoutBlocks(),
+        mealBlocks: [],
         metricHistory: [{
             date: new Date().toISOString(),
             weight: parseFloat(weight),
@@ -3687,8 +3752,8 @@ async function submitQuestionnaire() {
     let notifs = readStorageJSON('trainerNotifications', []);
     notifs.unshift({
         type: 'questionnaire',
-        title: 'Question?rio Respondido!',
-        desc: `Um novo aluno acabou de enviar o question?rio inicial.`,
+        title: 'Questionário Respondido!',
+        desc: 'Um novo aluno acabou de enviar o questionário inicial.',
         time: 'Agora mesmo',
         unread: true
     });
@@ -3703,6 +3768,7 @@ async function submitQuestionnaire() {
 function initStudentDashboard() {
     pullAppStateIfNewer();
     startSyncPolling();
+    const trainerCode = memoryGetItem('connectedTrainerCode');
     if (trainerCode && trainerCode !== '00000') {
         syncStudentsFromSupabase(trainerCode);
         if (!supabaseStudentsPollTimer) {
@@ -3712,7 +3778,6 @@ function initStudentDashboard() {
         }
     }
     const studentId = memoryGetItem('currentStudentId');
-    const trainerCode = memoryGetItem('connectedTrainerCode');
     const studentName = memoryGetItem('studentName') || 'Aluno';
 
     document.getElementById('dash-student-name').innerText = `Olá, ${studentName.split(' ')[0]} `;
@@ -3945,8 +4010,70 @@ function getStudentData() {
 }
 
 function saveStudentData(students) {
-    memorySetItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
     queueSupabaseStudentsSync(students);
+}
+
+function updateStudentRecord(studentId, updater) {
+    if (!studentId) return;
+    const students = readStorageJSON('trainerStudents', []);
+    const idx = students.findIndex(s => String(s.id) === String(studentId));
+    if (idx < 0) return;
+    const current = students[idx] || {};
+    const nextPartial = typeof updater === 'function' ? updater(current) : updater;
+    if (!nextPartial || typeof nextPartial !== 'object') return;
+    students[idx] = { ...current, ...nextPartial, id: current.id };
+    saveStudentData(students);
+}
+
+function appendStudentWorkoutHistory(studentId, workoutArchive) {
+    if (!studentId || !workoutArchive) return;
+    updateStudentRecord(studentId, (current) => {
+        const history = Array.isArray(current.workoutHistory) ? current.workoutHistory.slice() : [];
+        history.push(workoutArchive);
+        const trimmed = history.slice(-200);
+        return { workoutHistory: trimmed };
+    });
+}
+
+function setStudentChatMessages(studentId, messages) {
+    if (!studentId) return;
+    const trimmed = Array.isArray(messages) ? messages.slice(-200) : [];
+    updateStudentRecord(studentId, { chatMessages: trimmed });
+}
+
+function mergeWorkoutHistoryFromStudents(students) {
+    const local = readStorageJSON('workoutHistory', []);
+    const map = new Map();
+    const addItem = (item) => {
+        if (!item) return;
+        const key = `${item.ID_Usuario || ''}-${item.Data_Treino || ''}-${item.Nome_Treino || ''}`;
+        if (!map.has(key)) map.set(key, item);
+    };
+    local.forEach(addItem);
+    (students || []).forEach((s) => {
+        if (Array.isArray(s.workoutHistory)) {
+            s.workoutHistory.forEach(addItem);
+        }
+    });
+    const merged = Array.from(map.values());
+    memorySetItem('workoutHistory', JSON.stringify(merged));
+}
+
+function syncChatMessagesFromStudents(students) {
+    (students || []).forEach((s) => {
+        if (!s?.id || !Array.isArray(s.chatMessages)) return;
+        const storageKey = getStudentChatStorageKey(s.id);
+        const local = readStorageJSON(storageKey, []);
+        const map = new Map();
+        [...local, ...s.chatMessages].forEach((msg) => {
+            if (!msg) return;
+            const key = msg.id || `${msg.sender || ''}-${msg.time || ''}-${msg.text || ''}`;
+            if (!map.has(key)) map.set(key, msg);
+        });
+        const merged = Array.from(map.values()).slice(-200);
+        memorySetItem(storageKey, JSON.stringify(merged));
+    });
 }
 
 function calcIMC(weight, height) {
@@ -3956,12 +4083,12 @@ function calcIMC(weight, height) {
 }
 
 function parseDecimalSafe(value) {
-    const parsed = parseFloat(String(value ? '').replace(',', '.'));
+    const parsed = parseFloat(String(value || '').replace(',', '.'));
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function parseIntegerSafe(value) {
-    const parsed = parseInt(String(value ? ''), 10);
+    const parsed = parseInt(String(value || ''), 10);
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -5330,7 +5457,7 @@ function openWhatsAppForStudent(studentIdx, event) {
         phoneRaw = sanitizeUserInput(phoneRaw, { maxLen: 20 });
         if (!phoneRaw) return;
         students[studentIdx].whatsapp = phoneRaw;
-        memorySetItem('trainerStudents', JSON.stringify(students));
+        saveStudentData(students);
     }
 
     const phone = phoneRaw.replace(/\D/g, '');
@@ -5363,14 +5490,22 @@ function buildPendingCard(s, idx) {
             <span class="pending-date"><i class="ph-bold ph-calendar-blank"></i> Solicitado em ${reqDate}</span>
         </div>
         <div class="pending-card-actions">
-            <button class="btn-accept" onclick="acceptStudent(${idx})">
+            <button class="btn-accept" onclick="acceptStudentById('${s.id}')">
                 <i class="ph-bold ph-check"></i> Aceitar
             </button>
-            <button class="btn-reject" onclick="rejectStudent(${idx})">
+            <button class="btn-reject" onclick="rejectStudentById('${s.id}')">
                 <i class="ph-bold ph-x"></i> Recusar
             </button>
         </div>
     </div>`;
+}
+
+function renderStudents(filterText) {
+    updateTrainerStats(filterText);
+}
+
+function renderPendingRequests() {
+    updateTrainerStats();
 }
 
 // â”€â”€ Main stats + list renderer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -5922,6 +6057,11 @@ function sendTrainerChat() {
     clearTrainerAttachment();
     renderDuvidas();
     updateTrainerStats();
+    const students = readStorageJSON('trainerStudents', []);
+    const student = students.find(s => String(s?.id || '') === String(activeChatStudentId));
+    const studentName = student?.name || 'Aluno';
+    const mergedMessages = loadStudentChatMessages(activeChatStudentId, studentName);
+    saveStudentChatMessages(activeChatStudentId, mergedMessages);
 
     // Broadcats reply
     syncChannel.postMessage({ type: 'DOUBT_REPLY', payload: { studentId: activeChatStudentId } });
@@ -6086,7 +6226,7 @@ function acceptStudent(idx) {
     students[idx].pending = false;
     students[idx].active = true;
     students[idx].acceptedAt = new Date().toISOString();
-    memorySetItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
 
     // Broadcast change
     syncChannel.postMessage({ type: 'STUDENT_ACCEPTED', payload: { studentId: students[idx].id } });
@@ -6101,14 +6241,33 @@ function acceptStudent(idx) {
     }
 }
 
+function acceptStudentById(studentId) {
+    const students = readStorageJSON('trainerStudents', []);
+    const idx = students.findIndex(s => String(s.id) === String(studentId));
+    if (idx < 0) return;
+    acceptStudent(idx);
+    updateTrainerStats();
+}
+
 // â”€â”€ Reject / remove a pending student â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function rejectStudent(idx) {
     if (!confirm('Tem certeza que deseja recusar esta solicitação?')) return;
     let students = readStorageJSON('trainerStudents', []);
     students.splice(idx, 1);
-    memorySetItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
 
     // Broadcast change
+    syncChannel.postMessage({ type: 'STUDENT_REJECTED' });
+    updateTrainerStats();
+}
+
+function rejectStudentById(studentId) {
+    if (!confirm('Tem certeza que deseja recusar esta solicitação?')) return;
+    let students = readStorageJSON('trainerStudents', []);
+    const idx = students.findIndex(s => String(s.id) === String(studentId));
+    if (idx < 0) return;
+    students.splice(idx, 1);
+    saveStudentData(students);
     syncChannel.postMessage({ type: 'STUDENT_REJECTED' });
     updateTrainerStats();
 }
@@ -6370,7 +6529,7 @@ function queueWorkoutPlanAutosave() {
         if (!student) return;
         student.workoutBlocks = workoutBlocks;
         students[currentStudentIdx] = student;
-        memorySetItem('trainerStudents', JSON.stringify(students));
+        saveStudentData(students);
     }, 350);
 }
 
@@ -6601,13 +6760,13 @@ function renderMeals() {
                     <span class="font-medium">${escHtml(item.nome)}</span>
                     <input type="text" class="food-input food-qty-input" value="${escHtml(item.qtd || '')}" placeholder="150g"
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'qtd', this.value)">
-                    <input type="number" class="food-input" value="${item.kcal ? ''}" placeholder="0"
+                    <input type="number" class="food-input" value="${item.kcal ?? ''}" placeholder="0"
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'kcal', this.value)">
-                    <input type="number" class="food-input" value="${item.prot ? ''}" placeholder="0"
+                    <input type="number" class="food-input" value="${item.prot ?? ''}" placeholder="0"
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'prot', this.value)">
-                    <input type="number" class="food-input" value="${item.carb ? ''}" placeholder="0"
+                    <input type="number" class="food-input" value="${item.carb ?? ''}" placeholder="0"
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'carb', this.value)">
-                    <input type="number" class="food-input" value="${item.gord ? ''}" placeholder="0"
+                    <input type="number" class="food-input" value="${item.gord ?? ''}" placeholder="0"
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'gord', this.value)">
                     <button class="btn-icon-minimal" onclick="deleteFoodItem(${mIdx},${iIdx})">
                         <i class="ph-bold ph-trash" style="color:#ef4444;font-size:0.85rem;"></i>
@@ -6643,11 +6802,11 @@ function updateMealItemField(mIdx, iIdx, field, value) {
 
     let normalized = value;
     if (['kcal', 'prot', 'carb', 'gord'].includes(field)) {
-        normalized = String(value ? '').replace(',', '.').replace(/[^\d.]/g, '');
+        normalized = String(value || '').replace(',', '.').replace(/[^\d.]/g, '');
         const num = parseFloat(normalized);
         normalized = Number.isFinite(num) ? num : '';
     } else if (field === 'qtd') {
-        normalized = String(value ? '');
+        normalized = String(value || '');
     }
 
     item[field] = normalized;
@@ -6781,7 +6940,7 @@ function saveStudentPlan() {
     students[currentStudentIdx].mealBlocks = mealBlocks;
     students[currentStudentIdx].dietMeta = diet;
     students[currentStudentIdx].active = true; // Mark protocol as active when saved
-    memorySetItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
 
     // Visual feedback
     const btn = document.querySelector('.btn-save-plan');
@@ -6822,7 +6981,7 @@ function confirmRemoveStudent() {
     if (currentStudentIdx === null) return;
     let students = readStorageJSON('trainerStudents', []);
     students.splice(currentStudentIdx, 1);
-    memorySetItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
 
     closeRemoveModal();
     closeStudentProfile();
@@ -6915,27 +7074,57 @@ function setupWorkoutExitGuard() {
     });
 }
 
-function getPreviousSessionData(studentId, exerciseName) {
+function normalizeSetType(type) {
+    return String(type || 'normal').trim().toLowerCase();
+}
+
+function getPreviousSessionSets(studentId, exerciseName) {
     const history = readStorageJSON('workoutHistory', []);
-    // Filter history for THIS student and find the latest session containing THIS exercise
     const lastSession = [...history].reverse().find(h =>
         h.ID_Usuario === studentId && (h.Exercicios || h.exercises).some(ex => ex.nome === exerciseName)
     );
 
-    if (lastSession) {
-        const exs = lastSession.Exercicios || lastSession.exercises;
-        const ex = exs.find(e => e.nome === exerciseName);
-        if (ex && ex.sets && ex.sets.length > 0) {
-            // Pick the best set from that session for display
-            const bestSet = ex.sets.reduce((prev, curr) => {
-                const prevVol = (parseFloat(prev.peso || prev.weight) || 0) * (parseInt(prev.reps) || 0);
-                const currVol = (parseFloat(curr.peso || curr.weight) || 0) * (parseInt(curr.reps) || 0);
-                return currVol > prevVol ? curr : prev;
-            });
-            return `${bestSet.peso || bestSet.weight}kg x ${bestSet.reps}`;
+    if (!lastSession) return null;
+    const exs = lastSession.Exercicios || lastSession.exercises;
+    const ex = exs.find(e => e.nome === exerciseName);
+    if (!ex || !Array.isArray(ex.sets) || ex.sets.length === 0) return null;
+
+    const dateRaw = lastSession.Data_Treino || lastSession.date || lastSession.data || '';
+    const dateLabel = dateRaw ? `Sessão ${formatDate(dateRaw)}` : 'Sessão anterior';
+    const sets = ex.sets.map((set, idx) => ({
+        weight: set.peso ?? set.weight ?? 0,
+        reps: set.reps ?? 0,
+        type: set.type || set.setType || 'normal',
+        index: idx,
+        sessionLabel: dateLabel
+    }));
+
+    return { sets, sessionLabel: dateLabel };
+}
+
+function pickPreviousSet(prevSets, setIdx, setType) {
+    if (!Array.isArray(prevSets) || prevSets.length === 0) return null;
+    let candidate = prevSets[setIdx] || null;
+    const normalizedType = normalizeSetType(setType);
+    if (candidate && normalizedType && normalizeSetType(candidate.type) !== normalizedType) {
+        const sameType = prevSets.filter(s => normalizeSetType(s.type) === normalizedType);
+        if (sameType.length > 0) {
+            candidate = sameType.reduce((best, s) => {
+                if (!best) return s;
+                return Math.abs(s.index - setIdx) < Math.abs(best.index - setIdx) ? s : best;
+            }, sameType[0]);
         }
     }
-    return '-';
+    if (!candidate) candidate = prevSets[prevSets.length - 1];
+    if (!candidate) return null;
+
+    return {
+        weight: candidate.weight ?? 0,
+        reps: candidate.reps ?? 0,
+        type: candidate.type || 'normal',
+        index: Number.isFinite(candidate.index) ? candidate.index : null,
+        sessionLabel: candidate.sessionLabel || 'Sessão anterior'
+    };
 }
 
 function getPreviousExerciseMeta(studentId, exerciseName) {
@@ -6966,20 +7155,35 @@ function getExecutionLabel(score) {
 
 
 function parsePreviousSetMetrics(prevText) {
+    if (prevText && typeof prevText === 'object') {
+        const weight = parseFloat(String(prevText.weight ?? '').replace(',', '.'));
+        const reps = parseInt(prevText.reps, 10);
+        return {
+            weight: Number.isFinite(weight) ? weight : null,
+            reps: Number.isFinite(reps) ? reps : null,
+            type: prevText.type || '',
+            index: Number.isFinite(prevText.index) ? prevText.index : null,
+            sessionLabel: prevText.sessionLabel || ''
+        };
+    }
+
     const raw = String(prevText || '').trim().toLowerCase();
     if (!raw || raw === '-' || raw === '--') {
-        return { weight: null, reps: null };
+        return { weight: null, reps: null, type: '', index: null, sessionLabel: '' };
     }
 
     const match = raw.match(/([\d.,]+)\s*kg\s*x\s*(\d+)/i);
-    if (!match) return { weight: null, reps: null };
+    if (!match) return { weight: null, reps: null, type: '', index: null, sessionLabel: '' };
 
     const weight = parseFloat(String(match[1] || '').replace(',', '.'));
     const reps = parseInt(match[2], 10);
 
     return {
         weight: Number.isFinite(weight) ? weight : null,
-        reps: Number.isFinite(reps) ? reps : null
+        reps: Number.isFinite(reps) ? reps : null,
+        type: '',
+        index: null,
+        sessionLabel: ''
     };
 }
 
@@ -7046,35 +7250,43 @@ function startWorkoutSession(blockIdx = 0) {
             const templateSets = Array.isArray(ex.setTemplates) && ex.setTemplates.length
                 ? ex.setTemplates
                 : null;
+            const prevInfo = getPreviousSessionSets(studentId, ex.nome);
+            const prevSets = prevInfo?.sets || null;
             const sets = templateSets
-                ? templateSets.map((tpl, sIdx) => ({
-                    id: `set-${idx}-${sIdx}`,
-                    weight: tpl.weight ? ex.carga || '',
-                    reps: tpl.reps ? ex.reps || '',
-                    type: tpl.type || 'normal',
-                    intensityLevel: 0,
-                    rpe: '',
-                    rir: '',
-                    execucao: 0,
-                    logged: false,
-                    completed: false,
-                    brokenPRs: { weight: false, volume: false, oneRM: false },
-                    prev: getPreviousSessionData(studentId, ex.nome)
-                }))
-                : Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => ({
-                    id: `set-${idx}-${sIdx}`,
-                    weight: ex.carga || '',
-                    reps: ex.reps || '',
-                    type: 'normal',
-                    intensityLevel: 0,
-                    rpe: '',
-                    rir: '',
-                    execucao: 0,
-                    logged: false,
-                    completed: false,
-                    brokenPRs: { weight: false, volume: false, oneRM: false },
-                    prev: getPreviousSessionData(studentId, ex.nome)
-                }));
+                ? templateSets.map((tpl, sIdx) => {
+                    const setType = tpl.type || 'normal';
+                    return {
+                        id: `set-${idx}-${sIdx}`,
+                        weight: tpl.weight ?? ex.carga ?? '',
+                        reps: tpl.reps ?? ex.reps ?? '',
+                        type: setType,
+                        intensityLevel: 0,
+                        rpe: '',
+                        rir: '',
+                        execucao: 0,
+                        logged: false,
+                        completed: false,
+                        brokenPRs: { weight: false, volume: false, oneRM: false },
+                        prev: pickPreviousSet(prevSets, sIdx, setType)
+                    };
+                })
+                : Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => {
+                    const setType = 'normal';
+                    return {
+                        id: `set-${idx}-${sIdx}`,
+                        weight: ex.carga || '',
+                        reps: ex.reps || '',
+                        type: setType,
+                        intensityLevel: 0,
+                        rpe: '',
+                        rir: '',
+                        execucao: 0,
+                        logged: false,
+                        completed: false,
+                        brokenPRs: { weight: false, volume: false, oneRM: false },
+                        prev: pickPreviousSet(prevSets, sIdx, setType)
+                    };
+                });
 
             return {
                 id: `ex-${idx}`,
@@ -7085,6 +7297,7 @@ function startWorkoutSession(blockIdx = 0) {
                 supersetGroup: supersetGroups[idx] || 0,
                 notes: '',
                 prevMeta: getPreviousExerciseMeta(studentId, ex.nome),
+                prevSets,
                 best: personalRecords[ex.nome] || { maxWeight: 0, maxVolume: 0, maxOneRM: 0 },
                 sets
             };
@@ -7183,10 +7396,11 @@ function renderWorkoutLog() {
             const currentReps = parseInt(set.reps, 10);
             const weightUp = Number.isFinite(currentWeight) && prevMetrics.weight !== null && currentWeight > prevMetrics.weight;
             const repsUp = Number.isFinite(currentReps) && prevMetrics.reps !== null && currentReps > prevMetrics.reps;
-            const lastWeightLabel = prevMetrics.weight === null ? '--' : `${formatMetricNumber(prevMetrics.weight)}kg`;
-            const lastRepsLabel = prevMetrics.reps === null ? '--' : `${prevMetrics.reps} reps`;
             const hasPR = set.completed && set.brokenPRs && (set.brokenPRs.weight || set.brokenPRs.volume || set.brokenPRs.oneRM);
             const prTooltip = hasPR ? getSetPRTooltip(set) : '';
+            const prTypes = hasPR ? getSetPRTypes(set) : [];
+            const prLabel = prTypes.length ? prTypes.join(' + ') : '';
+            const prBadgeText = prLabel ? `Recorde! ${prLabel}` : 'Recorde!';
             const setType = set.type || 'normal';
             const typeOption = SET_TYPE_OPTIONS.find(t => t.value === setType) || SET_TYPE_OPTIONS[0];
             const typeShort = typeOption.short || '';
@@ -7194,10 +7408,20 @@ function renderWorkoutLog() {
             const setNumberHtml = hasPR
                 ? `<span class="set-pr-icon" title="${prTooltip}">${uiSvgIcon('trophy')}</span>`
                 : `${typeShort || (setIdx + 1)}`;
-            const canRemoveSet = ex.sets.length > 1;
+            const prevTypeValue = prevMetrics.type || set.type || 'normal';
+            const prevTypeOption = SET_TYPE_OPTIONS.find(t => t.value === prevTypeValue) || null;
+            const prevTypeLabel = prevTypeOption ? prevTypeOption.label : '';
+            const prevIndex = Number.isFinite(prevMetrics.index) ? prevMetrics.index + 1 : setIdx + 1;
+            const prevSessionLabel = prevMetrics.sessionLabel || 'Sessão anterior';
+            const prevWeightLabel = prevMetrics.weight === null ? '--' : `${formatMetricNumber(prevMetrics.weight)}kg`;
+            const prevRepsLabel = prevMetrics.reps === null ? '--' : `${prevMetrics.reps} reps`;
+            const hasPrev = prevMetrics.weight !== null || prevMetrics.reps !== null;
+            const prevLine = hasPrev
+                ? `${prevSessionLabel} · Série ${prevIndex}${prevTypeLabel ? ` · ${prevTypeLabel}` : ''}: ${prevWeightLabel} x ${prevRepsLabel}`
+                : 'Sem histórico de série';
 
             return `
-                    <div class="log-set-row ${set.completed ? 'completed' : ''}" id="row-${exIdx}-${setIdx}">
+                    <div class="log-set-row ${set.completed ? 'completed' : ''} ${hasPR ? 'pr-hit' : ''}" id="row-${exIdx}-${setIdx}">
                         <div class="set-number ${hasPR ? 'has-pr' : ''} type-${setType}" title="${setTitle}" role="button" onclick="openSetTypePopover(event, ${exIdx}, ${setIdx})">${setNumberHtml}</div>
 
                         <div class="set-value-stack">
@@ -7209,7 +7433,6 @@ function renderWorkoutLog() {
                                     ${weightUp ? uiSvgIcon('lightning') : ''}
                                 </span>
                             </div>
-                            <div class="set-prev-line" style="text-align: center;">Ant: ${lastWeightLabel}</div>
                         </div>
 
                         <div class="set-value-stack">
@@ -7221,7 +7444,6 @@ function renderWorkoutLog() {
                                     ${repsUp ? uiSvgIcon('arrow-up-right') : ''}
                                 </span>
                             </div>
-                            <div class="set-prev-line" style="text-align: center;">Ant: ${lastRepsLabel}</div>
                         </div>
 
                         <div class="set-pse-visual" title="${getPseLabel(set.rpe)}">
@@ -7238,6 +7460,10 @@ function renderWorkoutLog() {
                                 ${set.completed ? uiSvgIcon('check') : uiSvgIcon('circle')}
                             </button>
                         </div>
+                        ${hasPR ? `<div class="set-pr-banner">${uiSvgIcon('trophy')} <span>${escHtml(prBadgeText)}</span></div>` : ''}
+                    </div>
+                    <div class="log-set-history ${hasPR ? 'pr-hit' : ''}">
+                        <div class="set-history-line">${escHtml(prevLine)}</div>
                     </div>
                 `;
                 }).join('')}
@@ -7282,7 +7508,7 @@ function getSetPRTooltip(set) {
 }
 
 function getSetWeightValue(set) {
-    const raw = set?.peso ? set?.weight ? 0;
+    const raw = (set?.peso ?? set?.weight ?? 0);
     const parsed = parseFloat(String(raw).replace(',', '.'));
     return Number.isFinite(parsed) ? parsed : 0;
 }
@@ -7522,9 +7748,9 @@ function toggleSetCompletion(exIdx, setIdx) {
                 peso: parseFloat(set.weight) || 0,
                 reps: parseInt(set.reps) || 0,
                 intensidade: set.intensityLevel || 0,
-                rpe: set.rpe ? null,
-                rir: set.rir ? null,
-                execucao: set.execucao ? null,
+                rpe: set.rpe || null,
+                rir: set.rir || null,
+                execucao: set.execucao || null,
                 completedAt: new Date().toISOString()
             });
             set.logged = true;
@@ -7680,6 +7906,8 @@ function selectSetType(exIdx, setIdx, type) {
     if (!set) return;
     const allowed = SET_TYPE_OPTIONS.some(opt => opt.value === type);
     set.type = allowed ? type : 'normal';
+    const prevSets = workoutState.exercises?.[exIdx]?.prevSets || null;
+    set.prev = pickPreviousSet(prevSets, setIdx, set.type);
     saveWorkoutBackup();
     renderWorkoutLog();
     closeSetTypePopover();
@@ -7850,19 +8078,22 @@ function addSetToExercise(exIdx) {
     if (!workoutState) return;
     const ex = workoutState.exercises[exIdx];
     const lastSet = ex.sets[ex.sets.length - 1];
+    const nextIdx = ex.sets.length;
+    const nextType = lastSet?.type || 'normal';
+    const prevSets = ex.prevSets || null;
     ex.sets.push({
-        id: `set-${exIdx}-${ex.sets.length}`,
+        id: `set-${exIdx}-${nextIdx}`,
         weight: lastSet ? lastSet.weight : '',
         reps: lastSet ? lastSet.reps : '',
-        type: 'normal',
+        type: nextType,
         intensityLevel: 0,
         rpe: '',
         rir: '',
         execucao: 0,
         logged: false,
         completed: false,
-        brokenPRs: { weight: false, volume: false, reps: false },
-        prev: '-'
+        brokenPRs: { weight: false, volume: false, oneRM: false },
+        prev: pickPreviousSet(prevSets, nextIdx, nextType)
     });
     saveWorkoutBackup();
     renderWorkoutLog();
@@ -8036,6 +8267,7 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
     const history = readStorageJSON('workoutHistory', []);
     history.push(workoutArchive);
     memorySetItem('workoutHistory', JSON.stringify(history));
+    appendStudentWorkoutHistory(studentId, workoutArchive);
 
     // UPDATE PERSONAL RECORDS PERMANENTLY
     const students = readStorageJSON('trainerStudents', []);
@@ -8063,7 +8295,7 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
             students[sIdx].personalRecords[ex.nome] = currentMelhores;
         });
 
-        memorySetItem('trainerStudents', JSON.stringify(students));
+        saveStudentData(students);
     }
 
     if (workoutTimerInterval) clearInterval(workoutTimerInterval);
@@ -8176,16 +8408,24 @@ function applyLastWorkoutAsTemplate() {
         const past = historyExercises.find(e => e.nome === ex.nome);
         if (!past || !Array.isArray(past.sets) || past.sets.length === 0) return;
 
-        const templates = past.sets.map((s) => ({
-            weight: Number.isFinite(s.peso) ? s.peso : (s.weight ? ex.carga ? ''),
-            reps: Number.isFinite(s.reps) ? s.reps : (s.reps ? ex.reps ? ''),
-            type: s.type || s.setType || 'normal'
-        }));
+        const templates = past.sets.map((s) => {
+            const weight = Number.isFinite(s.peso)
+                ? s.peso
+                : (Number.isFinite(s.weight) ? s.weight : (ex.carga || ''));
+            const reps = Number.isFinite(s.reps)
+                ? s.reps
+                : (Number.isFinite(s.rep) ? s.rep : (ex.reps || ''));
+            return {
+                weight,
+                reps,
+                type: s.type || s.setType || 'normal'
+            };
+        });
 
         ex.setTemplates = templates;
         ex.series = String(templates.length);
-        ex.carga = templates[0]?.weight ? ex.carga ? '';
-        ex.reps = templates[0]?.reps ? ex.reps ? '';
+        ex.carga = templates[0]?.weight ?? '';
+        ex.reps = templates[0]?.reps ?? '';
     });
 
     students[sIdx].workoutBlocks = blocks;
@@ -8206,17 +8446,6 @@ function closeWorkoutSummary() {
 
 function finishWorkout() {
     handleFinishWorkout();
-}
-
-// Utility: Escape HTML to avoid XSS and breaking template literals
-function escHtml(str) {
-    if (!str) return "";
-    return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•

@@ -1,0 +1,5 @@
+﻿### Page
+- Page URL: http://localhost:4173/index.html
+- Console: 2 errors, 0 warnings
+### Modal state
+- ["alert" dialog with message "Plano de treino não encontrado."]: can be handled by dialog-accept or dialog-dismiss

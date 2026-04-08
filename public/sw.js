@@ -1,5 +1,5 @@
-const PRECACHE_CACHE = "consultoria-precache-v5";
-const RUNTIME_CACHE = "consultoria-runtime-v5";
+const PRECACHE_CACHE = "consultoria-precache-v6";
+const RUNTIME_CACHE = "consultoria-runtime-v6";
 const OFFLINE_URL = "./offline.html";
 
 const PRECACHE_URLS = [
@@ -12,6 +12,7 @@ const PRECACHE_URLS = [
   "./service-worker.js",
   "./manifest.json",
   "./manifest.webmanifest",
+  "./favicon.ico",
   OFFLINE_URL,
   "./assets/vendor/phosphor/phosphor-local.css",
   "./assets/vendor/phosphor/bold/style.css",

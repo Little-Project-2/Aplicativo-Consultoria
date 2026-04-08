@@ -1,0 +1,36 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - button " Voltar ao Início" [ref=e4] [cursor=pointer]:
+        - generic [ref=e5]: 
+        - text: Voltar ao Início
+      - generic [ref=e6]:
+        - heading "Acesso do Treinador" [level=2] [ref=e7]
+        - paragraph [ref=e8]: Entre com seu código ou crie sua consultoria.
+        - generic [ref=e9]:
+          - generic [ref=e10]:
+            - generic [ref=e11]: CÓDIGO DA CONSULTORIA (5 dígitos)
+            - textbox "CÓDIGO DA CONSULTORIA (5 dígitos)" [ref=e12]:
+              - /placeholder: "00000"
+          - button "Entrar" [ref=e13] [cursor=pointer]
+        - generic [ref=e15]: OU
+        - button "Criar Nova Consultoria" [ref=e16] [cursor=pointer]
+    - text:                           
+  - text:                                 
+  - generic [ref=e17]:
+    - generic [ref=e18]:
+      - heading "Confirmar Remoção" [level=3] [ref=e19]
+      - button "" [ref=e20] [cursor=pointer]:
+        - generic [ref=e21]: 
+    - generic [ref=e22]:
+      - generic [ref=e24]: 
+      - paragraph [ref=e25]:
+        - text: Para remover este aluno permanentemente, digite
+        - strong [ref=e26]: Remover
+        - text: "abaixo:"
+      - textbox "Digite \"Remover\"" [ref=e27]
+    - generic [ref=e28]:
+      - button "Cancelar" [ref=e29] [cursor=pointer]
+      - button " Excluir Aluno" [disabled] [ref=e30] [cursor=pointer]:
+        - generic [ref=e31]: 
+        - text: Excluir Aluno

@@ -1,0 +1,6 @@
+﻿### Result
+"student-questionnaire-screen"
+### Ran Playwright code
+```js
+await page.evaluate('() => ((() => { confirmConnection(); return document.querySelector(\'.screen.active\')?.id; })())');
+```

@@ -1,0 +1,6 @@
+﻿### Result
+"student-dashboard-screen"
+### Ran Playwright code
+```js
+await page.evaluate('() => ((() => { goToHome(); goToStudentArea(); document.getElementById(\'trainer-code\').value=\'00001\'; connectStudent(); return document.querySelector(\'.screen.active\')?.id; })())');
+```

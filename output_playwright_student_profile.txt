@@ -1,0 +1,6 @@
+﻿### Result
+{}
+### Ran Playwright code
+```js
+await page.evaluate('() => ((() => { switchStudentView(\'perfil\'); const name = document.getElementById(\'prof-id-name\')?.textContent?.trim(); const goal = document.getElementById(\'prof-goal\')?.textContent?.trim(); return { name, goal }; })())');
+```
