@@ -7635,6 +7635,11 @@ function maybeNotifySetPR(exIdx, setIdx) {
     set.prNotified = true;
     playAchievementSound();
     showAchievementToast('Recorde batido!', types.join(', '));
+    const row = document.getElementById(`row-${exIdx}-${setIdx}`);
+    if (row) {
+        row.classList.add('pr-just-hit');
+        setTimeout(() => row.classList.remove('pr-just-hit'), 900);
+    }
 }
 
 function updateSetData(exIdx, setIdx, field, value) {
