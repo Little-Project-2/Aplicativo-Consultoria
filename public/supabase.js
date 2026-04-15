@@ -42,16 +42,27 @@ const supabaseStorage = (() => {
     };
 })();
 
-const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey, {
-    auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-        storage: supabaseStorage
-    }
-});
+const supabaseFactory = window.supabase;
+let supabaseClient = null;
 
-// Torna o cliente acessivel em qualquer outro arquivo (ex: script.js)
+if (supabaseFactory && typeof supabaseFactory.createClient === 'function') {
+    supabaseClient = supabaseFactory.createClient(supabaseUrl, supabaseKey, {
+        auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: true,
+            storage: supabaseStorage
+        }
+    });
+} else if (window.supabase && typeof window.supabase.from === 'function') {
+    // Ja existe uma instancia ativa (carregamento duplicado).
+    supabaseClient = window.supabase;
+}
+
 window.supabase = supabaseClient;
 
-console.log('Supabase inicializado com sucesso!', window.supabase);
+if (!supabaseClient) {
+    console.warn('Supabase indisponivel: cliente nao inicializado.');
+} else {
+    console.log('Supabase inicializado com sucesso!', window.supabase);
+}

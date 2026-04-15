@@ -830,6 +830,70 @@ async function getTrainerByCodeRemote(code) {
     return data || null;
 }
 
+function cacheTrainerLocal(trainerLike) {
+    if (!trainerLike || !trainerLike.code) return null;
+    const normalized = {
+        code: String(trainerLike.code),
+        name: sanitizeUserInput(trainerLike.name || 'Treinador', { maxLen: 90 }),
+        consultoriaName: sanitizeUserInput(
+            trainerLike.consultoriaName || trainerLike.consultoria_name || '',
+            { maxLen: 120 }
+        ),
+        services: trainerLike.services || 'treino'
+    };
+    const trainers = readStorageJSON('allTrainers', []);
+    const idx = trainers.findIndex(t => String(t.code) === normalized.code);
+    if (idx >= 0) {
+        trainers[idx] = { ...trainers[idx], ...normalized };
+    } else {
+        trainers.push(normalized);
+    }
+    memorySetItem('allTrainers', JSON.stringify(trainers));
+    return normalized;
+}
+
+async function resolveTrainerByCode(code) {
+    const normalizedCode = String(code || '').trim();
+    if (!normalizedCode) return null;
+    const trainers = readStorageJSON('allTrainers', []);
+    const localTrainer = trainers.find(t => String(t.code) === normalizedCode);
+    if (localTrainer) return localTrainer;
+    const remote = await getTrainerByCodeRemote(normalizedCode);
+    if (!remote) return null;
+    return cacheTrainerLocal({
+        code: remote.code,
+        name: remote.name,
+        consultoria_name: remote.consultoria_name,
+        services: remote.services
+    });
+}
+
+async function getStudentByIdRemote(studentId) {
+    if (!isSupabaseReady() || !studentId) return null;
+    const { data, error } = await window.supabase
+        .from(SUPABASE_TABLES.students)
+        .select('*')
+        .eq('id', String(studentId))
+        .maybeSingle();
+    if (error) {
+        console.warn('Supabase student fetch failed', error.message);
+        return null;
+    }
+    return normalizeStudentRow(data);
+}
+
+async function generateUniqueTrainerCode() {
+    const localCodes = new Set(readStorageJSON('allTrainers', []).map(t => String(t.code || '')));
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+        const code = Math.floor(10000 + Math.random() * 89999).toString();
+        if (localCodes.has(code)) continue;
+        if (!isSupabaseReady()) return code;
+        const remote = await getTrainerByCodeRemote(code);
+        if (!remote) return code;
+    }
+    return `${Math.floor(Date.now() / 1000)}`.slice(-5);
+}
+
 async function ensureTrainerExistsRemote(code, fallbackName = 'Treinador', fallbackConsultoria = '') {
     if (!isSupabaseReady() || !code) return null;
     const existing = await getTrainerByCodeRemote(code);
@@ -1046,8 +1110,8 @@ function handleRemoteStateApplied() {
         if (students[currentStudentIdx]) {
             workoutBlocks = students[currentStudentIdx].workoutBlocks || [];
             mealBlocks = students[currentStudentIdx].mealBlocks || [];
-            renderWorkouts();
-            renderMeals();
+            if (typeof renderWorkouts === 'function') renderWorkouts();
+            if (typeof renderMeals === 'function') renderMeals();
             if (currentTrainerStudentId) {
                 renderTrainerWorkoutHistory(currentTrainerStudentId);
             }
@@ -1212,8 +1276,8 @@ window.addEventListener('storage', (e) => {
                     // Update global cached blocks before re-rendering
                     workoutBlocks = students[currentStudentIdx].workoutBlocks || [];
                     mealBlocks = students[currentStudentIdx].mealBlocks || [];
-                    renderWorkouts();
-                    renderMeals();
+                    if (typeof renderWorkouts === 'function') renderWorkouts();
+                    if (typeof renderMeals === 'function') renderMeals();
                 }
             }
         }
@@ -3474,7 +3538,7 @@ function renderStudentDietMain() {
     optimizeMediaElements(container);
 }
 
-function handleUnifiedLogin() {
+async function handleUnifiedLogin() {
     const code = sanitizeCodeInput(document.getElementById('global-code')?.value, 5);
     const codeInput = document.getElementById('global-code');
     if (codeInput) codeInput.value = code;
@@ -3510,10 +3574,11 @@ function handleUnifiedLogin() {
     }
 
     // 2. Check Trainer (Admin or allTrainers)
-    const trainers = readStorageJSON('allTrainers', []);
-    const isTrainer = trainers.some(t => t.code === code) || code === '00001';
+    const trainer = code === '00001'
+        ? { code: '00001', name: 'Admin' }
+        : await resolveTrainerByCode(code);
 
-    if (isTrainer) {
+    if (trainer) {
         // Redirect to trainer dashboard
         // Note: For simplicity, we could store 'trainerSessionCode' to auto-login in trainer.html
         memorySetItem('trainerSessionCode', code);
@@ -3523,7 +3588,16 @@ function handleUnifiedLogin() {
 
     // 3. Check Student
     const allStudents = readStorageJSON('trainerStudents', []);
-    const student = allStudents.find(s => s.id === code);
+    let student = allStudents.find(s => s.id === code);
+    if (!student) {
+        const remoteStudent = await getStudentByIdRemote(code);
+        if (remoteStudent) {
+            const merged = allStudents.filter(s => String(s.id) !== String(remoteStudent.id));
+            merged.push(remoteStudent);
+            saveStudentData(merged);
+            student = remoteStudent;
+        }
+    }
 
     if (student) {
         openStudentDashboardSession(student);
@@ -4010,7 +4084,7 @@ function getStudentData() {
 }
 
 function saveStudentData(students) {
-    saveStudentData(students);
+    memorySetItem('trainerStudents', JSON.stringify(students || []));
     queueSupabaseStudentsSync(students);
 }
 
@@ -4660,7 +4734,7 @@ function goToTrainerCreate() {
     document.getElementById('trainer-create-screen').classList.add('active');
 }
 
-function connectTrainer() {
+async function connectTrainer() {
     const code = sanitizeCodeInput(document.getElementById('trainer-login-code')?.value, 5);
     const codeInput = document.getElementById('trainer-login-code');
     if (codeInput) codeInput.value = code;
@@ -4673,10 +4747,10 @@ function connectTrainer() {
         memorySetItem('trainerName', 'Admin');
         memorySetItem('currentTrainerCode', '00001');
     } else {
-        const trainers = readStorageJSON('allTrainers', []);
-        const t = trainers.find(x => x.code === code);
+        const t = await resolveTrainerByCode(code);
         if (t) {
-            memorySetItem('trainerName', t.name.split(' ')[0]);
+            const resolvedName = sanitizeUserInput((t.name || 'Treinador').split(' ')[0], { maxLen: 30 }) || 'Coach';
+            memorySetItem('trainerName', resolvedName);
             memorySetItem('currentTrainerCode', t.code);
         } else {
             alert('Código não cadastrado.');
@@ -4691,7 +4765,7 @@ function connectTrainer() {
     initTrainerDashboard();
 }
 
-function createConsultoria() {
+async function createConsultoria() {
     const name = sanitizeUserInput(document.getElementById('trainer-name')?.value, { maxLen: 90 });
     const nameInput = document.getElementById('trainer-name');
     if (nameInput) nameInput.value = name;
@@ -4703,17 +4777,26 @@ function createConsultoria() {
     }
 
     const firstName = sanitizeUserInput(name.split(' ')[0], { maxLen: 30 }) || 'Coach';
-    const newCode = Math.floor(10000 + Math.random() * 89999).toString();
+    const newCode = await generateUniqueTrainerCode();
 
     // Save trainer to "global" list
     const trainers = readStorageJSON('allTrainers', []);
-    trainers.push({
+    const trainerPayload = {
         name: name,
         code: newCode,
         consultoriaName: `Consultoria de ${firstName} `,
         services: services.value
-    });
+    };
+    trainers.push(trainerPayload);
     memorySetItem('allTrainers', JSON.stringify(trainers));
+
+    if (isSupabaseReady()) {
+        await ensureTrainerExistsRemote(
+            newCode,
+            trainerPayload.name,
+            trainerPayload.consultoriaName
+        );
+    }
 
     memorySetItem('trainerName', firstName);
     memorySetItem('currentTrainerCode', newCode);
@@ -4741,6 +4824,24 @@ function initTrainerDashboard() {
             if (t) {
                 memorySetItem('trainerName', t.name.split(' ')[0]);
                 memorySetItem('currentTrainerCode', t.code);
+            } else if (isSupabaseReady()) {
+                getTrainerByCodeRemote(sessionCode).then((remoteTrainer) => {
+                    if (!remoteTrainer) return;
+                    const cached = cacheTrainerLocal({
+                        code: remoteTrainer.code,
+                        name: remoteTrainer.name,
+                        consultoria_name: remoteTrainer.consultoria_name,
+                        services: remoteTrainer.services
+                    });
+                    if (!cached) return;
+                    const first = sanitizeUserInput((cached.name || 'Treinador').split(' ')[0], { maxLen: 30 }) || 'Coach';
+                    memorySetItem('trainerName', first);
+                    memorySetItem('currentTrainerCode', cached.code);
+                    const elName = document.getElementById('dash-trainer-name');
+                    const elCode = document.getElementById('dash-trainer-code');
+                    if (elName) elName.innerText = first;
+                    if (elCode) elCode.innerText = cached.code;
+                }).catch(() => { /* ignore remote bootstrap errors */ });
             }
         }
         memoryRemoveItem('trainerSessionCode'); // Consume it
@@ -8335,24 +8436,34 @@ function showWorkoutSummary(archive) {
         `${mins}m ${secs}s`;
 
     // Render Stats
+    const prBadge = prCount > 0 ? `<span class="summary-stat-badge">+${prCount} PR</span>` : '';
     statsGrid.innerHTML = `
         <div class="summary-stat-card">
-            <i class="ph-bold ph-timer"></i>
+            <div class="summary-stat-top">
+                <i class="ph-bold ph-timer"></i>
+            </div>
             <span class="summary-stat-value">${durStr}</span>
             <span class="summary-stat-label">Duração</span>
         </div>
         <div class="summary-stat-card">
-            <i class="ph-bold ph-lightning"></i>
+            <div class="summary-stat-top">
+                <i class="ph-bold ph-lightning"></i>
+                ${prBadge}
+            </div>
             <span class="summary-stat-value">${archive.Volume_Total} kg</span>
             <span class="summary-stat-label">Volume Total</span>
         </div>
-        <div class="summary-stat-card">
-            <i class="ph-bold ph-trophy"></i>
+        <div class="summary-stat-card ${prCount > 0 ? 'is-pr' : ''}">
+            <div class="summary-stat-top">
+                <i class="ph-bold ph-trophy"></i>
+            </div>
             <span class="summary-stat-value">${prCount}</span>
             <span class="summary-stat-label">Novos PRs</span>
         </div>
         <div class="summary-stat-card">
-            <i class="ph-bold ph-smiley"></i>
+            <div class="summary-stat-top">
+                <i class="ph-bold ph-smiley"></i>
+            </div>
             <span class="summary-stat-value">${archive.Avaliacao_Geral?.qualidade ? `${archive.Avaliacao_Geral.qualidade}/5` : '-'}</span>
             <span class="summary-stat-label">Qualidade</span>
         </div>
@@ -8370,7 +8481,7 @@ function showWorkoutSummary(archive) {
         return `
                         <div class="summary-set-pill ${hasPR ? 'has-pr' : ''}">
                             <span>${idx + 1}ª: <strong>${s.peso}kg</strong> x ${s.reps}</span>
-                            ${hasPR ? '<i class="ph-fill ph-trophy" style="font-size: 0.8rem;"></i>' : ''}
+                            ${hasPR ? '<i class="ph-fill ph-trophy summary-set-trophy"></i>' : ''}
                         </div>
                     `;
     }).join('')}
@@ -8434,7 +8545,7 @@ function applyLastWorkoutAsTemplate() {
     });
 
     students[sIdx].workoutBlocks = blocks;
-    memorySetItem('trainerStudents', JSON.stringify(students));
+    saveStudentData(students);
     if (typeof scheduleRemoteSync === 'function') scheduleRemoteSync('apply-template');
     alert('Modelo padrão atualizado com base no último treino.');
 }
