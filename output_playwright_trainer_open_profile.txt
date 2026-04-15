@@ -1,6 +1,0 @@
-﻿### Result
-"trainer-student-profile-screen"
-### Ran Playwright code
-```js
-await page.evaluate('() => ((() => { const students = readStorageJSON(\'trainerStudents\', []); const idx = students.findIndex(s => s.name === \'Aluno Teste\'); if (idx >= 0) openStudentProfile(idx); return document.querySelector(\'.screen.active\')?.id; })())');
-```

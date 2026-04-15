@@ -1,6 +1,0 @@
-﻿### Result
-false
-### Ran Playwright code
-```js
-await page.evaluate('() => (document.getElementById(\'trainer-student-list\')?.textContent.includes(\'Aluno Teste\'))');
-```

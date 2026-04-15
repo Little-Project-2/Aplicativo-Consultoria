@@ -1,6 +1,0 @@
-﻿### Result
-"student-screen"
-### Ran Playwright code
-```js
-await page.evaluate('() => ((() => { goToStudentArea(); return document.querySelector(\'.screen.active\')?.id; })())');
-```

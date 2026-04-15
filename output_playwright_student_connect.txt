@@ -1,6 +1,0 @@
-﻿### Result
-"student-confirm-screen"
-### Ran Playwright code
-```js
-await page.evaluate('() => ((() => { document.getElementById(\'trainer-code\').value=\'00001\'; connectStudent(); return document.querySelector(\'.screen.active\')?.id; })())');
-```

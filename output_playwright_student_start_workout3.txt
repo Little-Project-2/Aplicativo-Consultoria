@@ -1,5 +1,0 @@
-﻿### Error
-Error: Tool "browser_evaluate" does not handle the modal state.
-### Modal state
-- ["confirm" dialog with message "Deseja substituir o modelo padrao pelo ultimo treino realizado?"]: can be handled by dialog-accept or dialog-dismiss
-- ["alert" dialog with message "Modelo padrão atualizado com base no último treino."]: can be handled by dialog-accept or dialog-dismiss

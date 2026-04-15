@@ -1,9 +1,0 @@
-﻿### Result
-{
-  "name": "Aluno Teste",
-  "joined": "Membro desde 6 Abr 2026"
-}
-### Ran Playwright code
-```js
-await page.evaluate('() => ((() => { switchStudentView(\'perfil\'); const name = document.getElementById(\'perfil-nome\')?.textContent?.trim(); const joined = document.getElementById(\'perfil-membro-desde\')?.textContent?.trim(); return { name, joined }; })())');
-```

@@ -1,6 +1,0 @@
-﻿### Result
-false
-### Ran Playwright code
-```js
-await page.evaluate('() => ((() => { switchStudentView(\'perfil\'); return !!document.getElementById(\'prof-id-name\'); })())');
-```

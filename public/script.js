@@ -1152,7 +1152,7 @@ const syncChannel = typeof BroadcastChannel !== 'undefined'
     : { postMessage: () => { }, onmessage: null };
 
 syncChannel.onmessage = (event) => {
-    const { type, payload } = event.data;
+    const { type } = event.data;
 
     // Refresh UI based on message type
     if (type === 'NEW_DOUBT') {
@@ -4906,7 +4906,6 @@ function initTrainerDashboard() {
         let startX = 0;
         let startY = 0;
         let isSwiping = false;
-        let pullStartY = 0;
         let isPulling = false;
         let pullIndicator = null;
 
@@ -4943,7 +4942,6 @@ function initTrainerDashboard() {
 
             // Check if at top of scroll for pull-to-refresh
             if (mainContent.scrollTop === 0) {
-                pullStartY = startY;
                 isPulling = true;
                 createPullIndicator();
             }

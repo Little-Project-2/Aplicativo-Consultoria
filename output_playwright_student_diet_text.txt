@@ -1,6 +1,0 @@
-﻿### Result
-"Dieta em análise\n                Seu plano alimentar ainda não foi liberado pelo treinador."
-### Ran Playwright code
-```js
-await page.evaluate('() => ((() => { switchStudentView(\'dieta\'); const el = document.getElementById(\'student-diet-content-main\'); return el ? el.textContent.trim().slice(0,200) : \'missing\'; })())');
-```

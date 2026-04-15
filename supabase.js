@@ -2,7 +2,6 @@
 
 // Projeto Supabase (publico)
 const supabaseUrl = 'https://kvesydpaggznsvownbgu.supabase.co';
-const supabasePublishableKey = 'sb_publishable_svprWwGQO3L5DRka80VP5w_7wc2lQc2';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt2ZXN5ZHBhZ2d6bnN2b3duYmd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5MTMwNjAsImV4cCI6MjA5MDQ4OTA2MH0.uuzcWMBn_QzetdN7PsHRduoWU-t4KMyy6qlT_oHEMYg';
 
 const supabaseStorage = (() => {

@@ -1,6 +1,0 @@
-﻿### Result
-"trainer-login-screen"
-### Ran Playwright code
-```js
-await page.evaluate('() => (document.querySelector(\'.screen.active\')?.id)');
-```

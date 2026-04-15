@@ -1,4 +1,0 @@
-﻿### Result
-Total messages: 1 (Errors: 0, Warnings: 0)
-
-[LOG] Supabase inicializado com sucesso! ls @ http://localhost:4173/supabase.js:56

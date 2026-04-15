@@ -1,9 +1,0 @@
-﻿### Result
-{
-  "pendingHas": true,
-  "activeHas": false
-}
-### Ran Playwright code
-```js
-await page.evaluate('() => ((() => { acceptStudent(0); const pendingHas = document.getElementById(\'pending-student-list\')?.textContent.includes(\'Aluno Teste\'); const activeHas = document.getElementById(\'trainer-student-list\')?.textContent.includes(\'Aluno Teste\'); return { pendingHas, activeHas }; })())');
-```

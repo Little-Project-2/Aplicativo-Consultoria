@@ -1,6 +1,0 @@
-﻿### Result
-"student-dashboard-screen"
-### Ran Playwright code
-```js
-await page.evaluate('() => ((() => { document.getElementById(\'q_nome\').value=\'Aluno Teste\'; document.getElementById(\'q_idade\').value=\'28\'; document.getElementById(\'q_genero\').value=\'M\'; document.getElementById(\'q_peso\').value=\'78\'; document.getElementById(\'q_altura\').value=\'178\'; return submitQuestionnaire().then(() => document.querySelector(\'.screen.active\')?.id); })())');
-```
