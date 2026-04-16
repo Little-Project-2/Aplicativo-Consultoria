@@ -663,6 +663,13 @@
                         <i class="ph-bold ph-plus"></i> Nova Refeição
                     </button>
                 </div>
+                <div class="meal-quick-actions">
+                    <button class="meal-quick-btn" type="button" onclick="addMeal('Café da manhã')">+ Café da manhã</button>
+                    <button class="meal-quick-btn" type="button" onclick="addMeal('Almoço')">+ Almoço</button>
+                    <button class="meal-quick-btn" type="button" onclick="addMeal('Jantar')">+ Jantar</button>
+                    <button class="meal-quick-btn" type="button" onclick="addMeal('Lanche')">+ Lanche</button>
+                    <button class="meal-quick-btn" type="button" onclick="addMeal('Ceia')">+ Ceia</button>
+                </div>
 
                 <!-- Diet meta bar -->
                 <div class="diet-meta-bar">
@@ -833,10 +840,11 @@
                         autocomplete="off" oninput="searchFoodAPI(this.value)">
                     <div id="food-library-results" class="library-results"></div>
                 </div>
+                <div id="food-target-hint" class="food-target-hint"></div>
                 <div class="ex-modal-grid food-modal-grid">
                     <div class="input-group">
                         <label>QUANTIDADE</label>
-                        <input type="text" id="food-qtd" class="q-input" placeholder="150g">
+                        <input type="text" id="food-qtd" class="q-input" placeholder="150g" oninput="recalculateFoodFromQuantity()">
                     </div>
                     <div class="input-group">
                         <label>KCAL</label>
@@ -857,6 +865,8 @@
                 </div>
             </div>
             <div class="ex-modal-footer">
+                <button class="btn-secondary" style="width:auto;padding:0.75rem 1.5rem;"
+                    onclick="applyRemainingCaloriesToCurrentFood()">Ajustar por kcal restante</button>
                 <button class="btn-secondary" style="width:auto;padding:0.75rem 1.5rem;"
                     onclick="closeFoodModal()">Cancelar</button>
                 <button class="btn-primary" style="width:auto;padding:0.75rem 1.5rem;" onclick="confirmAddFood()">

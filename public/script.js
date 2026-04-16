@@ -108,6 +108,157 @@ const DEMO_MEAL_BLOCKS = [
     }
 ];
 
+// Base da dieta inspirada no motor do arquivo "Dieta" (TMB/TDEE/macros/preset de refeicoes)
+const DIETA_ACTIVITY_FACTORS = {
+    sedentary: 1.2,
+    light: 1.375,
+    moderate: 1.55,
+    intense: 1.725
+};
+
+const DIETA_GOAL_RULES = {
+    fat_loss: { adjust: -0.2, proteinMultiplier: 2.0, fatMultiplier: 0.9 },
+    lean_bulk: { adjust: 0.1, proteinMultiplier: 1.8, fatMultiplier: 0.9 },
+    recomposition: { adjust: -0.05, proteinMultiplier: 2.2, fatMultiplier: 0.8 },
+    maintenance: { adjust: 0, proteinMultiplier: 1.6, fatMultiplier: 0.9 }
+};
+
+const DIETA_MEAL_PRESETS = {
+    3: [0.3, 0.4, 0.3],
+    4: [0.25, 0.3, 0.25, 0.2],
+    5: [0.2, 0.25, 0.25, 0.2, 0.1],
+    6: [0.2, 0.2, 0.2, 0.2, 0.1, 0.1]
+};
+
+const DIETA_MEAL_NAMES = {
+    3: ['Cafe da Manha', 'Almoco', 'Jantar'],
+    4: ['Cafe da Manha', 'Almoco', 'Lanche', 'Jantar'],
+    5: ['Cafe da Manha', 'Almoco', 'Lanche', 'Jantar', 'Ceia'],
+    6: ['Cafe da Manha', 'Colacao', 'Almoco', 'Lanche', 'Jantar', 'Ceia']
+};
+
+function roundMacro(value, min = 0) {
+    const n = Math.round(Number(value) || 0);
+    return Math.max(min, n);
+}
+
+function mapGoalToDietaRule(goalText) {
+    const goal = String(goalText || '').toLowerCase();
+    if (goal.includes('emag') || goal.includes('gordura') || goal.includes('secar') || goal.includes('perder')) {
+        return 'fat_loss';
+    }
+    if (goal.includes('recomp')) return 'recomposition';
+    if (goal.includes('hipertrof') || goal.includes('massa') || goal.includes('ganho')) {
+        return 'lean_bulk';
+    }
+    return 'maintenance';
+}
+
+function mapQuestionnaireActivity(questionnaire) {
+    const trabalho = String(questionnaire?.rotina?.trabalho || '').toLowerCase();
+    if (trabalho.includes('pesado') || trabalho.includes('bracal') || trabalho.includes('manual')) return 'intense';
+    if (trabalho.includes('em pe') || trabalho.includes('ativo')) return 'moderate';
+    if (trabalho.includes('sentado')) return 'sedentary';
+    return 'light';
+}
+
+function getDietaMealCount(questionnaire) {
+    const parsed = parseInt(questionnaire?.nutricao?.refeicoes, 10);
+    if (Number.isFinite(parsed)) return Math.min(6, Math.max(3, parsed));
+    return 4;
+}
+
+function buildMealItemsFromTargets(mealName, targets) {
+    const name = String(mealName || '').toLowerCase();
+    const p = roundMacro(targets.protein, 8);
+    const c = roundMacro(targets.carb, 5);
+    const f = roundMacro(targets.fat, 3);
+    const totalKcal = roundMacro((p * 4) + (c * 4) + (f * 9), 120);
+
+    if (name.includes('cafe') || name.includes('colacao')) {
+        return [
+            { nome: 'Ovos mexidos', qtd: `${Math.max(2, Math.round(p / 8))} un`, kcal: roundMacro(totalKcal * 0.45), prot: roundMacro(p * 0.55), carb: roundMacro(c * 0.15), gord: roundMacro(f * 0.7) },
+            { nome: 'Aveia com banana', qtd: `${Math.max(35, Math.round(c * 2.3))} g`, kcal: roundMacro(totalKcal * 0.55), prot: roundMacro(p * 0.45), carb: roundMacro(c * 0.85), gord: roundMacro(f * 0.3) }
+        ];
+    }
+
+    if (name.includes('almoco')) {
+        return [
+            { nome: 'Frango grelhado', qtd: `${Math.max(120, Math.round(p * 4.2))} g`, kcal: roundMacro(totalKcal * 0.5), prot: roundMacro(p * 0.62), carb: roundMacro(c * 0.12), gord: roundMacro(f * 0.45) },
+            { nome: 'Arroz + feijao', qtd: `${Math.max(120, Math.round(c * 3.2))} g`, kcal: roundMacro(totalKcal * 0.5), prot: roundMacro(p * 0.38), carb: roundMacro(c * 0.88), gord: roundMacro(f * 0.55) }
+        ];
+    }
+
+    if (name.includes('jantar')) {
+        return [
+            { nome: 'Carne magra', qtd: `${Math.max(110, Math.round(p * 3.9))} g`, kcal: roundMacro(totalKcal * 0.48), prot: roundMacro(p * 0.6), carb: roundMacro(c * 0.18), gord: roundMacro(f * 0.52) },
+            { nome: 'Batata doce', qtd: `${Math.max(110, Math.round(c * 3.1))} g`, kcal: roundMacro(totalKcal * 0.52), prot: roundMacro(p * 0.4), carb: roundMacro(c * 0.82), gord: roundMacro(f * 0.48) }
+        ];
+    }
+
+    if (name.includes('ceia')) {
+        return [
+            { nome: 'Iogurte natural', qtd: `${Math.max(150, Math.round(p * 4))} g`, kcal: roundMacro(totalKcal * 0.55), prot: roundMacro(p * 0.62), carb: roundMacro(c * 0.35), gord: roundMacro(f * 0.4) },
+            { nome: 'Castanhas', qtd: `${Math.max(15, Math.round(f * 1.4))} g`, kcal: roundMacro(totalKcal * 0.45), prot: roundMacro(p * 0.38), carb: roundMacro(c * 0.65), gord: roundMacro(f * 0.6) }
+        ];
+    }
+
+    return [
+        { nome: 'Iogurte + whey', qtd: `${Math.max(180, Math.round(p * 3.8))} g`, kcal: roundMacro(totalKcal * 0.5), prot: roundMacro(p * 0.58), carb: roundMacro(c * 0.38), gord: roundMacro(f * 0.45) },
+        { nome: 'Fruta + pasta de amendoim', qtd: `${Math.max(130, Math.round(c * 2.7))} g`, kcal: roundMacro(totalKcal * 0.5), prot: roundMacro(p * 0.42), carb: roundMacro(c * 0.62), gord: roundMacro(f * 0.55) }
+    ];
+}
+
+function createDietBaseFromStudent(studentLike = {}) {
+    const weight = Math.max(35, parseDecimalSafe(studentLike.weight) || 70);
+    const height = Math.max(130, parseDecimalSafe(studentLike.height) || 170);
+    const age = Math.max(14, parseIntegerSafe(studentLike.age) || 25);
+    const sex = String(studentLike.gender || 'M').toLowerCase().startsWith('f') ? 'female' : 'male';
+    const goalKey = mapGoalToDietaRule(studentLike.goal);
+    const goalRule = DIETA_GOAL_RULES[goalKey] || DIETA_GOAL_RULES.maintenance;
+    const activityKey = mapQuestionnaireActivity(studentLike.questionnaire);
+    const activityFactor = DIETA_ACTIVITY_FACTORS[activityKey] || DIETA_ACTIVITY_FACTORS.light;
+    const mealCount = getDietaMealCount(studentLike.questionnaire);
+    const percentages = DIETA_MEAL_PRESETS[mealCount] || DIETA_MEAL_PRESETS[4];
+    const mealNames = DIETA_MEAL_NAMES[mealCount] || DIETA_MEAL_NAMES[4];
+
+    const baseBmr = (10 * weight) + (6.25 * height) - (5 * age);
+    const bmr = sex === 'male' ? baseBmr + 5 : baseBmr - 161;
+    const tdee = bmr * activityFactor;
+    const targetCalories = Math.max(1400, Math.round(tdee * (1 + goalRule.adjust)));
+
+    const protein = Math.max(90, Math.round(weight * goalRule.proteinMultiplier));
+    const fat = Math.max(40, Math.round(weight * goalRule.fatMultiplier));
+    const remainingCarbsKcal = Math.max(0, targetCalories - (protein * 4) - (fat * 9));
+    const carb = Math.max(80, Math.round(remainingCarbsKcal / 4));
+
+    const mealBlocks = percentages.map((ratio, index) => {
+        const targets = {
+            kcal: roundMacro(targetCalories * ratio, 150),
+            protein: roundMacro(protein * ratio, 8),
+            carb: roundMacro(carb * ratio, 8),
+            fat: roundMacro(fat * ratio, 4)
+        };
+        return {
+            name: mealNames[index] || `Refeicao ${index + 1}`,
+            items: buildMealItemsFromTargets(mealNames[index], targets)
+        };
+    });
+
+    const dietMeta = {
+        kcal: targetCalories,
+        protein,
+        carb,
+        fat,
+        tmb: Math.round(bmr),
+        gasto: Math.round(tdee),
+        source: 'dieta_engine_base_v1',
+        updatedAt: new Date().toISOString()
+    };
+
+    return { mealBlocks, dietMeta };
+}
+
 function getDefaultWorkoutBlocks() {
     return JSON.parse(JSON.stringify(DEMO_WORKOUT_BLOCKS));
 }
@@ -662,7 +813,7 @@ function ensureSelfTrainingStudent() {
         dailyKcal: 2600,
         trainerCode: '00001',
         workoutBlocks: defaultWorkoutBlocks,
-        mealBlocks: getDefaultMealBlocks(),
+        mealBlocks: [],
         lastWorkoutAt: selfLastWorkout.toISOString(),
         assessmentPending: false,
         metricHistory: [baselineMetric],
@@ -670,6 +821,9 @@ function ensureSelfTrainingStudent() {
         personalRecords: {}
     };
     selfStudent.tmbBase = Math.round(calcTMBMifflin(selfStudent.weight, selfStudent.height, selfStudent.age, selfStudent.gender));
+    const selfDietBase = createDietBaseFromStudent(selfStudent);
+    selfStudent.mealBlocks = selfDietBase.mealBlocks;
+    selfStudent.dietMeta = selfDietBase.dietMeta;
 
     const idx = students.findIndex(s => s.id === SELF_TRAINING_STUDENT_CODE);
     if (idx === -1) {
@@ -691,7 +845,10 @@ function ensureSelfTrainingStudent() {
                 : defaultWorkoutBlocks,
             mealBlocks: Array.isArray(current.mealBlocks) && current.mealBlocks.length > 0
                 ? current.mealBlocks
-                : getDefaultMealBlocks()
+                : selfDietBase.mealBlocks,
+            dietMeta: current.dietMeta && typeof current.dietMeta === 'object'
+                ? current.dietMeta
+                : selfDietBase.dietMeta
         };
     }
 
@@ -725,7 +882,7 @@ function ensureAdminStudent() {
         dailyKcal: 2500,
         trainerCode: '00001',
         workoutBlocks: DEMO_WORKOUT_BLOCKS,
-        mealBlocks: DEMO_MEAL_BLOCKS,
+        mealBlocks: [],
         lastWorkoutAt: adminLastWorkout.toISOString(),
         assessmentPending: true,
         metricHistory: [baselineMetric],
@@ -733,6 +890,9 @@ function ensureAdminStudent() {
         personalRecords: {}
     };
     demoStudent.tmbBase = Math.round(calcTMBMifflin(demoStudent.weight, demoStudent.height, demoStudent.age, demoStudent.gender));
+    const demoDietBase = createDietBaseFromStudent(demoStudent);
+    demoStudent.mealBlocks = demoDietBase.mealBlocks;
+    demoStudent.dietMeta = demoDietBase.dietMeta;
 
     const idx = students.findIndex(s => s.id === ADMIN_STUDENT_CODE);
     if (idx === -1) {
@@ -750,7 +910,10 @@ function ensureAdminStudent() {
             lastWorkoutAt: current.lastWorkoutAt || adminLastWorkout.toISOString(),
             assessmentPending: current.assessmentPending ?? true,
             workoutBlocks: Array.isArray(current.workoutBlocks) && current.workoutBlocks.length > 0 ? current.workoutBlocks : DEMO_WORKOUT_BLOCKS,
-            mealBlocks: Array.isArray(current.mealBlocks) && current.mealBlocks.length > 0 ? current.mealBlocks : DEMO_MEAL_BLOCKS,
+            mealBlocks: Array.isArray(current.mealBlocks) && current.mealBlocks.length > 0 ? current.mealBlocks : demoDietBase.mealBlocks,
+            dietMeta: current.dietMeta && typeof current.dietMeta === 'object'
+                ? current.dietMeta
+                : demoDietBase.dietMeta,
             metricHistory: Array.isArray(current.metricHistory) && current.metricHistory.length > 0 ? current.metricHistory : [baselineMetric]
         };
     }
@@ -759,6 +922,7 @@ function ensureAdminStudent() {
 }
 
 function goToHome() {
+    stopSupabaseRealtimeSync();
     // Keep remember-me token, clear only active session data.
     memoryRemoveItem('currentStudentId');
     memoryRemoveItem('connectedTrainerCode');
@@ -771,6 +935,7 @@ function goToHome() {
 function logout() {
     if (workoutState && !confirmExitActiveWorkout()) return;
     if (confirm('Deseja realmente sair?')) {
+        stopSupabaseRealtimeSync();
         memoryClear();
         location.reload(); // Hard refresh to clear state
     }
@@ -795,6 +960,10 @@ let syncPullTimer = null;
 let syncPullInFlight = false;
 let isApplyingRemoteState = false;
 let supabaseStudentsPollTimer = null;
+let supabaseStudentsChannel = null;
+let supabaseTrainerChannel = null;
+let supabaseRealtimeTrainerCode = '';
+let supabaseRealtimeRefreshTimer = null;
 
 function isSupabaseReady() {
     return typeof window.supabase?.from === 'function';
@@ -802,8 +971,8 @@ function isSupabaseReady() {
 
 
 const SUPABASE_TABLES = {
-    trainers: 'trainers',
-    students: 'students'
+    trainers: 'app_trainers',
+    students: 'app_students'
 };
 
 let supabaseStudentsSyncTimer = null;
@@ -939,6 +1108,90 @@ async function syncStudentsFromSupabase(trainerCode) {
     renderStudents();
     renderPendingRequests();
     updateTrainerStats();
+}
+
+function clearSupabaseStudentsPolling() {
+    if (supabaseStudentsPollTimer) {
+        clearInterval(supabaseStudentsPollTimer);
+        supabaseStudentsPollTimer = null;
+    }
+}
+
+function ensureSupabaseStudentsPolling(trainerCode) {
+    if (!trainerCode) return;
+    if (supabaseStudentsPollTimer) return;
+    supabaseStudentsPollTimer = setInterval(() => {
+        syncStudentsFromSupabase(trainerCode);
+    }, 20000);
+}
+
+function stopSupabaseRealtimeSync() {
+    clearSupabaseStudentsPolling();
+    if (supabaseRealtimeRefreshTimer) {
+        clearTimeout(supabaseRealtimeRefreshTimer);
+        supabaseRealtimeRefreshTimer = null;
+    }
+    if (supabaseStudentsChannel && isSupabaseReady()) {
+        window.supabase.removeChannel(supabaseStudentsChannel);
+    }
+    if (supabaseTrainerChannel && isSupabaseReady()) {
+        window.supabase.removeChannel(supabaseTrainerChannel);
+    }
+    supabaseStudentsChannel = null;
+    supabaseTrainerChannel = null;
+    supabaseRealtimeTrainerCode = '';
+}
+
+function scheduleRealtimeStudentsRefresh(trainerCode, delayMs = 350) {
+    if (!trainerCode) return;
+    if (supabaseRealtimeRefreshTimer) clearTimeout(supabaseRealtimeRefreshTimer);
+    supabaseRealtimeRefreshTimer = setTimeout(() => {
+        syncStudentsFromSupabase(trainerCode);
+    }, delayMs);
+}
+
+function startSupabaseRealtimeSync(trainerCode) {
+    if (!isSupabaseReady()) return;
+    const code = String(trainerCode || '').trim();
+    if (!code || code === '00000') return;
+    if (supabaseRealtimeTrainerCode === code && supabaseStudentsChannel && supabaseTrainerChannel) {
+        return;
+    }
+
+    stopSupabaseRealtimeSync();
+    supabaseRealtimeTrainerCode = code;
+
+    const studentChannelName = `students-live-${code}`;
+    const trainerChannelName = `trainers-live-${code}`;
+
+    supabaseStudentsChannel = window.supabase
+        .channel(studentChannelName)
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: SUPABASE_TABLES.students, filter: `trainer_code=eq.${code}` },
+            () => scheduleRealtimeStudentsRefresh(code, 180)
+        )
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                clearSupabaseStudentsPolling();
+                scheduleRealtimeStudentsRefresh(code, 40);
+            } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+                ensureSupabaseStudentsPolling(code);
+            }
+        });
+
+    supabaseTrainerChannel = window.supabase
+        .channel(trainerChannelName)
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: SUPABASE_TABLES.trainers, filter: `code=eq.${code}` },
+            () => scheduleRealtimeStudentsRefresh(code, 180)
+        )
+        .subscribe((status) => {
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+                ensureSupabaseStudentsPolling(code);
+            }
+        });
 }
 
 function queueSupabaseStudentsSync(students) {
@@ -1382,6 +1635,7 @@ function closeTrainerProfileMenu() {
 }
 
 function logoutTrainerFromMenu() {
+    stopSupabaseRealtimeSync();
     memoryRemoveItem('trainerSessionCode');
     memoryRemoveItem('trainerName');
     memoryRemoveItem('currentTrainerCode');
@@ -3812,6 +4066,9 @@ async function submitQuestionnaire() {
         questionnaire: questionnaire
     };
     newStudent.tmbBase = Math.round(calcTMBMifflin(newStudent.weight, newStudent.height, newStudent.age, newStudent.gender));
+    const dietBase = createDietBaseFromStudent(newStudent);
+    newStudent.mealBlocks = dietBase.mealBlocks;
+    newStudent.dietMeta = dietBase.dietMeta;
 
     if (isSupabaseReady()) {
         const fallbackName = pendingTrainerCode === '00001' ? 'Administrador Teste' : 'Treinador';
@@ -3839,17 +4096,13 @@ async function submitQuestionnaire() {
 
 // ? Student Dashboard (Real Data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function initStudentDashboard() {
+async function initStudentDashboard() {
     pullAppStateIfNewer();
     startSyncPolling();
     const trainerCode = memoryGetItem('connectedTrainerCode');
     if (trainerCode && trainerCode !== '00000') {
-        syncStudentsFromSupabase(trainerCode);
-        if (!supabaseStudentsPollTimer) {
-            supabaseStudentsPollTimer = setInterval(() => {
-                syncStudentsFromSupabase(trainerCode);
-            }, 20000);
-        }
+        await syncStudentsFromSupabase(trainerCode);
+        startSupabaseRealtimeSync(trainerCode);
     }
     const studentId = memoryGetItem('currentStudentId');
     const studentName = memoryGetItem('studentName') || 'Aluno';
@@ -3878,7 +4131,21 @@ function initStudentDashboard() {
     if (student) {
         const prevTmb = parseIntegerSafe(student.tmbBase);
         const nextTmb = syncStudentTmbData(student);
-        if (nextTmb !== prevTmb) {
+        let changed = nextTmb !== prevTmb;
+        if (!Array.isArray(student.mealBlocks) || student.mealBlocks.length === 0) {
+            const dietBase = createDietBaseFromStudent(student);
+            student.mealBlocks = dietBase.mealBlocks;
+            student.dietMeta = {
+                ...(student.dietMeta || {}),
+                ...dietBase.dietMeta
+            };
+            changed = true;
+        } else if (!student.dietMeta || typeof student.dietMeta !== 'object') {
+            const dietBase = createDietBaseFromStudent(student);
+            student.dietMeta = dietBase.dietMeta;
+            changed = true;
+        }
+        if (changed) {
             students[studentIdx] = student;
             saveStudentData(students);
         }
@@ -4856,6 +5123,10 @@ function initTrainerDashboard() {
 
     pullAppStateIfNewer();
     startSyncPolling();
+    if (trainerCode && trainerCode !== '00000') {
+        syncStudentsFromSupabase(trainerCode);
+        startSupabaseRealtimeSync(trainerCode);
+    }
 
     if (canAutoEnterDashboard) {
         const dashboardScreen = document.getElementById('trainer-dashboard-screen');
@@ -6827,18 +7098,37 @@ function renderMeals() {
     const container = document.getElementById('meal-blocks-container');
     if (!container) return;
 
+    const summary = getDietPlannerSummary();
+    const summaryHtml = `
+        <div class="diet-planner-overview">
+            <div class="diet-planner-kcal">
+                <span>Consumido</span>
+                <strong>${summary.dayKcal} kcal</strong>
+                <small>Meta ${summary.targetKcal} kcal · Restante ${summary.remainingDayKcal} kcal</small>
+            </div>
+            <div class="diet-planner-macros">
+                <div class="diet-macro-pill protein">P ${summary.dayProt}g / ${summary.targetProtein}g</div>
+                <div class="diet-macro-pill carb">C ${summary.dayCarb}g / ${summary.targetCarb}g</div>
+                <div class="diet-macro-pill fat">G ${summary.dayFat}g / ${summary.targetFat}g</div>
+            </div>
+        </div>
+    `;
+
     if (mealBlocks.length === 0) {
-        container.innerHTML = `<div class="workout-empty"><p>Nenhuma refeição configurada.</p><button class="btn-add-block" onclick="addMeal()"><i class="ph-bold ph-plus"></i> Criar Primeira Refeição</button></div>`;
+        container.innerHTML = `${summaryHtml}<div class="workout-empty"><p>Nenhuma refeição configurada.</p><button class="btn-add-block" onclick="addMeal()"><i class="ph-bold ph-plus"></i> Criar Primeira Refeição</button></div>`;
         return;
     }
 
-    container.innerHTML = mealBlocks.map((meal, mIdx) => `
+    container.innerHTML = summaryHtml + mealBlocks.map((meal, mIdx) => `
     <div class="workout-block" id="mb-${mIdx}">
         <div class="wb-header">
             <div class="wb-header-left">
                 <i class="ph-fill ph-fork-knife" style="color:var(--primary-color)"></i>
-                <input class="wb-name-input" value="${escHtml(meal.name)}" placeholder="Ex: Café da manhã"
-                    oninput="mealBlocks[${mIdx}].name = this.value">
+                <div class="wb-meal-title-wrap">
+                    <input class="wb-name-input" value="${escHtml(meal.name)}" placeholder="Ex: Café da manhã"
+                        oninput="mealBlocks[${mIdx}].name = this.value; updateDietPlannerSummary()">
+                    <span class="wb-meal-target">Meta ${summary.mealTargets[mIdx] || 0} kcal · Atual ${summary.mealKcals[mIdx] || 0} kcal</span>
+                </div>
             </div>
             <div class="wb-header-right">
                 <button class="btn-add-ex" onclick="openFoodModal(${mIdx})">
@@ -6877,8 +7167,11 @@ function renderMeals() {
 }
 
 function addMeal() {
-    const names = ['Café da manhã', 'Lanche 1', 'Almoço', 'Lanche 2', 'Jantar', 'Ceia'];
-    mealBlocks.push({ name: names[mealBlocks.length] || `Refeição ${mealBlocks.length + 1}`, items: [] });
+    const suggestedNames = ['Café da manhã', 'Lanche da manhã', 'Almoço', 'Lanche da tarde', 'Jantar', 'Ceia'];
+    const desiredName = arguments.length > 0 && arguments[0] ? String(arguments[0]).trim() : (suggestedNames[mealBlocks.length] || `Refeição ${mealBlocks.length + 1}`);
+    const existingCount = mealBlocks.filter((m) => normalizeText(m?.name) === normalizeText(desiredName)).length;
+    const finalName = existingCount > 0 ? `${desiredName} ${existingCount + 1}` : desiredName;
+    mealBlocks.push({ name: finalName, items: [] });
     renderMeals();
     switchProfileTab('nutricao');
 }
@@ -6887,11 +7180,13 @@ function deleteMeal(mIdx) {
     if (!confirm('Remover esta refeição?')) return;
     mealBlocks.splice(mIdx, 1);
     renderMeals();
+    updateDietPlannerSummary();
 }
 
 function deleteFoodItem(mIdx, iIdx) {
     mealBlocks[mIdx].items.splice(iIdx, 1);
     renderMeals();
+    updateDietPlannerSummary();
 }
 
 function updateMealItemField(mIdx, iIdx, field, value) {
@@ -6909,6 +7204,78 @@ function updateMealItemField(mIdx, iIdx, field, value) {
     }
 
     item[field] = normalized;
+    updateDietPlannerSummary();
+}
+
+function getDietTargetsFromInputs() {
+    const kcal = parseIntegerSafe(document.getElementById('diet-kcal-meta')?.value) || 2400;
+    const protein = parseDecimalSafe(document.getElementById('diet-protein-meta')?.value) || 160;
+    const carb = parseDecimalSafe(document.getElementById('diet-carb-meta')?.value) || 280;
+    const fat = parseDecimalSafe(document.getElementById('diet-fat-meta')?.value) || 80;
+    return { kcal, protein, carb, fat };
+}
+
+function getMealCalorieWeight(mealName) {
+    const name = normalizeText(mealName);
+    if (name.includes('cafe')) return 0.23;
+    if (name.includes('almoco')) return 0.32;
+    if (name.includes('jantar')) return 0.28;
+    if (name.includes('ceia')) return 0.07;
+    if (name.includes('lanche')) return 0.10;
+    return 0.12;
+}
+
+function getDietPlannerSummary() {
+    const targets = getDietTargetsFromInputs();
+    const day = { kcal: 0, prot: 0, carb: 0, fat: 0 };
+    const mealKcals = mealBlocks.map((meal) => {
+        let mealKcal = 0;
+        (meal.items || []).forEach((item) => {
+            const itemKcal = parseDecimalSafe(item.kcal) || ((parseDecimalSafe(item.prot) * 4) + (parseDecimalSafe(item.carb) * 4) + (parseDecimalSafe(item.gord) * 9));
+            mealKcal += itemKcal;
+            day.kcal += itemKcal;
+            day.prot += parseDecimalSafe(item.prot);
+            day.carb += parseDecimalSafe(item.carb);
+            day.fat += parseDecimalSafe(item.gord);
+        });
+        return Math.round(mealKcal);
+    });
+
+    const weights = mealBlocks.map((meal) => getMealCalorieWeight(meal.name));
+    const weightTotal = weights.reduce((acc, value) => acc + value, 0) || 1;
+    const mealTargets = mealBlocks.map((_, idx) => Math.max(80, Math.round((targets.kcal * weights[idx]) / weightTotal)));
+
+    return {
+        targetKcal: Math.round(targets.kcal),
+        targetProtein: Math.round(targets.protein),
+        targetCarb: Math.round(targets.carb),
+        targetFat: Math.round(targets.fat),
+        dayKcal: Math.round(day.kcal),
+        dayProt: Math.round(day.prot),
+        dayCarb: Math.round(day.carb),
+        dayFat: Math.round(day.fat),
+        remainingDayKcal: Math.round(targets.kcal - day.kcal),
+        mealTargets,
+        mealKcals
+    };
+}
+
+function updateDietPlannerSummary() {
+    const card = document.querySelector('.diet-planner-overview');
+    if (!card) return;
+    const summary = getDietPlannerSummary();
+    card.innerHTML = `
+        <div class="diet-planner-kcal">
+            <span>Consumido</span>
+            <strong>${summary.dayKcal} kcal</strong>
+            <small>Meta ${summary.targetKcal} kcal · Restante ${summary.remainingDayKcal} kcal</small>
+        </div>
+        <div class="diet-planner-macros">
+            <div class="diet-macro-pill protein">P ${summary.dayProt}g / ${summary.targetProtein}g</div>
+            <div class="diet-macro-pill carb">C ${summary.dayCarb}g / ${summary.targetCarb}g</div>
+            <div class="diet-macro-pill fat">G ${summary.dayFat}g / ${summary.targetFat}g</div>
+        </div>
+    `;
 }
 
 function openFoodModal(mealIdx) {
@@ -6916,6 +7283,8 @@ function openFoodModal(mealIdx) {
     ['food-nome', 'food-qtd', 'food-kcal', 'food-prot', 'food-carb', 'food-gord'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
     });
+    selectedFoodReference = null;
+    updateFoodTargetHint();
 
     // Clear search results
     const results = document.getElementById('food-library-results');
@@ -6930,6 +7299,7 @@ function openFoodModal(mealIdx) {
 }
 
 let foodSearchTimeout = null;
+let selectedFoodReference = null;
 
 function searchFoodAPI(query) {
     const results = document.getElementById('food-library-results');
@@ -6989,12 +7359,26 @@ function searchFoodAPI(query) {
 }
 
 function selectFoodFromAPI(data) {
+    selectedFoodReference = {
+        nome: data.nome,
+        kcal100: parseDecimalSafe(data.kcal),
+        prot100: parseDecimalSafe(data.prot),
+        carb100: parseDecimalSafe(data.carb),
+        fat100: parseDecimalSafe(data.fat)
+    };
+
+    const summary = getDietPlannerSummary();
+    const mealTarget = summary.mealTargets[pendingMealIdx] || 250;
+    const mealCurrent = summary.mealKcals[pendingMealIdx] || 0;
+    const mealRemaining = Math.max(80, mealTarget - mealCurrent);
+    const suggestionGrams = selectedFoodReference.kcal100 > 0
+        ? Math.max(30, Math.min(350, Math.round((mealRemaining / selectedFoodReference.kcal100) * 100)))
+        : 100;
+
     document.getElementById('food-nome').value = data.nome;
-    document.getElementById('food-kcal').value = data.kcal;
-    document.getElementById('food-prot').value = data.prot;
-    document.getElementById('food-carb').value = data.carb;
-    document.getElementById('food-gord').value = data.fat;
-    document.getElementById('food-qtd').value = '100g';
+    document.getElementById('food-qtd').value = `${suggestionGrams}g`;
+    recalculateFoodFromQuantity();
+    updateFoodTargetHint();
 
     const results = document.getElementById('food-library-results');
     if (results) {
@@ -7003,25 +7387,84 @@ function selectFoodFromAPI(data) {
     }
 }
 
+function recalculateFoodFromQuantity() {
+    if (!selectedFoodReference) return;
+    const qtyText = document.getElementById('food-qtd')?.value || '';
+    const qty = Math.max(1, parseDecimalSafe(qtyText.replace(/[^\d.,]/g, '').replace(',', '.')) || 100);
+    const scale = qty / 100;
+    const kcal = Math.round(selectedFoodReference.kcal100 * scale);
+    const prot = Math.round(selectedFoodReference.prot100 * scale * 10) / 10;
+    const carb = Math.round(selectedFoodReference.carb100 * scale * 10) / 10;
+    const fat = Math.round(selectedFoodReference.fat100 * scale * 10) / 10;
+    document.getElementById('food-kcal').value = String(kcal);
+    document.getElementById('food-prot').value = String(prot);
+    document.getElementById('food-carb').value = String(carb);
+    document.getElementById('food-gord').value = String(fat);
+}
+
+function updateFoodTargetHint() {
+    const hintEl = document.getElementById('food-target-hint');
+    if (!hintEl || pendingMealIdx === null) return;
+    const summary = getDietPlannerSummary();
+    const mealName = mealBlocks[pendingMealIdx]?.name || 'Refeição';
+    const mealTarget = summary.mealTargets[pendingMealIdx] || 0;
+    const mealCurrent = summary.mealKcals[pendingMealIdx] || 0;
+    const mealRemaining = mealTarget - mealCurrent;
+    hintEl.textContent = `${mealName}: ${mealCurrent}/${mealTarget} kcal · Dia restante: ${summary.remainingDayKcal} kcal · Foco desta refeição: ${mealRemaining > 0 ? `${mealRemaining} kcal` : 'meta atingida'}`;
+}
+
+function applyRemainingCaloriesToCurrentFood() {
+    if (pendingMealIdx === null) return;
+    const summary = getDietPlannerSummary();
+    const mealTarget = summary.mealTargets[pendingMealIdx] || 250;
+    const mealCurrent = summary.mealKcals[pendingMealIdx] || 0;
+    const remainingMealKcal = Math.max(80, mealTarget - mealCurrent);
+
+    const targets = getDietTargetsFromInputs();
+    const proteinKcal = Math.max(0, targets.protein * 4);
+    const carbKcal = Math.max(0, targets.carb * 4);
+    const fatKcal = Math.max(0, targets.fat * 9);
+    const totalMacroKcal = proteinKcal + carbKcal + fatKcal;
+    const pRatio = totalMacroKcal > 0 ? (proteinKcal / totalMacroKcal) : 0.35;
+    const cRatio = totalMacroKcal > 0 ? (carbKcal / totalMacroKcal) : 0.45;
+    const fRatio = totalMacroKcal > 0 ? (fatKcal / totalMacroKcal) : 0.20;
+
+    document.getElementById('food-kcal').value = String(Math.round(remainingMealKcal));
+    document.getElementById('food-prot').value = String(Math.round(((remainingMealKcal * pRatio) / 4) * 10) / 10);
+    document.getElementById('food-carb').value = String(Math.round(((remainingMealKcal * cRatio) / 4) * 10) / 10);
+    document.getElementById('food-gord').value = String(Math.round(((remainingMealKcal * fRatio) / 9) * 10) / 10);
+    if (!document.getElementById('food-qtd').value) {
+        document.getElementById('food-qtd').value = 'Porção ajustada';
+    }
+}
+
 function closeFoodModal() {
     document.getElementById('food-modal-overlay').classList.remove('active');
     document.getElementById('food-modal').classList.remove('active');
+    selectedFoodReference = null;
     pendingMealIdx = null;
 }
 
 function confirmAddFood() {
     const nome = document.getElementById('food-nome').value;
     const qtd = document.getElementById('food-qtd').value;
-    const kcal = parseInt(document.getElementById('food-kcal').value) || 0;
+    const kcalInput = parseDecimalSafe(document.getElementById('food-kcal').value);
     const prot = parseFloat(document.getElementById('food-prot').value) || 0;
     const carb = parseFloat(document.getElementById('food-carb').value) || 0;
     const gord = parseFloat(document.getElementById('food-gord').value) || 0;
+    const kcal = kcalInput > 0 ? kcalInput : Math.round((prot * 4) + (carb * 4) + (gord * 9));
 
     if (!nome.trim()) return;
 
-    mealBlocks[pendingMealIdx].items.push({ nome, qtd, kcal, prot, carb, gord });
+    mealBlocks[pendingMealIdx].items.push({ nome: nome.trim(), qtd: qtd || '100g', kcal, prot, carb, gord });
     renderMeals();
+    updateDietPlannerSummary();
     closeFoodModal();
+}
+
+function updateDietSummary() {
+    updateDietPlannerSummary();
+    updateFoodTargetHint();
 }
 
 // â”€â”€â”€ Save plan â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
