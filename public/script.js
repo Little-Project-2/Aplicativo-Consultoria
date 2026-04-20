@@ -4080,6 +4080,7 @@ function renderStudentDietContent(student) {
                                 placeholder="${getItemBaseQuantity(item)}"
                                 oninput="updateDietItemIntake(${idx}, ${itemIndex}, this.value)"
                                 class="diet-input diet-input-sm"
+                                style="width: 92px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.4rem 0.45rem;"
                             />
                         </div>
                     </div>
@@ -4143,6 +4144,15 @@ function renderStudentDietContent(student) {
                         <input id="meal-plan-fat-${idx}" type="number" min="0" step="0.1" placeholder="Gord (g)" class="diet-input">
                     </div>
                     <button class="btn-secondary diet-action-btn" type="button" onclick="addFoodToMealPlan(${idx})">+ Adicionar na meta desta refeição</button>
+                        <button class="btn-ghost" type="button" onclick="recalculateCustomFoodMacros(${idx})" style="padding: 0.45rem;">Calcular</button>
+                    </div>
+                    <div style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:0.45rem;">
+                        <input id="custom-food-kcal-${idx}" type="number" min="0" step="1" placeholder="kcal" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.45rem;">
+                        <input id="custom-food-prot-${idx}" type="number" min="0" step="0.1" placeholder="Prot (g)" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.45rem;">
+                        <input id="custom-food-carb-${idx}" type="number" min="0" step="0.1" placeholder="Carb (g)" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.45rem;">
+                        <input id="custom-food-fat-${idx}" type="number" min="0" step="0.1" placeholder="Gord (g)" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.45rem;">
+                    </div>
+                    <button class="btn-secondary" type="button" onclick="addCustomFoodToMeal(${idx})">+ Adicionar alimento nesta refeição</button>
                 </div>
             </div>
         </div>
