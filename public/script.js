@@ -3682,23 +3682,7 @@ function computeDietMacroData(student) {
             fat: Math.min(100, Math.max(8, Math.round((plannedFat / targetFat) * 100)))
         }
     };
-}
-
-function getLocalDateKey() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
-function getDietTrackingStorageKey(studentId) {
-    return `diet_tracking_v2:${studentId}:${getLocalDateKey()}`;
-}
-
-function readDietTracking(studentId) {
-    if (!studentId) return { waterCups: 0, consumedMeals: {} };
-    const key = getDietTrackingStorageKey(studentId);
+}sasw'3131
     const saved = readStorageJSON(key, {});
     const waterCups = Math.max(0, parseIntegerSafe(saved?.waterCups) || 0);
     const waterMl = Math.max(0, parseIntegerSafe(saved?.waterMl) || (waterCups * 250));
@@ -3712,6 +3696,7 @@ function readDietTracking(studentId) {
         ? saved.customFoodsByMeal
         : {};
     return { waterCups, waterMl, consumedMeals, intakeByMeal, customFoodsByMeal };
+    return { waterCups, consumedMeals, intakeByMeal, customFoodsByMeal };
 }
 
 function saveDietTracking(studentId, tracking) {
@@ -4440,7 +4425,7 @@ function refreshStudentDietViews() {
 function renderStudentDietMain() {
     const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
-    const student = students.find(s => s.id === studentId);
+    const student = students.find(s => s.id === studentId);d
 
     const container = document.getElementById('student-diet-content-main');
     if (!container) return;
