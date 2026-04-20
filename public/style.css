@@ -4168,6 +4168,153 @@ body {
 .diet-action-btn {
     min-height: 36px;
     font-weight: 700;
+    transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
+}
+
+.diet-action-btn:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.04);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.25);
+}
+
+.diet-action-btn:active {
+    transform: translateY(0);
+    filter: brightness(0.96);
+}
+
+.diet-v2-card {
+    background: linear-gradient(145deg, #23252a, #1c1d22);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.22);
+}
+
+.meal-v2-progress {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    display: grid;
+    gap: 0.35rem;
+    background: rgba(0, 0, 0, 0.15);
+}
+
+.meal-v2-progress-row {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    gap: 0.4rem;
+    align-items: center;
+    font-size: 0.72rem;
+}
+
+.meal-v2-progress-row span {
+    color: #d7dde2;
+    font-weight: 700;
+}
+
+.meal-v2-progress-row strong {
+    color: #e8ecef;
+    font-size: 0.68rem;
+}
+
+.meal-v2-progress-track {
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+}
+
+.meal-v2-progress-track i {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #7fc31a, #a3e635);
+}
+
+.meal-v2-progress-track.carb i {
+    background: linear-gradient(90deg, #06b6d4, #22d3ee);
+}
+
+.meal-v2-progress-track.fat i {
+    background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.diet-collapsible {
+    margin-top: 0.55rem;
+}
+
+.diet-collapsible summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 0.65rem 0.75rem;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #dfe7eb;
+    font-size: 0.84rem;
+    font-weight: 700;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.diet-collapsible summary:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(163, 230, 53, 0.45);
+}
+
+.meal-delta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    padding: 0.45rem 1rem 0.2rem;
+}
+
+.meal-delta-pill {
+    font-size: 0.68rem;
+    border-radius: 999px;
+    padding: 0.22rem 0.45rem;
+    font-weight: 700;
+}
+
+.meal-delta-pill.ok {
+    background: rgba(34, 197, 94, 0.15);
+    color: #7ef0a5;
+    border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.meal-delta-pill.exceeded {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ff9c9c;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.diet-search-results {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.diet-search-item {
+    text-align: left;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    color: #f2f5f8;
+    padding: 0.5rem 0.55rem;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.diet-search-item:hover {
+    background: rgba(163, 230, 53, 0.12);
+}
+
+.diet-search-item small {
+    display: block;
+    color: #b8c3ca;
+}
+
+.water-quick-actions {
+    display: flex;
+    justify-content: center;
+    gap: 0.45rem;
+    margin-top: 0.8rem;
 }
 
 @keyframes dietPulse {
@@ -4272,6 +4419,15 @@ body {
         flex-direction: column;
         align-items: stretch;
         gap: 0.5rem;
+    }
+
+    .meal-v2-progress-row {
+        grid-template-columns: 18px minmax(0, 1fr);
+    }
+
+    .meal-v2-progress-row strong {
+        grid-column: 1 / -1;
+        justify-self: end;
     }
 
     .meal-item-consumed {

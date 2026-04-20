@@ -3682,25 +3682,10 @@ function computeDietMacroData(student) {
             fat: Math.min(100, Math.max(8, Math.round((plannedFat / targetFat) * 100)))
         }
     };
-}
-
-function getLocalDateKey() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
-function getDietTrackingStorageKey(studentId) {
-    return `diet_tracking_v2:${studentId}:${getLocalDateKey()}`;
-}
-
-function readDietTracking(studentId) {
-    if (!studentId) return { waterCups: 0, consumedMeals: {} };
-    const key = getDietTrackingStorageKey(studentId);
+}sasw'3131
     const saved = readStorageJSON(key, {});
     const waterCups = Math.max(0, parseIntegerSafe(saved?.waterCups) || 0);
+    const waterMl = Math.max(0, parseIntegerSafe(saved?.waterMl) || (waterCups * 250));
     const consumedMeals = (saved?.consumedMeals && typeof saved.consumedMeals === 'object')
         ? saved.consumedMeals
         : {};
@@ -3710,6 +3695,7 @@ function readDietTracking(studentId) {
     const customFoodsByMeal = (saved?.customFoodsByMeal && typeof saved.customFoodsByMeal === 'object')
         ? saved.customFoodsByMeal
         : {};
+    return { waterCups, waterMl, consumedMeals, intakeByMeal, customFoodsByMeal };
     return { waterCups, consumedMeals, intakeByMeal, customFoodsByMeal };
 }
 
@@ -3718,6 +3704,7 @@ function saveDietTracking(studentId, tracking) {
     const key = getDietTrackingStorageKey(studentId);
     memorySetItem(key, JSON.stringify({
         waterCups: Math.max(0, parseIntegerSafe(tracking?.waterCups) || 0),
+        waterMl: Math.max(0, parseIntegerSafe(tracking?.waterMl) || 0),
         consumedMeals: tracking?.consumedMeals && typeof tracking.consumedMeals === 'object' ? tracking.consumedMeals : {},
         intakeByMeal: tracking?.intakeByMeal && typeof tracking.intakeByMeal === 'object' ? tracking.intakeByMeal : {},
         customFoodsByMeal: tracking?.customFoodsByMeal && typeof tracking.customFoodsByMeal === 'object' ? tracking.customFoodsByMeal : {}
@@ -3869,6 +3856,16 @@ function computeCatalogFoodMacros(food, amount, unit) {
         };
     }
 
+    if (unit === 'un' && parseDecimalSafe(food?.standardWeightGrams) > 0) {
+        const ratio = (safeAmount * parseDecimalSafe(food.standardWeightGrams)) / 100;
+        return {
+            kcal: roundMacro(food.per100.kcal * ratio),
+            prot: roundMacro(food.per100.prot * ratio),
+            carb: roundMacro(food.per100.carb * ratio),
+            gord: roundMacro(food.per100.gord * ratio)
+        };
+    }
+
     const ratio = safeAmount / 100;
     return {
         kcal: roundMacro(food.per100.kcal * ratio),
@@ -3876,6 +3873,96 @@ function computeCatalogFoodMacros(food, amount, unit) {
         carb: roundMacro(food.per100.carb * ratio),
         gord: roundMacro(food.per100.gord * ratio)
     };
+}
+
+const dietFoodSearchTimers = new Map();
+const dietFoodSearchCache = new Map();
+
+async function queryFoodsFromSupabase(term) {
+    const q = String(term || '').trim();
+    if (!q) return [];
+    const cacheKey = q.toLowerCase();
+    if (dietFoodSearchCache.has(cacheKey)) return dietFoodSearchCache.get(cacheKey);
+    let results = [];
+    if (isSupabaseReady()) {
+        const { data, error } = await window.supabase
+            .from('alimentos')
+            .select('id,nome,proteina,carboidrato,gordura,calorias,peso_padrao')
+            .ilike('nome', `%${q}%`)
+            .limit(8);
+        if (!error && Array.isArray(data)) {
+            results = data.map((row) => ({
+                id: row.id || row.nome,
+                name: row.nome,
+                per100: {
+                    prot: parseDecimalSafe(row.proteina),
+                    carb: parseDecimalSafe(row.carboidrato),
+                    gord: parseDecimalSafe(row.gordura),
+                    kcal: parseDecimalSafe(row.calorias)
+                },
+                defaultUnit: 'g',
+                standardWeightGrams: parseDecimalSafe(row.peso_padrao) || 100
+            }));
+        }
+    }
+    if (!results.length) {
+        results = searchFoodCatalog(q);
+    }
+    dietFoodSearchCache.set(cacheKey, results);
+    return results;
+}
+
+function renderFoodSearchResults(mealIndex, foods = []) {
+    const root = document.getElementById(`food-search-results-${mealIndex}`);
+    if (!root) return;
+    if (!foods.length) {
+        root.innerHTML = '';
+        return;
+    }
+    root.innerHTML = foods.map((food) => `
+        <button class="diet-search-item" type="button" onclick="selectSupabaseFoodResult(${mealIndex}, '${encodeURIComponent(JSON.stringify(food)).replace(/'/g, '%27')}')">
+            <span>${escHtml(food.name)}</span>
+            <small>${Math.round(parseDecimalSafe(food.per100?.kcal))} kcal / 100g</small>
+        </button>
+    `).join('');
+}
+
+function handleFoodSearchInput(mealIndex, value) {
+    const term = String(value || '');
+    if (dietFoodSearchTimers.has(mealIndex)) {
+        clearTimeout(dietFoodSearchTimers.get(mealIndex));
+    }
+    const timer = setTimeout(async () => {
+        const foods = await queryFoodsFromSupabase(term);
+        renderFoodSearchResults(mealIndex, foods);
+    }, 320);
+    dietFoodSearchTimers.set(mealIndex, timer);
+}
+
+function selectSupabaseFoodResult(mealIndex, encodedFood) {
+    try {
+        const raw = decodeURIComponent(encodedFood || '');
+        const food = JSON.parse(raw);
+        if (!food) return;
+        const nameInput = document.getElementById(`custom-food-name-${mealIndex}`);
+        const amountInput = document.getElementById(`custom-food-amount-${mealIndex}`);
+        const unitInput = document.getElementById(`custom-food-unit-${mealIndex}`);
+        const kcalInput = document.getElementById(`custom-food-kcal-${mealIndex}`);
+        const protInput = document.getElementById(`custom-food-prot-${mealIndex}`);
+        const carbInput = document.getElementById(`custom-food-carb-${mealIndex}`);
+        const fatInput = document.getElementById(`custom-food-fat-${mealIndex}`);
+        if (nameInput) nameInput.value = food.name || '';
+        if (amountInput && !parseDecimalSafe(amountInput.value)) amountInput.value = '100';
+        if (unitInput) unitInput.value = 'g';
+        const computed = computeCatalogFoodMacros(food, amountInput?.value || 100, unitInput?.value || 'g');
+        if (kcalInput) kcalInput.value = computed.kcal;
+        if (protInput) protInput.value = computed.prot;
+        if (carbInput) carbInput.value = computed.carb;
+        if (fatInput) fatInput.value = computed.gord;
+        renderFoodSearchResults(mealIndex, []);
+    } catch (e) {
+        console.warn('Falha ao selecionar alimento', e);
+    }
 }
 
 function refreshMealCatalogOptions(mealIndex, query = '') {
@@ -3983,8 +4070,81 @@ function addCustomFoodToMeal(mealIndex) {
     const bucket = Array.isArray(tracking.customFoodsByMeal[mealIndex]) ? tracking.customFoodsByMeal[mealIndex] : [];
     bucket.push(food);
     tracking.customFoodsByMeal[mealIndex] = bucket;
+    const lastKey = `diet_last_meal_entry:${studentId}:${mealIndex}`;
+    memorySetItem(lastKey, JSON.stringify([food]));
     saveDietTracking(studentId, tracking);
     refreshStudentDietViews();
+}
+
+async function repeatLastMealEntry(mealIndex) {
+    const studentId = memoryGetItem('currentStudentId');
+    if (!studentId) return;
+    let repeatedItems = [];
+
+    if (isSupabaseReady()) {
+        const today = getLocalDateKey();
+        const { data, error } = await window.supabase
+            .from('diet_daily_logs')
+            .select('items')
+            .eq('student_id', studentId)
+            .eq('meal_index', mealIndex)
+            .lt('entry_date', today)
+            .order('entry_date', { ascending: false })
+            .limit(1);
+        if (!error && Array.isArray(data) && data[0]?.items) {
+            repeatedItems = Array.isArray(data[0].items) ? data[0].items : [];
+        }
+    }
+
+    if (!repeatedItems.length) {
+        const lastKey = `diet_last_meal_entry:${studentId}:${mealIndex}`;
+        repeatedItems = readStorageJSON(lastKey, []);
+    }
+
+    if (!repeatedItems.length) {
+        alert('Nenhuma entrada anterior encontrada para repetir.');
+        return;
+    }
+
+    const tracking = readDietTracking(studentId);
+    tracking.customFoodsByMeal = tracking.customFoodsByMeal || {};
+    const bucket = Array.isArray(tracking.customFoodsByMeal[mealIndex]) ? tracking.customFoodsByMeal[mealIndex] : [];
+    repeatedItems.forEach((item) => {
+        bucket.push({
+            ...item,
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+        });
+    });
+    tracking.customFoodsByMeal[mealIndex] = bucket;
+    saveDietTracking(studentId, tracking);
+    refreshStudentDietViews();
+}
+
+function suggestEquivalentFoods(mealIndex, itemIndex) {
+    const studentId = memoryGetItem('currentStudentId');
+    const students = readStorageJSON('trainerStudents', []);
+    const student = students.find((s) => String(s.id) === String(studentId));
+    const meal = student?.mealBlocks?.[mealIndex];
+    const item = meal?.items?.[itemIndex];
+    if (!item) return;
+
+    const baseQty = Math.max(1, getItemBaseQuantity(item));
+    const proteinDensity = (parseDecimalSafe(item.prot) / baseQty) * 100;
+    const carbDensity = (parseDecimalSafe(item.carb) / baseQty) * 100;
+    const anchor = proteinDensity >= carbDensity ? { type: 'prot', value: proteinDensity } : { type: 'carb', value: carbDensity };
+    const min = anchor.value * 0.9;
+    const max = anchor.value * 1.1;
+    const matches = FOOD_CATALOG.filter((food) => {
+        const val = parseDecimalSafe(food?.per100?.[anchor.type]);
+        return val >= min && val <= max;
+    }).slice(0, 3);
+
+    if (!matches.length) {
+        alert('Não encontramos 3 substituições equivalentes agora.');
+        return;
+    }
+
+    alert(`Substituições equivalentes para ${item.nome} (${anchor.type === 'prot' ? 'proteína' : 'carboidrato'}):\n\n${matches.map((m, i) => `${i + 1}. ${m.name}`).join('\n')}`);
 }
 
 function removeCustomFoodFromMeal(mealIndex, foodId) {
@@ -4003,16 +4163,50 @@ window.updateWater = function (delta) {
     if (!studentId) return;
     const tracking = readDietTracking(studentId);
     tracking.waterCups = Math.max(0, tracking.waterCups + (parseIntegerSafe(delta) || 0));
+    tracking.waterMl = Math.max(0, tracking.waterCups * 250);
     saveDietTracking(studentId, tracking);
+    syncWaterIntakeToSupabase(studentId, tracking.waterMl);
     refreshStudentDietViews();
 };
+
+window.updateWaterMl = function (deltaMl) {
+    const studentId = memoryGetItem('currentStudentId');
+    if (!studentId) return;
+    const tracking = readDietTracking(studentId);
+    tracking.waterMl = Math.max(0, (parseIntegerSafe(tracking.waterMl) || 0) + (parseIntegerSafe(deltaMl) || 0));
+    tracking.waterCups = Math.round(tracking.waterMl / 250);
+    saveDietTracking(studentId, tracking);
+    syncWaterIntakeToSupabase(studentId, tracking.waterMl);
+    refreshStudentDietViews();
+};
+
+async function syncWaterIntakeToSupabase(studentId, waterMl) {
+    if (!isSupabaseReady() || !studentId) return;
+    const entryDate = getLocalDateKey();
+    try {
+        const { error } = await window.supabase
+            .from('diet_daily_logs')
+            .upsert({
+                student_id: String(studentId),
+                meal_index: -1,
+                entry_date: entryDate,
+                water_intake: Math.max(0, parseIntegerSafe(waterMl) || 0),
+                items: []
+            }, { onConflict: 'student_id,meal_index,entry_date' });
+        if (error) console.warn('Falha ao sincronizar água', error.message);
+    } catch (e) {
+        console.warn('Falha ao sincronizar água', e);
+    }
+}
 
 function renderStudentDietContent(student) {
     const macro = computeDietMacroData(student);
     const meals = Array.isArray(student?.mealBlocks) ? student.mealBlocks : [];
     const studentId = memoryGetItem('currentStudentId');
+    const isRef77777 = String(studentId) === String(SELF_TRAINING_STUDENT_CODE);
     const tracking = readDietTracking(studentId);
     const savedWater = tracking.waterCups;
+    const savedWaterMl = tracking.waterMl || (savedWater * 250);
     const consumedTotals = computeConsumedMealTotals(meals, tracking);
     const consumedCount = meals.filter((meal, idx) => {
         const intakes = tracking?.intakeByMeal?.[idx] || {};
@@ -4048,8 +4242,14 @@ function renderStudentDietContent(student) {
     const mealCards = meals.map((meal, idx) => {
         const mealPlanTotals = computeSingleMealTotals(meal.items || []);
         const mealConsumedTotals = computeSingleMealConsumedTotals(meal, idx, tracking);
+        const mealDelta = {
+            kcal: Math.round(mealConsumedTotals.kcal - mealPlanTotals.kcal),
+            prot: Math.round(mealConsumedTotals.prot - mealPlanTotals.prot),
+            carb: Math.round(mealConsumedTotals.carb - mealPlanTotals.carb),
+            gord: Math.round(mealConsumedTotals.gord - mealPlanTotals.gord)
+        };
         return `
-        <div class="meal-block meal-glass-card">
+        <div class="meal-block meal-glass-card ${isRef77777 ? 'diet-v2-card' : ''}">
             <div class="block-header meal-header-glass tone-${idx % 3} meal-header-rich">
                 <div class="meal-title-wrap">
                     <h3>${escHtml(meal.name)}</h3>
@@ -4057,6 +4257,33 @@ function renderStudentDietContent(student) {
                 </div>
                 <span class="text-sub meal-consumed-chip">Consumido: ${mealConsumedTotals.kcal} kcal</span>
             </div>
+            <div class="meal-delta-row">
+                ${['kcal', 'prot', 'carb', 'gord'].map((k) => {
+                    const val = mealDelta[k];
+                    const statusClass = val <= 0 ? 'ok' : 'exceeded';
+                    const labelMap = { kcal: 'Kcal', prot: 'P', carb: 'C', gord: 'G' };
+                    return `<span class="meal-delta-pill ${statusClass}">${labelMap[k]} ${val <= 0 ? `Falta ${Math.abs(val)}` : `+${val}`}</span>`;
+                }).join('')}
+            </div>
+            ${isRef77777 ? `
+                <div class="meal-v2-progress">
+                    <div class="meal-v2-progress-row">
+                        <span>P</span>
+                        <div class="meal-v2-progress-track"><i style="width:${Math.min(100, Math.round((mealConsumedTotals.prot / Math.max(1, mealPlanTotals.prot)) * 100))}%"></i></div>
+                        <strong>${mealConsumedTotals.prot}/${Math.round(mealPlanTotals.prot)}g</strong>
+                    </div>
+                    <div class="meal-v2-progress-row">
+                        <span>C</span>
+                        <div class="meal-v2-progress-track carb"><i style="width:${Math.min(100, Math.round((mealConsumedTotals.carb / Math.max(1, mealPlanTotals.carb)) * 100))}%"></i></div>
+                        <strong>${mealConsumedTotals.carb}/${Math.round(mealPlanTotals.carb)}g</strong>
+                    </div>
+                    <div class="meal-v2-progress-row">
+                        <span>G</span>
+                        <div class="meal-v2-progress-track fat"><i style="width:${Math.min(100, Math.round((mealConsumedTotals.gord / Math.max(1, mealPlanTotals.gord)) * 100))}%"></i></div>
+                        <strong>${mealConsumedTotals.gord}/${Math.round(mealPlanTotals.gord)}g</strong>
+                    </div>
+                </div>
+            ` : ''}
             <div class="meal-items-list">
                 ${(meal.items || []).map((item, itemIndex) => `
                     <div class="meal-item-row">
@@ -4080,9 +4307,11 @@ function renderStudentDietContent(student) {
                                 placeholder="${getItemBaseQuantity(item)}"
                                 oninput="updateDietItemIntake(${idx}, ${itemIndex}, this.value)"
                                 class="diet-input diet-input-sm"
-                                style="width: 92px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.4rem 0.45rem;"
                             />
                         </div>
+                        <button class="btn-icon-tiny" title="Substituir por equivalente" onclick="suggestEquivalentFoods(${idx}, ${itemIndex})">
+                            <i class="ph-bold ph-arrows-left-right"></i>
+                        </button>
                     </div>
                 `).join('')}
 
@@ -4104,14 +4333,18 @@ function renderStudentDietContent(student) {
                     </div>
                 `).join('')}
 
+                <details class="diet-collapsible ${isRef77777 ? 'open-default' : ''}" ${isRef77777 ? 'open' : ''}>
+                <summary>Adicionar alimento consumido</summary>
                 <div class="meal-item-row diet-form-card">
+                    <button class="btn-ghost diet-action-btn" type="button" onclick="repeatLastMealEntry(${idx})">Repetir última</button>
                     <div class="diet-form-grid-2">
-                        <input id="custom-food-search-${idx}" type="text" placeholder="Buscar alimento na base (ex: banana)" oninput="refreshMealCatalogOptions(${idx}, this.value)" class="diet-input">
+                        <input id="custom-food-search-${idx}" type="text" placeholder="Buscar no banco (Supabase)" oninput="handleFoodSearchInput(${idx}, this.value); refreshMealCatalogOptions(${idx}, this.value)" class="diet-input">
                         <select id="custom-food-catalog-${idx}" onchange="applyCatalogFoodToMeal(${idx})" class="diet-input diet-select">
                             <option value="">Selecionar alimento da base</option>
                             ${searchFoodCatalog('').map(food => `<option value="${food.id}">${escHtml(food.name)} (100g: ${food.per100.kcal} kcal)</option>`).join('')}
                         </select>
                     </div>
+                    <div id="food-search-results-${idx}" class="diet-search-results"></div>
                     <div class="diet-form-grid-main">
                         <input id="custom-food-name-${idx}" type="text" placeholder="Nome do alimento" class="diet-input">
                         <input id="custom-food-amount-${idx}" type="number" min="0" step="0.1" value="100" oninput="recalculateCustomFoodMacros(${idx})" placeholder="Qtd." class="diet-input">
@@ -4131,6 +4364,9 @@ function renderStudentDietContent(student) {
                     </div>
                     <button class="btn-secondary diet-action-btn" type="button" onclick="addCustomFoodToMeal(${idx})">+ Adicionar alimento nesta refeição</button>
                 </div>
+                </details>
+                <details class="diet-collapsible ${isRef77777 ? 'open-default' : ''}">
+                <summary>Editar meta da refeição</summary>
                 <div class="meal-item-row diet-form-card diet-form-card-highlight">
                     <strong class="diet-form-title">Adicionar comida na meta do ${escHtml(meal.name)}</strong>
                     <div class="diet-form-grid-main-plan">
@@ -4144,16 +4380,8 @@ function renderStudentDietContent(student) {
                         <input id="meal-plan-fat-${idx}" type="number" min="0" step="0.1" placeholder="Gord (g)" class="diet-input">
                     </div>
                     <button class="btn-secondary diet-action-btn" type="button" onclick="addFoodToMealPlan(${idx})">+ Adicionar na meta desta refeição</button>
-                        <button class="btn-ghost" type="button" onclick="recalculateCustomFoodMacros(${idx})" style="padding: 0.45rem;">Calcular</button>
-                    </div>
-                    <div style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:0.45rem;">
-                        <input id="custom-food-kcal-${idx}" type="number" min="0" step="1" placeholder="kcal" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.45rem;">
-                        <input id="custom-food-prot-${idx}" type="number" min="0" step="0.1" placeholder="Prot (g)" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.45rem;">
-                        <input id="custom-food-carb-${idx}" type="number" min="0" step="0.1" placeholder="Carb (g)" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.45rem;">
-                        <input id="custom-food-fat-${idx}" type="number" min="0" step="0.1" placeholder="Gord (g)" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.45rem;">
-                    </div>
-                    <button class="btn-secondary" type="button" onclick="addCustomFoodToMeal(${idx})">+ Adicionar alimento nesta refeição</button>
                 </div>
+                </details>
             </div>
         </div>
     `;
@@ -4176,6 +4404,11 @@ function renderStudentDietContent(student) {
                     <i class="ph-bold ph-plus"></i>
                 </button>
             </div>
+            <div class="water-quick-actions">
+                <button class="btn-ghost diet-action-btn" type="button" onclick="updateWaterMl(200)">+200ml</button>
+                <button class="btn-ghost diet-action-btn" type="button" onclick="updateWaterMl(500)">+500ml</button>
+            </div>
+            <p style="margin-top:0.45rem; color:#9fd4ff; font-weight:700;">Total: ${savedWaterMl} ml</p>
             <p style="margin-top: 1rem; font-size: 0.85rem; color: rgba(255,255,255,0.5);">A meta recomendada é de ~8 a 10 copos por dia (2L+)</p>
         </div>
     `;
@@ -4192,7 +4425,7 @@ function refreshStudentDietViews() {
 function renderStudentDietMain() {
     const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
-    const student = students.find(s => s.id === studentId);
+    const student = students.find(s => s.id === studentId);d
 
     const container = document.getElementById('student-diet-content-main');
     if (!container) return;
