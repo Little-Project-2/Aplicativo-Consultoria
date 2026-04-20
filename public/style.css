@@ -4070,6 +4070,106 @@ body {
     color: #cdd6d9;
 }
 
+.meal-header-rich {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.7rem;
+}
+
+.meal-meta-line {
+    display: block;
+    margin-top: 0.22rem;
+    color: #d7dee3;
+}
+
+.meal-consumed-chip {
+    background: rgba(163, 230, 53, 0.14);
+    color: #b9f26f;
+    border: 1px solid rgba(163, 230, 53, 0.35);
+    padding: 0.28rem 0.5rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    font-weight: 700;
+}
+
+.meal-macros-right {
+    justify-content: flex-end;
+}
+
+.meal-item-consumed {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: 0.7rem;
+}
+
+.diet-form-card {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    border: 1px dashed rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+    padding: 0.6rem;
+    background: rgba(0, 0, 0, 0.16);
+}
+
+.diet-form-card-highlight {
+    border-color: rgba(163, 230, 53, 0.35);
+}
+
+.diet-form-title {
+    font-size: 0.85rem;
+    color: #a3e635;
+}
+
+.diet-form-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.45rem;
+}
+
+.diet-form-grid-main {
+    display: grid;
+    grid-template-columns: 1.4fr 0.6fr 0.6fr 0.8fr;
+    gap: 0.45rem;
+}
+
+.diet-form-grid-main-plan {
+    display: grid;
+    grid-template-columns: 1.4fr 0.7fr;
+    gap: 0.45rem;
+}
+
+.diet-form-grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.45rem;
+}
+
+.diet-input {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    color: #fff;
+    padding: 0.5rem;
+    min-width: 0;
+}
+
+.diet-input-sm {
+    width: 92px;
+    padding: 0.4rem 0.45rem;
+}
+
+.diet-select {
+    appearance: none;
+}
+
+.diet-action-btn {
+    min-height: 36px;
+    font-weight: 700;
+}
+
 @keyframes dietPulse {
     from {
         filter: brightness(0.9);
@@ -4157,6 +4257,36 @@ body {
     .macro-badge {
         justify-content: center;
         font-size: 0.62rem;
+    }
+
+    .meal-header-rich {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .meal-consumed-chip {
+        white-space: normal;
+    }
+
+    .meal-item-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+
+    .meal-item-consumed {
+        margin-left: 0;
+    }
+
+    .diet-input-sm {
+        width: 100%;
+    }
+
+    .diet-form-grid-2,
+    .diet-form-grid-main,
+    .diet-form-grid-main-plan,
+    .diet-form-grid-4 {
+        grid-template-columns: 1fr;
     }
 }
 

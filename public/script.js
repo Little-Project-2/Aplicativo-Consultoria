@@ -3774,6 +3774,76 @@ function computeConsumedMealTotals(meals, tracking) {
     };
 }
 
+function computeSingleMealTotals(items = []) {
+    return (items || []).reduce((acc, item) => {
+        acc.kcal += parseDecimalSafe(item?.kcal);
+        acc.prot += parseDecimalSafe(item?.prot);
+        acc.carb += parseDecimalSafe(item?.carb);
+        acc.gord += parseDecimalSafe(item?.gord);
+        return acc;
+    }, { kcal: 0, prot: 0, carb: 0, gord: 0 });
+}
+
+function computeSingleMealConsumedTotals(meal, mealIndex, tracking) {
+    const intake = tracking?.intakeByMeal?.[mealIndex] || {};
+    const planned = (meal?.items || []).reduce((acc, item, itemIndex) => {
+        const consumedQty = Math.max(0, parseDecimalSafe(intake[itemIndex]) || 0);
+        if (consumedQty <= 0) return acc;
+        const baseQty = Math.max(0.0001, getItemBaseQuantity(item));
+        const ratio = consumedQty / baseQty;
+        acc.kcal += parseDecimalSafe(item.kcal) * ratio;
+        acc.prot += parseDecimalSafe(item.prot) * ratio;
+        acc.carb += parseDecimalSafe(item.carb) * ratio;
+        acc.gord += parseDecimalSafe(item.gord) * ratio;
+        return acc;
+    }, { kcal: 0, prot: 0, carb: 0, gord: 0 });
+
+    const customFoods = Array.isArray(tracking?.customFoodsByMeal?.[mealIndex]) ? tracking.customFoodsByMeal[mealIndex] : [];
+    customFoods.forEach((food) => {
+        planned.kcal += parseDecimalSafe(food.kcal);
+        planned.prot += parseDecimalSafe(food.prot);
+        planned.carb += parseDecimalSafe(food.carb);
+        planned.gord += parseDecimalSafe(food.gord);
+    });
+
+    return {
+        kcal: Math.round(planned.kcal),
+        prot: Math.round(planned.prot),
+        carb: Math.round(planned.carb),
+        gord: Math.round(planned.gord)
+    };
+}
+
+function addFoodToMealPlan(mealIndex) {
+    const studentId = memoryGetItem('currentStudentId');
+    if (!studentId) return;
+
+    const name = sanitizeUserInput(document.getElementById(`meal-plan-name-${mealIndex}`)?.value, { maxLen: 80 });
+    const qtd = sanitizeUserInput(document.getElementById(`meal-plan-qtd-${mealIndex}`)?.value, { maxLen: 30 }) || '-';
+    const kcal = Math.max(0, parseDecimalSafe(document.getElementById(`meal-plan-kcal-${mealIndex}`)?.value) || 0);
+    const prot = Math.max(0, parseDecimalSafe(document.getElementById(`meal-plan-prot-${mealIndex}`)?.value) || 0);
+    const carb = Math.max(0, parseDecimalSafe(document.getElementById(`meal-plan-carb-${mealIndex}`)?.value) || 0);
+    const gord = Math.max(0, parseDecimalSafe(document.getElementById(`meal-plan-fat-${mealIndex}`)?.value) || 0);
+
+    if (!name) {
+        alert('Digite o nome da comida para adicionar no plano.');
+        return;
+    }
+
+    const students = readStorageJSON('trainerStudents', []);
+    const idx = students.findIndex((s) => String(s.id) === String(studentId));
+    if (idx < 0) return;
+    const mealBlocks = Array.isArray(students[idx].mealBlocks) ? students[idx].mealBlocks : [];
+    if (!mealBlocks[mealIndex]) return;
+    mealBlocks[mealIndex].items = Array.isArray(mealBlocks[mealIndex].items) ? mealBlocks[mealIndex].items : [];
+    mealBlocks[mealIndex].items.push({ nome: name, qtd, kcal, prot, carb, gord });
+    students[idx].mealBlocks = mealBlocks;
+
+    memorySetItem('trainerStudents', JSON.stringify(students));
+    queueSupabaseStudentsSync(students);
+    refreshStudentDietViews();
+}
+
 function searchFoodCatalog(query = '') {
     const q = String(query || '').trim().toLowerCase();
     if (!q) return FOOD_CATALOG.slice(0, 12);
@@ -3975,11 +4045,17 @@ function renderStudentDietContent(student) {
         </div>
     `;
 
-    const mealCards = meals.map((meal, idx) => `
+    const mealCards = meals.map((meal, idx) => {
+        const mealPlanTotals = computeSingleMealTotals(meal.items || []);
+        const mealConsumedTotals = computeSingleMealConsumedTotals(meal, idx, tracking);
+        return `
         <div class="meal-block meal-glass-card">
-            <div class="block-header meal-header-glass tone-${idx % 3}" style="display: flex; justify-content: space-between; align-items: center;">
-                <h3>${escHtml(meal.name)}</h3>
-                <span class="text-sub">Registre o que você comeu</span>
+            <div class="block-header meal-header-glass tone-${idx % 3} meal-header-rich">
+                <div class="meal-title-wrap">
+                    <h3>${escHtml(meal.name)}</h3>
+                    <span class="text-sub meal-meta-line">Meta da refeição: ${mealPlanTotals.kcal.toFixed(0)} kcal · ${mealPlanTotals.prot.toFixed(0)}P · ${mealPlanTotals.carb.toFixed(0)}C · ${mealPlanTotals.gord.toFixed(0)}G</span>
+                </div>
+                <span class="text-sub meal-consumed-chip">Consumido: ${mealConsumedTotals.kcal} kcal</span>
             </div>
             <div class="meal-items-list">
                 ${(meal.items || []).map((item, itemIndex) => `
@@ -3988,13 +4064,13 @@ function renderStudentDietContent(student) {
                             <strong>${escHtml(item.nome)}</strong>
                             <span class="text-sub">Planejado: ${escHtml(item.qtd)}</span>
                         </div>
-                        <div class="meal-macros-mini" style="justify-content:flex-end;">
+                        <div class="meal-macros-mini meal-macros-right">
                             <span class="macro-badge kcal">${item.kcal} kcal</span>
                             <span class="macro-badge protein">${uiSvgIcon('protein')} ${item.prot}g P</span>
                             <span class="macro-badge carb">${uiSvgIcon('carb')} ${item.carb}g C</span>
                             <span class="macro-badge fat">${uiSvgIcon('fat')} ${item.gord}g G</span>
                         </div>
-                        <div style="display:flex; align-items:center; gap:0.5rem; margin-left:0.7rem;">
+                        <div class="meal-item-consumed">
                             <span class="text-sub">Consumido</span>
                             <input
                                 type="number"
@@ -4003,6 +4079,7 @@ function renderStudentDietContent(student) {
                                 value="${parseDecimalSafe(tracking?.intakeByMeal?.[idx]?.[itemIndex]) || ''}"
                                 placeholder="${getItemBaseQuantity(item)}"
                                 oninput="updateDietItemIntake(${idx}, ${itemIndex}, this.value)"
+                                class="diet-input diet-input-sm"
                                 style="width: 92px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.4rem 0.45rem;"
                             />
                         </div>
@@ -4027,23 +4104,46 @@ function renderStudentDietContent(student) {
                     </div>
                 `).join('')}
 
-                <div class="meal-item-row" style="display:grid; gap:0.5rem; margin-top:0.5rem; border:1px dashed rgba(255,255,255,0.18);">
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.45rem;">
-                        <input id="custom-food-search-${idx}" type="text" placeholder="Buscar alimento na base (ex: banana)" oninput="refreshMealCatalogOptions(${idx}, this.value)" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.5rem;">
-                        <select id="custom-food-catalog-${idx}" onchange="applyCatalogFoodToMeal(${idx})" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.5rem;">
+                <div class="meal-item-row diet-form-card">
+                    <div class="diet-form-grid-2">
+                        <input id="custom-food-search-${idx}" type="text" placeholder="Buscar alimento na base (ex: banana)" oninput="refreshMealCatalogOptions(${idx}, this.value)" class="diet-input">
+                        <select id="custom-food-catalog-${idx}" onchange="applyCatalogFoodToMeal(${idx})" class="diet-input diet-select">
                             <option value="">Selecionar alimento da base</option>
                             ${searchFoodCatalog('').map(food => `<option value="${food.id}">${escHtml(food.name)} (100g: ${food.per100.kcal} kcal)</option>`).join('')}
                         </select>
                     </div>
-                    <div style="display:grid; grid-template-columns:1.4fr 0.6fr 0.6fr 0.8fr; gap:0.45rem;">
-                        <input id="custom-food-name-${idx}" type="text" placeholder="Nome do alimento" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.5rem;">
-                        <input id="custom-food-amount-${idx}" type="number" min="0" step="0.1" value="100" oninput="recalculateCustomFoodMacros(${idx})" placeholder="Qtd." style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.5rem;">
-                        <select id="custom-food-unit-${idx}" onchange="recalculateCustomFoodMacros(${idx})" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.5rem;">
+                    <div class="diet-form-grid-main">
+                        <input id="custom-food-name-${idx}" type="text" placeholder="Nome do alimento" class="diet-input">
+                        <input id="custom-food-amount-${idx}" type="number" min="0" step="0.1" value="100" oninput="recalculateCustomFoodMacros(${idx})" placeholder="Qtd." class="diet-input">
+                        <select id="custom-food-unit-${idx}" onchange="recalculateCustomFoodMacros(${idx})" class="diet-input diet-select">
                             <option value="g">g</option>
                             <option value="ml">ml</option>
                             <option value="un">un</option>
                             <option value="fatia">fatia</option>
                         </select>
+                        <button class="btn-ghost diet-action-btn" type="button" onclick="recalculateCustomFoodMacros(${idx})">Calcular</button>
+                    </div>
+                    <div class="diet-form-grid-4">
+                        <input id="custom-food-kcal-${idx}" type="number" min="0" step="1" placeholder="kcal" class="diet-input">
+                        <input id="custom-food-prot-${idx}" type="number" min="0" step="0.1" placeholder="Prot (g)" class="diet-input">
+                        <input id="custom-food-carb-${idx}" type="number" min="0" step="0.1" placeholder="Carb (g)" class="diet-input">
+                        <input id="custom-food-fat-${idx}" type="number" min="0" step="0.1" placeholder="Gord (g)" class="diet-input">
+                    </div>
+                    <button class="btn-secondary diet-action-btn" type="button" onclick="addCustomFoodToMeal(${idx})">+ Adicionar alimento nesta refeição</button>
+                </div>
+                <div class="meal-item-row diet-form-card diet-form-card-highlight">
+                    <strong class="diet-form-title">Adicionar comida na meta do ${escHtml(meal.name)}</strong>
+                    <div class="diet-form-grid-main-plan">
+                        <input id="meal-plan-name-${idx}" type="text" placeholder="Ex: Tilápia grelhada" class="diet-input">
+                        <input id="meal-plan-qtd-${idx}" type="text" placeholder="Ex: 150 g" class="diet-input">
+                    </div>
+                    <div class="diet-form-grid-4">
+                        <input id="meal-plan-kcal-${idx}" type="number" min="0" step="1" placeholder="kcal" class="diet-input">
+                        <input id="meal-plan-prot-${idx}" type="number" min="0" step="0.1" placeholder="Prot (g)" class="diet-input">
+                        <input id="meal-plan-carb-${idx}" type="number" min="0" step="0.1" placeholder="Carb (g)" class="diet-input">
+                        <input id="meal-plan-fat-${idx}" type="number" min="0" step="0.1" placeholder="Gord (g)" class="diet-input">
+                    </div>
+                    <button class="btn-secondary diet-action-btn" type="button" onclick="addFoodToMealPlan(${idx})">+ Adicionar na meta desta refeição</button>
                         <button class="btn-ghost" type="button" onclick="recalculateCustomFoodMacros(${idx})" style="padding: 0.45rem;">Calcular</button>
                     </div>
                     <div style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:0.45rem;">
@@ -4056,7 +4156,8 @@ function renderStudentDietContent(student) {
                 </div>
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     const waterCard = `
         <div class="meal-block meal-glass-card" style="text-align: center; padding: 1.5rem; margin-top: 1rem;">
