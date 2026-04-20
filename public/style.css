@@ -4064,6 +4064,12 @@ body {
     font-weight: 700;
 }
 
+.diet-consistency-line {
+    margin: 0.2rem 0 0.35rem;
+    font-size: 0.72rem;
+    color: #cdd6d9;
+}
+
 @keyframes dietPulse {
     from {
         filter: brightness(0.9);

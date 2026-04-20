@@ -108,6 +108,21 @@ const DEMO_MEAL_BLOCKS = [
     }
 ];
 
+const FOOD_CATALOG = [
+    { id: 'arroz-cozido', name: 'Arroz cozido', per100: { kcal: 130, prot: 2.7, carb: 28.0, gord: 0.3 }, defaultUnit: 'g' },
+    { id: 'feijao-cozido', name: 'Feijão cozido', per100: { kcal: 77, prot: 4.8, carb: 14.0, gord: 0.5 }, defaultUnit: 'g' },
+    { id: 'frango-grelhado', name: 'Frango grelhado', per100: { kcal: 165, prot: 31.0, carb: 0.0, gord: 3.6 }, defaultUnit: 'g' },
+    { id: 'patinho', name: 'Patinho moído', per100: { kcal: 219, prot: 26.0, carb: 0.0, gord: 12.0 }, defaultUnit: 'g' },
+    { id: 'ovo-inteiro', name: 'Ovo inteiro', per100: { kcal: 143, prot: 12.6, carb: 0.7, gord: 9.5 }, defaultUnit: 'un', perUnit: { kcal: 72, prot: 6.3, carb: 0.4, gord: 4.8 } },
+    { id: 'banana', name: 'Banana', per100: { kcal: 89, prot: 1.1, carb: 23.0, gord: 0.3 }, defaultUnit: 'un', perUnit: { kcal: 90, prot: 1.1, carb: 23.0, gord: 0.3 } },
+    { id: 'aveia', name: 'Aveia', per100: { kcal: 389, prot: 16.9, carb: 66.3, gord: 6.9 }, defaultUnit: 'g' },
+    { id: 'batata-doce', name: 'Batata doce', per100: { kcal: 86, prot: 1.6, carb: 20.0, gord: 0.1 }, defaultUnit: 'g' },
+    { id: 'pao-integral', name: 'Pão integral', per100: { kcal: 247, prot: 13.0, carb: 41.0, gord: 4.2 }, defaultUnit: 'fatia', perUnit: { kcal: 62, prot: 3.3, carb: 10.2, gord: 1.1 } },
+    { id: 'whey-protein', name: 'Whey protein', per100: { kcal: 400, prot: 80.0, carb: 10.0, gord: 6.0 }, defaultUnit: 'g' },
+    { id: 'iogurte-natural', name: 'Iogurte natural', per100: { kcal: 61, prot: 3.5, carb: 4.7, gord: 3.3 }, defaultUnit: 'g' },
+    { id: 'azeite', name: 'Azeite de oliva', per100: { kcal: 884, prot: 0.0, carb: 0.0, gord: 100.0 }, defaultUnit: 'ml' }
+];
+
 // Base da dieta inspirada no motor do arquivo "Dieta" (TMB/TDEE/macros/preset de refeicoes)
 const DIETA_ACTIVITY_FACTORS = {
     sedentary: 1.2,
@@ -3634,15 +3649,15 @@ function getMuscleGroups(exercises) {
 
 function computeDietMacroData(student) {
     const blocks = Array.isArray(student?.mealBlocks) ? student.mealBlocks : [];
-    let totalProtein = 0;
-    let totalCarb = 0;
-    let totalFat = 0;
+    let plannedProtein = 0;
+    let plannedCarb = 0;
+    let plannedFat = 0;
 
     blocks.forEach((meal) => {
         (meal.items || []).forEach((item) => {
-            totalProtein += parseDecimalSafe(item.prot);
-            totalCarb += parseDecimalSafe(item.carb);
-            totalFat += parseDecimalSafe(item.gord);
+            plannedProtein += parseDecimalSafe(item.prot);
+            plannedCarb += parseDecimalSafe(item.carb);
+            plannedFat += parseDecimalSafe(item.gord);
         });
     });
 
@@ -3652,9 +3667,9 @@ function computeDietMacroData(student) {
 
     return {
         totals: {
-            protein: Math.round(totalProtein),
-            carb: Math.round(totalCarb),
-            fat: Math.round(totalFat)
+            protein: Math.round(plannedProtein),
+            carb: Math.round(plannedCarb),
+            fat: Math.round(plannedFat)
         },
         targets: {
             protein: Math.round(targetProtein),
@@ -3662,44 +3677,301 @@ function computeDietMacroData(student) {
             fat: Math.round(targetFat)
         },
         progress: {
-            protein: Math.min(100, Math.max(8, Math.round((totalProtein / targetProtein) * 100))),
-            carb: Math.min(100, Math.max(8, Math.round((totalCarb / targetCarb) * 100))),
-            fat: Math.min(100, Math.max(8, Math.round((totalFat / targetFat) * 100)))
+            protein: Math.min(100, Math.max(8, Math.round((plannedProtein / targetProtein) * 100))),
+            carb: Math.min(100, Math.max(8, Math.round((plannedCarb / targetCarb) * 100))),
+            fat: Math.min(100, Math.max(8, Math.round((plannedFat / targetFat) * 100)))
         }
     };
 }
 
+function getLocalDateKey() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function getDietTrackingStorageKey(studentId) {
+    return `diet_tracking_v2:${studentId}:${getLocalDateKey()}`;
+}
+
+function readDietTracking(studentId) {
+    if (!studentId) return { waterCups: 0, consumedMeals: {} };
+    const key = getDietTrackingStorageKey(studentId);
+    const saved = readStorageJSON(key, {});
+    const waterCups = Math.max(0, parseIntegerSafe(saved?.waterCups) || 0);
+    const consumedMeals = (saved?.consumedMeals && typeof saved.consumedMeals === 'object')
+        ? saved.consumedMeals
+        : {};
+    const intakeByMeal = (saved?.intakeByMeal && typeof saved.intakeByMeal === 'object')
+        ? saved.intakeByMeal
+        : {};
+    const customFoodsByMeal = (saved?.customFoodsByMeal && typeof saved.customFoodsByMeal === 'object')
+        ? saved.customFoodsByMeal
+        : {};
+    return { waterCups, consumedMeals, intakeByMeal, customFoodsByMeal };
+}
+
+function saveDietTracking(studentId, tracking) {
+    if (!studentId) return;
+    const key = getDietTrackingStorageKey(studentId);
+    memorySetItem(key, JSON.stringify({
+        waterCups: Math.max(0, parseIntegerSafe(tracking?.waterCups) || 0),
+        consumedMeals: tracking?.consumedMeals && typeof tracking.consumedMeals === 'object' ? tracking.consumedMeals : {},
+        intakeByMeal: tracking?.intakeByMeal && typeof tracking.intakeByMeal === 'object' ? tracking.intakeByMeal : {},
+        customFoodsByMeal: tracking?.customFoodsByMeal && typeof tracking.customFoodsByMeal === 'object' ? tracking.customFoodsByMeal : {}
+    }));
+}
+
+function getItemBaseQuantity(item) {
+    const raw = String(item?.qtd || '').replace(',', '.');
+    const match = raw.match(/(\d+(\.\d+)?)/);
+    return match ? Math.max(0, parseFloat(match[1])) : 1;
+}
+
+function computeConsumedMealTotals(meals, tracking) {
+    let protein = 0;
+    let carb = 0;
+    let fat = 0;
+    let kcal = 0;
+
+    const intakeByMeal = tracking?.intakeByMeal && typeof tracking.intakeByMeal === 'object'
+        ? tracking.intakeByMeal
+        : {};
+    const customFoodsByMeal = tracking?.customFoodsByMeal && typeof tracking.customFoodsByMeal === 'object'
+        ? tracking.customFoodsByMeal
+        : {};
+
+    meals.forEach((meal, index) => {
+        const itemIntakes = intakeByMeal[index] && typeof intakeByMeal[index] === 'object'
+            ? intakeByMeal[index]
+            : {};
+        (meal.items || []).forEach((item, itemIndex) => {
+            const consumedQty = Math.max(0, parseDecimalSafe(itemIntakes[itemIndex]) || 0);
+            if (consumedQty <= 0) return;
+            const baseQty = Math.max(0.0001, getItemBaseQuantity(item));
+            const ratio = consumedQty / baseQty;
+            protein += parseDecimalSafe(item.prot) * ratio;
+            carb += parseDecimalSafe(item.carb) * ratio;
+            fat += parseDecimalSafe(item.gord) * ratio;
+            kcal += parseDecimalSafe(item.kcal) * ratio;
+        });
+
+        const customFoods = Array.isArray(customFoodsByMeal[index]) ? customFoodsByMeal[index] : [];
+        customFoods.forEach((food) => {
+            protein += parseDecimalSafe(food.prot);
+            carb += parseDecimalSafe(food.carb);
+            fat += parseDecimalSafe(food.gord);
+            kcal += parseDecimalSafe(food.kcal);
+        });
+    });
+    return {
+        protein: Math.round(protein),
+        carb: Math.round(carb),
+        fat: Math.round(fat),
+        kcal: Math.round(kcal)
+    };
+}
+
+function searchFoodCatalog(query = '') {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return FOOD_CATALOG.slice(0, 12);
+    return FOOD_CATALOG
+        .filter((food) => food.name.toLowerCase().includes(q))
+        .slice(0, 12);
+}
+
+function getFoodById(foodId) {
+    return FOOD_CATALOG.find((food) => String(food.id) === String(foodId)) || null;
+}
+
+function computeCatalogFoodMacros(food, amount, unit) {
+    const safeAmount = Math.max(0, parseDecimalSafe(amount) || 0);
+    if (!food || safeAmount <= 0) return { kcal: 0, prot: 0, carb: 0, gord: 0 };
+
+    if ((unit === 'un' || unit === 'fatia') && food.perUnit) {
+        return {
+            kcal: roundMacro(food.perUnit.kcal * safeAmount),
+            prot: roundMacro(food.perUnit.prot * safeAmount),
+            carb: roundMacro(food.perUnit.carb * safeAmount),
+            gord: roundMacro(food.perUnit.gord * safeAmount)
+        };
+    }
+
+    const ratio = safeAmount / 100;
+    return {
+        kcal: roundMacro(food.per100.kcal * ratio),
+        prot: roundMacro(food.per100.prot * ratio),
+        carb: roundMacro(food.per100.carb * ratio),
+        gord: roundMacro(food.per100.gord * ratio)
+    };
+}
+
+function refreshMealCatalogOptions(mealIndex, query = '') {
+    const select = document.getElementById(`custom-food-catalog-${mealIndex}`);
+    if (!select) return;
+    const currentValue = select.value;
+    const options = searchFoodCatalog(query);
+    select.innerHTML = `<option value="">Selecionar alimento da base</option>${options.map((food) => `
+        <option value="${food.id}">${escHtml(food.name)} (100g: ${food.per100.kcal} kcal)</option>
+    `).join('')}`;
+    if (currentValue && options.some((food) => food.id === currentValue)) select.value = currentValue;
+}
+
+function applyCatalogFoodToMeal(mealIndex) {
+    const select = document.getElementById(`custom-food-catalog-${mealIndex}`);
+    const amountInput = document.getElementById(`custom-food-amount-${mealIndex}`);
+    const unitSelect = document.getElementById(`custom-food-unit-${mealIndex}`);
+    const nameInput = document.getElementById(`custom-food-name-${mealIndex}`);
+    const kcalInput = document.getElementById(`custom-food-kcal-${mealIndex}`);
+    const protInput = document.getElementById(`custom-food-prot-${mealIndex}`);
+    const carbInput = document.getElementById(`custom-food-carb-${mealIndex}`);
+    const fatInput = document.getElementById(`custom-food-fat-${mealIndex}`);
+    if (!select || !amountInput || !unitSelect) return;
+
+    const food = getFoodById(select.value);
+    if (!food) return;
+
+    if (nameInput && !nameInput.value.trim()) nameInput.value = food.name;
+    unitSelect.value = food.defaultUnit || 'g';
+    if (!parseDecimalSafe(amountInput.value)) amountInput.value = '100';
+
+    const computed = computeCatalogFoodMacros(food, amountInput.value, unitSelect.value);
+    if (kcalInput) kcalInput.value = computed.kcal;
+    if (protInput) protInput.value = computed.prot;
+    if (carbInput) carbInput.value = computed.carb;
+    if (fatInput) fatInput.value = computed.gord;
+}
+
+function recalculateCustomFoodMacros(mealIndex) {
+    const select = document.getElementById(`custom-food-catalog-${mealIndex}`);
+    const amountInput = document.getElementById(`custom-food-amount-${mealIndex}`);
+    const unitSelect = document.getElementById(`custom-food-unit-${mealIndex}`);
+    const kcalInput = document.getElementById(`custom-food-kcal-${mealIndex}`);
+    const protInput = document.getElementById(`custom-food-prot-${mealIndex}`);
+    const carbInput = document.getElementById(`custom-food-carb-${mealIndex}`);
+    const fatInput = document.getElementById(`custom-food-fat-${mealIndex}`);
+    if (!select || !amountInput || !unitSelect) return;
+    const food = getFoodById(select.value);
+    if (!food) return;
+    const computed = computeCatalogFoodMacros(food, amountInput.value, unitSelect.value);
+    if (kcalInput) kcalInput.value = computed.kcal;
+    if (protInput) protInput.value = computed.prot;
+    if (carbInput) carbInput.value = computed.carb;
+    if (fatInput) fatInput.value = computed.gord;
+}
+
+function updateDietItemIntake(mealIndex, itemIndex, value) {
+    const studentId = memoryGetItem('currentStudentId');
+    if (!studentId) return;
+    const tracking = readDietTracking(studentId);
+    tracking.intakeByMeal = tracking.intakeByMeal || {};
+    tracking.intakeByMeal[mealIndex] = tracking.intakeByMeal[mealIndex] || {};
+    tracking.intakeByMeal[mealIndex][itemIndex] = Math.max(0, parseDecimalSafe(value) || 0);
+    saveDietTracking(studentId, tracking);
+    refreshStudentDietViews();
+}
+
+function addCustomFoodToMeal(mealIndex) {
+    const studentId = memoryGetItem('currentStudentId');
+    if (!studentId) return;
+
+    const nameInput = document.getElementById(`custom-food-name-${mealIndex}`);
+    const amountInput = document.getElementById(`custom-food-amount-${mealIndex}`);
+    const unitInput = document.getElementById(`custom-food-unit-${mealIndex}`);
+    const catalogInput = document.getElementById(`custom-food-catalog-${mealIndex}`);
+    const kcalInput = document.getElementById(`custom-food-kcal-${mealIndex}`);
+    const protInput = document.getElementById(`custom-food-prot-${mealIndex}`);
+    const carbInput = document.getElementById(`custom-food-carb-${mealIndex}`);
+    const fatInput = document.getElementById(`custom-food-fat-${mealIndex}`);
+
+    const selectedFood = getFoodById(catalogInput?.value);
+    const nome = sanitizeUserInput(nameInput?.value, { maxLen: 80 }) || selectedFood?.name;
+    if (!nome) {
+        alert('Informe o nome do alimento.');
+        return;
+    }
+    const amount = Math.max(0, parseDecimalSafe(amountInput?.value) || 0);
+    const unit = sanitizeUserInput(unitInput?.value, { maxLen: 10 }) || 'g';
+
+    const food = {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        nome,
+        qtd: amount > 0 ? `${amount} ${unit}` : '-',
+        amount,
+        unit,
+        sourceFoodId: selectedFood?.id || '',
+        kcal: Math.max(0, parseDecimalSafe(kcalInput?.value) || 0),
+        prot: Math.max(0, parseDecimalSafe(protInput?.value) || 0),
+        carb: Math.max(0, parseDecimalSafe(carbInput?.value) || 0),
+        gord: Math.max(0, parseDecimalSafe(fatInput?.value) || 0)
+    };
+
+    const tracking = readDietTracking(studentId);
+    tracking.customFoodsByMeal = tracking.customFoodsByMeal || {};
+    const bucket = Array.isArray(tracking.customFoodsByMeal[mealIndex]) ? tracking.customFoodsByMeal[mealIndex] : [];
+    bucket.push(food);
+    tracking.customFoodsByMeal[mealIndex] = bucket;
+    saveDietTracking(studentId, tracking);
+    refreshStudentDietViews();
+}
+
+function removeCustomFoodFromMeal(mealIndex, foodId) {
+    const studentId = memoryGetItem('currentStudentId');
+    if (!studentId) return;
+    const tracking = readDietTracking(studentId);
+    tracking.customFoodsByMeal = tracking.customFoodsByMeal || {};
+    const bucket = Array.isArray(tracking.customFoodsByMeal[mealIndex]) ? tracking.customFoodsByMeal[mealIndex] : [];
+    tracking.customFoodsByMeal[mealIndex] = bucket.filter((food) => String(food.id) !== String(foodId));
+    saveDietTracking(studentId, tracking);
+    refreshStudentDietViews();
+}
+
 window.updateWater = function (delta) {
-    let count = parseInt(memoryGetItem('water_cups') || '0', 10);
-    count = Math.max(0, count + delta);
-    memorySetItem('water_cups', count);
-    const el = document.getElementById('water-counter-display');
-    if (el) el.innerText = count;
+    const studentId = memoryGetItem('currentStudentId');
+    if (!studentId) return;
+    const tracking = readDietTracking(studentId);
+    tracking.waterCups = Math.max(0, tracking.waterCups + (parseIntegerSafe(delta) || 0));
+    saveDietTracking(studentId, tracking);
+    refreshStudentDietViews();
 };
 
 function renderStudentDietContent(student) {
     const macro = computeDietMacroData(student);
     const meals = Array.isArray(student?.mealBlocks) ? student.mealBlocks : [];
-    const savedWater = memoryGetItem('water_cups') || '0';
+    const studentId = memoryGetItem('currentStudentId');
+    const tracking = readDietTracking(studentId);
+    const savedWater = tracking.waterCups;
+    const consumedTotals = computeConsumedMealTotals(meals, tracking);
+    const consumedCount = meals.filter((meal, idx) => {
+        const intakes = tracking?.intakeByMeal?.[idx] || {};
+        const hasPlannedIntake = Object.values(intakes).some((v) => (parseDecimalSafe(v) || 0) > 0);
+        const hasCustom = Array.isArray(tracking?.customFoodsByMeal?.[idx]) && tracking.customFoodsByMeal[idx].length > 0;
+        return hasPlannedIntake || hasCustom;
+    }).length;
+    const adherence = meals.length > 0 ? Math.round((consumedCount / meals.length) * 100) : 0;
 
     const summaryCard = `
         <div class="diet-macro-summary-card">
-            <div class="diet-macro-summary-title">Macros Diários</div>
+            <div class="diet-macro-summary-title">Resumo de hoje (${getLocalDateKey().split('-').reverse().join('/')})</div>
+            <div class="diet-consistency-line">Refeições concluídas: <strong>${consumedCount}/${meals.length || 0}</strong> · Aderência: <strong>${adherence}%</strong></div>
             <div class="diet-progress-row">
                 <div class="diet-progress-label protein">${uiSvgIcon('protein')} Proteína</div>
-                <div class="diet-progress-bar"><span class="diet-progress-fill protein" style="width:${macro.progress.protein}%"></span></div>
-                <div class="diet-progress-value">${macro.totals.protein}/${macro.targets.protein}g</div>
+                <div class="diet-progress-bar"><span class="diet-progress-fill protein" style="width:${Math.min(100, Math.max(0, Math.round((consumedTotals.protein / Math.max(1, macro.targets.protein)) * 100)))}%"></span></div>
+                <div class="diet-progress-value">${consumedTotals.protein}/${macro.targets.protein}g</div>
             </div>
             <div class="diet-progress-row">
                 <div class="diet-progress-label carb">${uiSvgIcon('carb')} Carboidrato</div>
-                <div class="diet-progress-bar"><span class="diet-progress-fill carb" style="width:${macro.progress.carb}%"></span></div>
-                <div class="diet-progress-value">${macro.totals.carb}/${macro.targets.carb}g</div>
+                <div class="diet-progress-bar"><span class="diet-progress-fill carb" style="width:${Math.min(100, Math.max(0, Math.round((consumedTotals.carb / Math.max(1, macro.targets.carb)) * 100)))}%"></span></div>
+                <div class="diet-progress-value">${consumedTotals.carb}/${macro.targets.carb}g</div>
             </div>
             <div class="diet-progress-row">
                 <div class="diet-progress-label fat">${uiSvgIcon('fat')} Gordura</div>
-                <div class="diet-progress-bar"><span class="diet-progress-fill fat" style="width:${macro.progress.fat}%"></span></div>
-                <div class="diet-progress-value">${macro.totals.fat}/${macro.targets.fat}g</div>
+                <div class="diet-progress-bar"><span class="diet-progress-fill fat" style="width:${Math.min(100, Math.max(0, Math.round((consumedTotals.fat / Math.max(1, macro.targets.fat)) * 100)))}%"></span></div>
+                <div class="diet-progress-value">${consumedTotals.fat}/${macro.targets.fat}g</div>
             </div>
+            <div class="diet-consistency-line" style="margin-top:0.6rem;">Plano do dia: ${macro.totals.protein}g P · ${macro.totals.carb}g C · ${macro.totals.fat}g G</div>
         </div>
     `;
 
@@ -3707,25 +3979,81 @@ function renderStudentDietContent(student) {
         <div class="meal-block meal-glass-card">
             <div class="block-header meal-header-glass tone-${idx % 3}" style="display: flex; justify-content: space-between; align-items: center;">
                 <h3>${escHtml(meal.name)}</h3>
-                <button class="btn-icon-tiny meal-check-btn" onclick="handleMealCheckClick(this)" title="Marcar como consumida" style="color: rgba(255,255,255,0.4); border: 2px solid currentColor; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s ease;">
-                    ${uiSvgIcon('check')}
-                </button>
+                <span class="text-sub">Registre o que você comeu</span>
             </div>
             <div class="meal-items-list">
-                ${(meal.items || []).map(item => `
+                ${(meal.items || []).map((item, itemIndex) => `
                     <div class="meal-item-row">
                         <div style="flex:1;">
                             <strong>${escHtml(item.nome)}</strong>
-                            <span class="text-sub">${escHtml(item.qtd)}</span>
+                            <span class="text-sub">Planejado: ${escHtml(item.qtd)}</span>
                         </div>
-                        <div class="meal-macros-mini">
+                        <div class="meal-macros-mini" style="justify-content:flex-end;">
                             <span class="macro-badge kcal">${item.kcal} kcal</span>
                             <span class="macro-badge protein">${uiSvgIcon('protein')} ${item.prot}g P</span>
                             <span class="macro-badge carb">${uiSvgIcon('carb')} ${item.carb}g C</span>
                             <span class="macro-badge fat">${uiSvgIcon('fat')} ${item.gord}g G</span>
                         </div>
+                        <div style="display:flex; align-items:center; gap:0.5rem; margin-left:0.7rem;">
+                            <span class="text-sub">Consumido</span>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.5"
+                                value="${parseDecimalSafe(tracking?.intakeByMeal?.[idx]?.[itemIndex]) || ''}"
+                                placeholder="${getItemBaseQuantity(item)}"
+                                oninput="updateDietItemIntake(${idx}, ${itemIndex}, this.value)"
+                                style="width: 92px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.4rem 0.45rem;"
+                            />
+                        </div>
                     </div>
                 `).join('')}
+
+                ${(Array.isArray(tracking?.customFoodsByMeal?.[idx]) ? tracking.customFoodsByMeal[idx] : []).map(food => `
+                    <div class="meal-item-row" style="border:1px dashed rgba(163,230,53,0.35);">
+                        <div style="flex:1;">
+                            <strong>${escHtml(food.nome)}</strong>
+                            <span class="text-sub">Adicionado por você · ${escHtml(food.qtd || '-')}</span>
+                        </div>
+                        <div class="meal-macros-mini">
+                            <span class="macro-badge kcal">${Math.round(parseDecimalSafe(food.kcal))} kcal</span>
+                            <span class="macro-badge protein">${uiSvgIcon('protein')} ${Math.round(parseDecimalSafe(food.prot))}g P</span>
+                            <span class="macro-badge carb">${uiSvgIcon('carb')} ${Math.round(parseDecimalSafe(food.carb))}g C</span>
+                            <span class="macro-badge fat">${uiSvgIcon('fat')} ${Math.round(parseDecimalSafe(food.gord))}g G</span>
+                        </div>
+                        <button class="btn-icon-tiny" onclick="removeCustomFoodFromMeal(${idx}, '${escHtml(food.id)}')" title="Remover alimento">
+                            <i class="ph-bold ph-trash"></i>
+                        </button>
+                    </div>
+                `).join('')}
+
+                <div class="meal-item-row" style="display:grid; gap:0.5rem; margin-top:0.5rem; border:1px dashed rgba(255,255,255,0.18);">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.45rem;">
+                        <input id="custom-food-search-${idx}" type="text" placeholder="Buscar alimento na base (ex: banana)" oninput="refreshMealCatalogOptions(${idx}, this.value)" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.5rem;">
+                        <select id="custom-food-catalog-${idx}" onchange="applyCatalogFoodToMeal(${idx})" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.5rem;">
+                            <option value="">Selecionar alimento da base</option>
+                            ${searchFoodCatalog('').map(food => `<option value="${food.id}">${escHtml(food.name)} (100g: ${food.per100.kcal} kcal)</option>`).join('')}
+                        </select>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1.4fr 0.6fr 0.6fr 0.8fr; gap:0.45rem;">
+                        <input id="custom-food-name-${idx}" type="text" placeholder="Nome do alimento" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.5rem;">
+                        <input id="custom-food-amount-${idx}" type="number" min="0" step="0.1" value="100" oninput="recalculateCustomFoodMacros(${idx})" placeholder="Qtd." style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.5rem;">
+                        <select id="custom-food-unit-${idx}" onchange="recalculateCustomFoodMacros(${idx})" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.5rem;">
+                            <option value="g">g</option>
+                            <option value="ml">ml</option>
+                            <option value="un">un</option>
+                            <option value="fatia">fatia</option>
+                        </select>
+                        <button class="btn-ghost" type="button" onclick="recalculateCustomFoodMacros(${idx})" style="padding: 0.45rem;">Calcular</button>
+                    </div>
+                    <div style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:0.45rem;">
+                        <input id="custom-food-kcal-${idx}" type="number" min="0" step="1" placeholder="kcal" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.45rem;">
+                        <input id="custom-food-prot-${idx}" type="number" min="0" step="0.1" placeholder="Prot (g)" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.45rem;">
+                        <input id="custom-food-carb-${idx}" type="number" min="0" step="0.1" placeholder="Carb (g)" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.45rem;">
+                        <input id="custom-food-fat-${idx}" type="number" min="0" step="0.1" placeholder="Gord (g)" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 0.45rem;">
+                    </div>
+                    <button class="btn-secondary" type="button" onclick="addCustomFoodToMeal(${idx})">+ Adicionar alimento nesta refeição</button>
+                </div>
             </div>
         </div>
     `).join('');
@@ -3754,19 +4082,10 @@ function renderStudentDietContent(student) {
     return `${summaryCard}${mealCards}${waterCard}`;
 }
 
-function handleMealCheckClick(buttonEl) {
-    if (!buttonEl) return;
-    const isActive = buttonEl.classList.toggle('consumed');
-    if (isActive) {
-        buttonEl.style.color = '#4ade80';
-        buttonEl.style.borderColor = '#4ade80';
-        buttonEl.innerHTML = uiSvgIcon('check-circle');
-    } else {
-        buttonEl.style.color = 'rgba(255,255,255,0.4)';
-        buttonEl.style.borderColor = 'currentColor';
-        buttonEl.innerHTML = uiSvgIcon('check');
-    }
-    triggerHaptic(20);
+function refreshStudentDietViews() {
+    renderStudentDietMain();
+    const dietModal = document.getElementById('student-diet-screen');
+    if (dietModal && dietModal.classList.contains('active')) openStudentDiet();
 }
 
 function renderStudentDietMain() {
@@ -9295,10 +9614,3 @@ function setSetExecution(exIdx, setIdx, execValue) {
     saveWorkoutBackup();
     renderWorkoutLog();
 }
-
-
-
-
-
-
-
