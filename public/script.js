@@ -985,6 +985,59 @@ function normalizeStudentRow(row) {
     return student;
 }
 
+function mergeDietLogEntries(baseEntry, incomingEntry) {
+    const base = baseEntry && typeof baseEntry === 'object' ? baseEntry : { meals: {} };
+    const incoming = incomingEntry && typeof incomingEntry === 'object' ? incomingEntry : { meals: {} };
+    const merged = { ...base, ...incoming, meals: {} };
+    const mealKeys = new Set([
+        ...Object.keys(base.meals || {}),
+        ...Object.keys(incoming.meals || {})
+    ]);
+    mealKeys.forEach((mealKey) => {
+        const baseMeal = base.meals?.[mealKey] || {};
+        const incomingMeal = incoming.meals?.[mealKey] || {};
+        const mergedMeal = { ...baseMeal, ...incomingMeal, items: {} };
+        const itemKeys = new Set([
+            ...Object.keys(baseMeal.items || {}),
+            ...Object.keys(incomingMeal.items || {})
+        ]);
+        itemKeys.forEach((itemKey) => {
+            mergedMeal.items[itemKey] = {
+                ...(baseMeal.items?.[itemKey] || {}),
+                ...(incomingMeal.items?.[itemKey] || {})
+            };
+        });
+        merged.meals[mealKey] = mergedMeal;
+    });
+    return merged;
+}
+
+function mergeDietLogsByDate(baseLogs, incomingLogs) {
+    const base = baseLogs && typeof baseLogs === 'object' ? baseLogs : {};
+    const incoming = incomingLogs && typeof incomingLogs === 'object' ? incomingLogs : {};
+    const merged = {};
+    const dateKeys = new Set([...Object.keys(base), ...Object.keys(incoming)]);
+    dateKeys.forEach((dateKey) => {
+        merged[dateKey] = mergeDietLogEntries(base[dateKey], incoming[dateKey]);
+    });
+    return merged;
+}
+
+function mergeStudentRemoteLocal(localStudent, remoteStudent) {
+    if (!remoteStudent) return null;
+    const local = localStudent && typeof localStudent === 'object' ? localStudent : {};
+    const remote = remoteStudent && typeof remoteStudent === 'object' ? remoteStudent : {};
+    const merged = { ...local, ...remote };
+    merged.id = remote.id || local.id || '';
+    merged.trainerCode = remote.trainerCode || local.trainerCode || remote.trainer_code || '';
+    merged.mealBlocks = Array.isArray(remote.mealBlocks) ? remote.mealBlocks : (Array.isArray(local.mealBlocks) ? local.mealBlocks : []);
+    merged.dietMeta = (remote.dietMeta && typeof remote.dietMeta === 'object')
+        ? remote.dietMeta
+        : (local.dietMeta && typeof local.dietMeta === 'object' ? local.dietMeta : {});
+    merged.dietLogs = mergeDietLogsByDate(local.dietLogs, remote.dietLogs);
+    return merged;
+}
+
 async function getTrainerByCodeRemote(code) {
     if (!isSupabaseReady() || !code) return null;
     const { data, error } = await window.supabase
@@ -1095,7 +1148,12 @@ async function syncStudentsFromSupabase(trainerCode) {
         return;
     }
     if (!data) return;
-    const students = data.map(normalizeStudentRow).filter(Boolean);
+    const remoteStudents = data.map(normalizeStudentRow).filter(Boolean);
+    const localStudents = readStorageJSON('trainerStudents', []);
+    const students = remoteStudents.map((remoteStudent) => {
+        const localMatch = localStudents.find((s) => String(s.id) === String(remoteStudent.id));
+        return mergeStudentRemoteLocal(localMatch, remoteStudent);
+    });
     if (isSupabaseReady()) {
         const fallbackName = trainerCode === '00001' ? 'Administrador Teste' : 'Treinador';
         const fallbackConsultoria = fallbackName ? `Consultoria de ${fallbackName.split(' ')[0]} ` : '';
@@ -1199,12 +1257,29 @@ function queueSupabaseStudentsSync(students) {
     if (supabaseStudentsSyncTimer) clearTimeout(supabaseStudentsSyncTimer);
     const payload = JSON.parse(JSON.stringify(students || []));
     supabaseStudentsSyncTimer = setTimeout(async () => {
-        const rows = payload.map((student) => ({
-            id: String(student.id || ''),
-            trainer_code: String(student.trainerCode || student.trainer_code || ''),
-            data: student,
+        const ids = payload.map((student) => String(student.id || '')).filter(Boolean);
+        let remoteById = new Map();
+        if (ids.length > 0) {
+            const { data: remoteRows } = await window.supabase
+                .from(SUPABASE_TABLES.students)
+                .select('id,data')
+                .in('id', ids);
+            if (Array.isArray(remoteRows)) {
+                remoteById = new Map(remoteRows.map((row) => [String(row.id || ''), normalizeStudentRow(row)]));
+            }
+        }
+
+        const rows = payload.map((student) => {
+            const id = String(student.id || '');
+            const remote = remoteById.get(id);
+            const mergedStudent = mergeStudentRemoteLocal(remote, student || remote);
+            return {
+            id: String(mergedStudent.id || id),
+            trainer_code: String(mergedStudent.trainerCode || mergedStudent.trainer_code || student.trainerCode || student.trainer_code || ''),
+            data: mergedStudent,
             updated_at: new Date().toISOString()
-        })).filter((row) => row.id);
+        };
+        }).filter((row) => row.id);
         if (rows.length === 0) return;
         const { error } = await window.supabase
             .from(SUPABASE_TABLES.students)
@@ -3632,9 +3707,9 @@ function getMuscleGroups(exercises) {
     return muscles.size > 0 ? Array.from(muscles) : ['Geral'];
 }
 
-function computeDietMacroData(student) {
+function computeDietMacroData(student, dateKey = getTodayDateKey()) {
     const blocks = Array.isArray(student?.mealBlocks) ? student.mealBlocks : [];
-    const dayLog = getStudentDietLogForDate(student, getTodayDateKey());
+    const dayLog = getStudentDietLogForDate(student, dateKey);
     let prescribedProtein = 0;
     let prescribedCarb = 0;
     let prescribedFat = 0;
@@ -3758,14 +3833,20 @@ function computeDietConsumedMacros(baseItem, logEntry) {
 }
 
 function renderStudentDietContent(student) {
-    const macro = computeDietMacroData(student);
+    const selectedDate = studentDietSelectedDateKey || getTodayDateKey();
+    const macro = computeDietMacroData(student, selectedDate);
     const meals = Array.isArray(student?.mealBlocks) ? student.mealBlocks : [];
-    const dateKey = getTodayDateKey();
-    const dayLog = getStudentDietLogForDate(student, dateKey);
+    const dayLog = getStudentDietLogForDate(student, selectedDate);
+    const weekly = buildWeeklyDietSummary(student, selectedDate);
 
     const summaryCard = `
         <div class="diet-modern-summary-card">
             <div class="diet-modern-summary-title">Macros Diários</div>
+            <div class="diet-modern-date-controls">
+                <button type="button" class="diet-modern-icon-btn" onclick="setStudentDietDate('${getDateKeyShift(selectedDate, -1)}')"><i class="ph-bold ph-caret-left"></i></button>
+                <input type="date" class="diet-modern-date-input" value="${selectedDate}" onchange="setStudentDietDate(this.value)">
+                <button type="button" class="diet-modern-icon-btn" onclick="setStudentDietDate('${getDateKeyShift(selectedDate, 1)}')"><i class="ph-bold ph-caret-right"></i></button>
+            </div>
             <div class="diet-progress-row">
                 <div class="diet-progress-label protein">${uiSvgIcon('protein')} Proteína</div>
                 <div class="diet-progress-bar"><span class="diet-progress-fill protein" style="width:${macro.progress.protein}%"></span></div>
@@ -3786,7 +3867,20 @@ function renderStudentDietContent(student) {
                 <div class="diet-progress-bar"><span class="diet-progress-fill fat" style="width:${macro.progress.kcal}%"></span></div>
                 <div class="diet-progress-value">${macro.totals.consumed.kcal}/${macro.targets.kcal} kcal</div>
             </div>
-            <div class="diet-modern-summary-foot">Hoje (${dateKey}) · ${macro.completion.done}/${macro.completion.total} alimentos marcados</div>
+            <div class="diet-modern-summary-foot">${selectedDate} · ${macro.completion.done}/${macro.completion.total} alimentos marcados</div>
+        </div>
+        <div class="diet-modern-weekly-card">
+            <div class="diet-modern-weekly-title">Resumo Semanal</div>
+            <div class="diet-modern-weekly-grid">
+                <div><span>Aderência média</span><strong>${weekly.avgAdherence}%</strong></div>
+                <div><span>Kcal média</span><strong>${weekly.avgKcal}</strong></div>
+                <div><span>Proteína média</span><strong>${weekly.avgProtein}g</strong></div>
+                <div><span>Carbo médio</span><strong>${weekly.avgCarb}g</strong></div>
+                <div><span>Gordura média</span><strong>${weekly.avgFat}g</strong></div>
+            </div>
+            <div class="diet-modern-weekly-days">
+                ${weekly.days.map((d) => `<span class="diet-week-day">${d.key.slice(5)} · ${d.adherence}%</span>`).join('')}
+            </div>
         </div>
     `;
 
@@ -3878,8 +3972,66 @@ function renderStudentDietContent(student) {
     return `${summaryCard}${mealCards}`;
 }
 
+function getDateKeyShift(baseDateKey, shiftDays) {
+    const base = new Date(`${baseDateKey}T00:00:00`);
+    if (Number.isNaN(base.getTime())) return baseDateKey;
+    base.setDate(base.getDate() + shiftDays);
+    const y = base.getFullYear();
+    const m = String(base.getMonth() + 1).padStart(2, '0');
+    const d = String(base.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function buildWeeklyDietSummary(student, endDateKey = getTodayDateKey()) {
+    const days = [];
+    let sumProtein = 0;
+    let sumCarb = 0;
+    let sumFat = 0;
+    let sumKcal = 0;
+    let sumAdherence = 0;
+    for (let i = 6; i >= 0; i -= 1) {
+        const key = getDateKeyShift(endDateKey, -i);
+        const daily = computeDietMacroData(student, key);
+        const adherence = daily.completion.total > 0 ? Math.round((daily.completion.done / daily.completion.total) * 100) : 0;
+        sumProtein += daily.totals.consumed.protein;
+        sumCarb += daily.totals.consumed.carb;
+        sumFat += daily.totals.consumed.fat;
+        sumKcal += daily.totals.consumed.kcal;
+        sumAdherence += adherence;
+        days.push({ key, adherence, kcal: daily.totals.consumed.kcal });
+    }
+    return {
+        days,
+        avgProtein: Math.round(sumProtein / 7),
+        avgCarb: Math.round(sumCarb / 7),
+        avgFat: Math.round(sumFat / 7),
+        avgKcal: Math.round(sumKcal / 7),
+        avgAdherence: Math.round(sumAdherence / 7)
+    };
+}
+
+function getDietDailyCompletion(student, dateKey = getTodayDateKey()) {
+    const daily = computeDietMacroData(student, dateKey);
+    const completion = daily.completion.total > 0
+        ? Math.round((daily.completion.done / daily.completion.total) * 100)
+        : 0;
+    return {
+        done: daily.completion.done,
+        total: daily.completion.total,
+        percent: completion
+    };
+}
+
 let activeStudentMealAddFormIdx = null;
 let studentDietMealDraft = { name: '', qtd: '', kcal: '', prot: '', carb: '', gord: '' };
+let studentDietSelectedDateKey = getTodayDateKey();
+
+function setStudentDietDate(dateKey) {
+    const safe = /^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || '')) ? String(dateKey) : getTodayDateKey();
+    studentDietSelectedDateKey = safe;
+    activeStudentMealAddFormIdx = null;
+    refreshStudentDietViews();
+}
 
 function resetStudentMealDraft() {
     studentDietMealDraft = { name: '', qtd: '', kcal: '', prot: '', carb: '', gord: '' };
@@ -3963,7 +4115,7 @@ function persistStudentDietLog(updateFn) {
     const idx = students.findIndex((s) => String(s.id) === String(studentId));
     if (idx < 0) return;
     const student = students[idx];
-    const dateKey = getTodayDateKey();
+    const dateKey = studentDietSelectedDateKey || getTodayDateKey();
     if (!student.dietLogs || typeof student.dietLogs !== 'object') student.dietLogs = {};
     if (!student.dietLogs[dateKey] || typeof student.dietLogs[dateKey] !== 'object') student.dietLogs[dateKey] = { meals: {} };
     if (!student.dietLogs[dateKey].meals || typeof student.dietLogs[dateKey].meals !== 'object') student.dietLogs[dateKey].meals = {};
@@ -4078,6 +4230,7 @@ function renderStudentDietMain() {
         return;
     }
 
+    if (!studentDietSelectedDateKey) studentDietSelectedDateKey = getTodayDateKey();
     container.innerHTML = renderStudentDietContent(student);
     optimizeMediaElements(container);
 }
@@ -4621,6 +4774,7 @@ function openStudentDiet() {
     const container = document.getElementById('student-diet-content');
     if (!container) return;
 
+    if (!studentDietSelectedDateKey) studentDietSelectedDateKey = getTodayDateKey();
     container.innerHTML = renderStudentDietContent(student);
     optimizeMediaElements(container);
 
@@ -7389,12 +7543,16 @@ function renderMeals() {
     if (!container) return;
 
     const summary = getDietPlannerSummary();
+    const students = readStorageJSON('trainerStudents', []);
+    const currentStudent = currentStudentIdx !== null ? students[currentStudentIdx] : null;
+    const completion = currentStudent ? getDietDailyCompletion(currentStudent, getTodayDateKey()) : null;
     const summaryHtml = `
         <div class="diet-planner-overview">
             <div class="diet-planner-kcal">
                 <span>Consumido</span>
                 <strong>${summary.dayKcal} kcal</strong>
                 <small>Meta ${summary.targetKcal} kcal · Restante ${summary.remainingDayKcal} kcal</small>
+                ${completion ? `<small>Aderência do aluno hoje: ${completion.done}/${completion.total} (${completion.percent}%)</small>` : ''}
             </div>
             <div class="diet-planner-macros">
                 <div class="diet-macro-pill protein">P ${summary.dayProt}g / ${summary.targetProtein}g</div>
