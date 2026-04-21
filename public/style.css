@@ -13006,3 +13006,96 @@ body {
         justify-content: flex-start;
     }
 }
+
+.meal-inline-help {
+    font-size: 0.68rem;
+    color: rgba(255, 255, 255, 0.65);
+    letter-spacing: 0.02em;
+}
+
+.diet-item-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.55rem;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 12px;
+    padding: 0.7rem;
+    background: rgba(255, 255, 255, 0.01);
+}
+
+.diet-item-row.is-checked {
+    border-color: rgba(74, 222, 128, 0.35);
+    background: rgba(74, 222, 128, 0.06);
+}
+
+.diet-item-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.diet-check-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-weight: 600;
+}
+
+.diet-base-qty {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.diet-item-controls {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.diet-qty-input,
+.diet-sub-input {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--text-main);
+    padding: 0.48rem 0.58rem;
+    font-size: 0.78rem;
+}
+
+.diet-qty-input {
+    min-width: 170px;
+    flex: 1;
+}
+
+.diet-sub-btn {
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-main);
+    border-radius: 9px;
+    padding: 0.48rem 0.65rem;
+    font-size: 0.74rem;
+    font-weight: 600;
+}
+
+.diet-sub-btn.active {
+    border-color: rgba(251, 191, 36, 0.5);
+    background: rgba(251, 191, 36, 0.12);
+    color: #fcd34d;
+}
+
+.diet-substitute-box {
+    border: 1px dashed rgba(251, 191, 36, 0.45);
+    border-radius: 10px;
+    padding: 0.6rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+    background: rgba(251, 191, 36, 0.05);
+}
+
+@media (max-width: 640px) {
+    .diet-substitute-box {
+        grid-template-columns: 1fr;
+    }
+}

@@ -3634,139 +3634,311 @@ function getMuscleGroups(exercises) {
 
 function computeDietMacroData(student) {
     const blocks = Array.isArray(student?.mealBlocks) ? student.mealBlocks : [];
-    let totalProtein = 0;
-    let totalCarb = 0;
-    let totalFat = 0;
+    const dayLog = getStudentDietLogForDate(student, getTodayDateKey());
+    let prescribedProtein = 0;
+    let prescribedCarb = 0;
+    let prescribedFat = 0;
+    let consumedProtein = 0;
+    let consumedCarb = 0;
+    let consumedFat = 0;
+    let consumedKcal = 0;
+    let checkedItems = 0;
+    let totalItems = 0;
 
-    blocks.forEach((meal) => {
-        (meal.items || []).forEach((item) => {
-            totalProtein += parseDecimalSafe(item.prot);
-            totalCarb += parseDecimalSafe(item.carb);
-            totalFat += parseDecimalSafe(item.gord);
+    blocks.forEach((meal, mealIdx) => {
+        (meal.items || []).forEach((item, itemIdx) => {
+            totalItems += 1;
+            const base = getDietItemBaseMacros(item);
+            prescribedProtein += base.prot;
+            prescribedCarb += base.carb;
+            prescribedFat += base.gord;
+
+            const logEntry = getDietLogItem(dayLog, mealIdx, itemIdx);
+            if (!logEntry || !logEntry.checked) return;
+            checkedItems += 1;
+            const consumed = computeDietConsumedMacros(item, logEntry);
+            consumedProtein += consumed.prot;
+            consumedCarb += consumed.carb;
+            consumedFat += consumed.gord;
+            consumedKcal += consumed.kcal;
         });
     });
 
-    const targetProtein = Math.max(1, parseDecimalSafe(student?.dietMeta?.protein) || 150);
-    const targetCarb = Math.max(1, parseDecimalSafe(student?.dietMeta?.carb) || 220);
-    const targetFat = Math.max(1, parseDecimalSafe(student?.dietMeta?.fat) || 70);
+    const targetProtein = Math.max(1, parseDecimalSafe(student?.dietMeta?.protein) || prescribedProtein || 150);
+    const targetCarb = Math.max(1, parseDecimalSafe(student?.dietMeta?.carb) || prescribedCarb || 220);
+    const targetFat = Math.max(1, parseDecimalSafe(student?.dietMeta?.fat) || prescribedFat || 70);
+    const targetKcal = Math.max(1, parseDecimalSafe(student?.dietMeta?.kcal) || Math.round((targetProtein * 4) + (targetCarb * 4) + (targetFat * 9)));
 
     return {
         totals: {
-            protein: Math.round(totalProtein),
-            carb: Math.round(totalCarb),
-            fat: Math.round(totalFat)
+            prescribed: {
+                protein: Math.round(prescribedProtein),
+                carb: Math.round(prescribedCarb),
+                fat: Math.round(prescribedFat)
+            },
+            consumed: {
+                protein: Math.round(consumedProtein),
+                carb: Math.round(consumedCarb),
+                fat: Math.round(consumedFat),
+                kcal: Math.round(consumedKcal)
+            }
         },
         targets: {
             protein: Math.round(targetProtein),
             carb: Math.round(targetCarb),
-            fat: Math.round(targetFat)
+            fat: Math.round(targetFat),
+            kcal: Math.round(targetKcal)
         },
         progress: {
-            protein: Math.min(100, Math.max(8, Math.round((totalProtein / targetProtein) * 100))),
-            carb: Math.min(100, Math.max(8, Math.round((totalCarb / targetCarb) * 100))),
-            fat: Math.min(100, Math.max(8, Math.round((totalFat / targetFat) * 100)))
+            protein: Math.min(100, Math.max(0, Math.round((consumedProtein / targetProtein) * 100))),
+            carb: Math.min(100, Math.max(0, Math.round((consumedCarb / targetCarb) * 100))),
+            fat: Math.min(100, Math.max(0, Math.round((consumedFat / targetFat) * 100))),
+            kcal: Math.min(100, Math.max(0, Math.round((consumedKcal / targetKcal) * 100)))
+        },
+        completion: {
+            done: checkedItems,
+            total: totalItems
         }
     };
 }
 
-window.updateWater = function (delta) {
-    let count = parseInt(memoryGetItem('water_cups') || '0', 10);
-    count = Math.max(0, count + delta);
-    memorySetItem('water_cups', count);
-    const el = document.getElementById('water-counter-display');
-    if (el) el.innerText = count;
-};
+function getTodayDateKey() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function parseQuantityNumeric(value) {
+    const n = parseDecimalSafe(String(value || '').replace(/[^\d,.\-]/g, '').replace(',', '.'));
+    return n > 0 ? n : 0;
+}
+
+function getDietItemBaseMacros(item) {
+    const prot = parseDecimalSafe(item?.prot);
+    const carb = parseDecimalSafe(item?.carb);
+    const gord = parseDecimalSafe(item?.gord);
+    const kcal = parseDecimalSafe(item?.kcal) || Math.round((prot * 4) + (carb * 4) + (gord * 9));
+    return { prot, carb, gord, kcal };
+}
+
+function getDietLogItem(dayLog, mealIdx, itemIdx) {
+    return dayLog?.meals?.[mealIdx]?.items?.[itemIdx] || null;
+}
+
+function getStudentDietLogForDate(student, dateKey) {
+    const logs = (student && typeof student.dietLogs === 'object' && student.dietLogs) ? student.dietLogs : {};
+    const dayLog = logs[dateKey];
+    if (dayLog && typeof dayLog === 'object') return dayLog;
+    return { meals: {} };
+}
+
+function computeDietConsumedMacros(baseItem, logEntry) {
+    if (logEntry?.substitute?.enabled) {
+        const sub = logEntry.substitute || {};
+        const subProt = parseDecimalSafe(sub.prot);
+        const subCarb = parseDecimalSafe(sub.carb);
+        const subGord = parseDecimalSafe(sub.gord);
+        const subKcal = parseDecimalSafe(sub.kcal) || Math.round((subProt * 4) + (subCarb * 4) + (subGord * 9));
+        return { prot: subProt, carb: subCarb, gord: subGord, kcal: subKcal };
+    }
+
+    const base = getDietItemBaseMacros(baseItem);
+    const baseQty = Math.max(1, parseQuantityNumeric(baseItem?.qtd) || 1);
+    const consumedQty = Math.max(0.1, parseQuantityNumeric(logEntry?.qty) || baseQty);
+    const ratio = consumedQty / baseQty;
+
+    return {
+        prot: Math.round(base.prot * ratio * 10) / 10,
+        carb: Math.round(base.carb * ratio * 10) / 10,
+        gord: Math.round(base.gord * ratio * 10) / 10,
+        kcal: Math.round(base.kcal * ratio)
+    };
+}
 
 function renderStudentDietContent(student) {
     const macro = computeDietMacroData(student);
     const meals = Array.isArray(student?.mealBlocks) ? student.mealBlocks : [];
-    const savedWater = memoryGetItem('water_cups') || '0';
+    const dateKey = getTodayDateKey();
+    const dayLog = getStudentDietLogForDate(student, dateKey);
 
     const summaryCard = `
         <div class="diet-macro-summary-card">
-            <div class="diet-macro-summary-title">Macros Diários</div>
+            <div class="diet-macro-summary-title">Hoje (${dateKey}) · ${macro.completion.done}/${macro.completion.total} itens</div>
             <div class="diet-progress-row">
                 <div class="diet-progress-label protein">${uiSvgIcon('protein')} Proteína</div>
                 <div class="diet-progress-bar"><span class="diet-progress-fill protein" style="width:${macro.progress.protein}%"></span></div>
-                <div class="diet-progress-value">${macro.totals.protein}/${macro.targets.protein}g</div>
+                <div class="diet-progress-value">${macro.totals.consumed.protein}/${macro.targets.protein}g</div>
             </div>
             <div class="diet-progress-row">
                 <div class="diet-progress-label carb">${uiSvgIcon('carb')} Carboidrato</div>
                 <div class="diet-progress-bar"><span class="diet-progress-fill carb" style="width:${macro.progress.carb}%"></span></div>
-                <div class="diet-progress-value">${macro.totals.carb}/${macro.targets.carb}g</div>
+                <div class="diet-progress-value">${macro.totals.consumed.carb}/${macro.targets.carb}g</div>
             </div>
             <div class="diet-progress-row">
                 <div class="diet-progress-label fat">${uiSvgIcon('fat')} Gordura</div>
                 <div class="diet-progress-bar"><span class="diet-progress-fill fat" style="width:${macro.progress.fat}%"></span></div>
-                <div class="diet-progress-value">${macro.totals.fat}/${macro.targets.fat}g</div>
+                <div class="diet-progress-value">${macro.totals.consumed.fat}/${macro.targets.fat}g</div>
+            </div>
+            <div class="diet-progress-row">
+                <div class="diet-progress-label kcal"><i class="ph-fill ph-fire"></i> Calorias</div>
+                <div class="diet-progress-bar"><span class="diet-progress-fill fat" style="width:${macro.progress.kcal}%"></span></div>
+                <div class="diet-progress-value">${macro.totals.consumed.kcal}/${macro.targets.kcal} kcal</div>
             </div>
         </div>
     `;
 
-    const mealCards = meals.map((meal, idx) => `
+    const mealCards = meals.map((meal, mealIdx) => `
         <div class="meal-block meal-glass-card">
-            <div class="block-header meal-header-glass tone-${idx % 3}" style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="block-header meal-header-glass tone-${mealIdx % 3}" style="display:flex;justify-content:space-between;align-items:center;">
                 <h3>${escHtml(meal.name)}</h3>
-                <button class="btn-icon-tiny meal-check-btn" onclick="handleMealCheckClick(this)" title="Marcar como consumida" style="color: rgba(255,255,255,0.4); border: 2px solid currentColor; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s ease;">
-                    ${uiSvgIcon('check')}
-                </button>
+                <span class="meal-inline-help">Marque, ajuste quantidade ou substitua</span>
             </div>
             <div class="meal-items-list">
-                ${(meal.items || []).map(item => `
-                    <div class="meal-item-row">
-                        <div style="flex:1;">
-                            <strong>${escHtml(item.nome)}</strong>
-                            <span class="text-sub">${escHtml(item.qtd)}</span>
+                ${(meal.items || []).map((item, itemIdx) => {
+                    const logEntry = getDietLogItem(dayLog, mealIdx, itemIdx);
+                    const checked = !!logEntry?.checked;
+                    const base = getDietItemBaseMacros(item);
+                    const consumed = computeDietConsumedMacros(item, logEntry || {});
+                    const qtyValue = logEntry?.qty || item.qtd || '';
+                    const substituteEnabled = !!logEntry?.substitute?.enabled;
+                    const sub = logEntry?.substitute || {};
+                    return `
+                    <div class="meal-item-row diet-item-row ${checked ? 'is-checked' : ''}">
+                        <div class="diet-item-head">
+                            <label class="diet-check-wrap">
+                                <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleDietItemCheck(${mealIdx}, ${itemIdx}, this.checked)">
+                                <span>${escHtml(item.nome)}</span>
+                            </label>
+                            <span class="diet-base-qty">Base: ${escHtml(item.qtd || '--')}</span>
                         </div>
+                        <div class="diet-item-controls">
+                            <input type="text" class="diet-qty-input" value="${escHtml(qtyValue)}" placeholder="Quantidade consumida"
+                                oninput="updateDietItemQty(${mealIdx}, ${itemIdx}, this.value)">
+                            <button type="button" class="diet-sub-btn ${substituteEnabled ? 'active' : ''}" onclick="toggleDietItemSubstitute(${mealIdx}, ${itemIdx})">
+                                ${substituteEnabled ? 'Cancelar Substituição' : 'Substituir alimento'}
+                            </button>
+                        </div>
+                        ${substituteEnabled ? `
+                        <div class="diet-substitute-box">
+                            <input type="text" class="diet-sub-input" value="${escHtml(sub.name || '')}" placeholder="Alimento substituto"
+                                oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'name', this.value)">
+                            <input type="text" class="diet-sub-input" value="${escHtml(sub.qty || '')}" placeholder="Qtd substituta (ex: 120g)"
+                                oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'qty', this.value)">
+                            <input type="number" class="diet-sub-input" value="${escHtml(sub.kcal || '')}" placeholder="kcal"
+                                oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'kcal', this.value)">
+                            <input type="number" class="diet-sub-input" value="${escHtml(sub.prot || '')}" placeholder="prot"
+                                oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'prot', this.value)">
+                            <input type="number" class="diet-sub-input" value="${escHtml(sub.carb || '')}" placeholder="carb"
+                                oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'carb', this.value)">
+                            <input type="number" class="diet-sub-input" value="${escHtml(sub.gord || '')}" placeholder="gord"
+                                oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'gord', this.value)">
+                        </div>` : ''}
                         <div class="meal-macros-mini">
-                            <span class="macro-badge kcal">${item.kcal} kcal</span>
-                            <span class="macro-badge protein">${uiSvgIcon('protein')} ${item.prot}g P</span>
-                            <span class="macro-badge carb">${uiSvgIcon('carb')} ${item.carb}g C</span>
-                            <span class="macro-badge fat">${uiSvgIcon('fat')} ${item.gord}g G</span>
+                            <span class="macro-badge kcal">${checked ? consumed.kcal : base.kcal} kcal</span>
+                            <span class="macro-badge protein">${uiSvgIcon('protein')} ${(checked ? consumed.prot : base.prot)}g P</span>
+                            <span class="macro-badge carb">${uiSvgIcon('carb')} ${(checked ? consumed.carb : base.carb)}g C</span>
+                            <span class="macro-badge fat">${uiSvgIcon('fat')} ${(checked ? consumed.gord : base.gord)}g G</span>
                         </div>
-                    </div>
-                `).join('')}
+                    </div>`;
+                }).join('')}
             </div>
         </div>
     `).join('');
 
-    const waterCard = `
-        <div class="meal-block meal-glass-card" style="text-align: center; padding: 1.5rem; margin-top: 1rem;">
-            <h3 style="margin-bottom: 1rem; color: #60a5fa; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                <i class="ph-fill ph-drop" style="font-size: 1.5rem;"></i> Consumo de Água
-            </h3>
-            <div style="display: flex; justify-content: center; align-items: center; gap: 1.5rem; font-size: 2rem;">
-                <button class="btn-icon" onclick="updateWater(-1)" style="color: #f87171; background: rgba(248,113,113,0.1); border-radius: 50%; width: 48px; height: 48px;">
-                    <i class="ph-bold ph-minus"></i>
-                </button>
-                <div style="display: flex; align-items: baseline; gap: 4px;">
-                    <span id="water-counter-display" style="font-weight: 800; font-size: 2.5rem;">${savedWater}</span>
-                    <span style="font-size: 1rem; color: rgba(255,255,255,0.6); font-weight: 600;">copos</span>
-                </div>
-                <button class="btn-icon" onclick="updateWater(1)" style="color: #60a5fa; background: rgba(96,165,250,0.1); border-radius: 50%; width: 48px; height: 48px;">
-                    <i class="ph-bold ph-plus"></i>
-                </button>
-            </div>
-            <p style="margin-top: 1rem; font-size: 0.85rem; color: rgba(255,255,255,0.5);">A meta recomendada é de ~8 a 10 copos por dia (2L+)</p>
-        </div>
-    `;
-
-    return `${summaryCard}${mealCards}${waterCard}`;
+    return `${summaryCard}${mealCards}`;
 }
 
-function handleMealCheckClick(buttonEl) {
-    if (!buttonEl) return;
-    const isActive = buttonEl.classList.toggle('consumed');
-    if (isActive) {
-        buttonEl.style.color = '#4ade80';
-        buttonEl.style.borderColor = '#4ade80';
-        buttonEl.innerHTML = uiSvgIcon('check-circle');
-    } else {
-        buttonEl.style.color = 'rgba(255,255,255,0.4)';
-        buttonEl.style.borderColor = 'currentColor';
-        buttonEl.innerHTML = uiSvgIcon('check');
+function persistStudentDietLog(updateFn) {
+    const studentId = memoryGetItem('currentStudentId');
+    if (!studentId || typeof updateFn !== 'function') return;
+    const students = readStorageJSON('trainerStudents', []);
+    const idx = students.findIndex((s) => String(s.id) === String(studentId));
+    if (idx < 0) return;
+    const student = students[idx];
+    const dateKey = getTodayDateKey();
+    if (!student.dietLogs || typeof student.dietLogs !== 'object') student.dietLogs = {};
+    if (!student.dietLogs[dateKey] || typeof student.dietLogs[dateKey] !== 'object') student.dietLogs[dateKey] = { meals: {} };
+    if (!student.dietLogs[dateKey].meals || typeof student.dietLogs[dateKey].meals !== 'object') student.dietLogs[dateKey].meals = {};
+    updateFn(student.dietLogs[dateKey], student);
+    students[idx] = student;
+    saveStudentData(students);
+    refreshStudentDietViews();
+}
+
+function refreshStudentDietViews() {
+    const { student } = getStudentData();
+    if (!student) return;
+
+    const modalContainer = document.getElementById('student-diet-content');
+    if (modalContainer) {
+        modalContainer.innerHTML = renderStudentDietContent(student);
+        optimizeMediaElements(modalContainer);
     }
-    triggerHaptic(20);
+
+    const mainContainer = document.getElementById('student-diet-content-main');
+    if (mainContainer) {
+        mainContainer.innerHTML = renderStudentDietContent(student);
+        optimizeMediaElements(mainContainer);
+    }
+}
+
+function ensureDietLogItem(dayLog, mealIdx, itemIdx) {
+    if (!dayLog.meals[mealIdx]) dayLog.meals[mealIdx] = { items: {} };
+    if (!dayLog.meals[mealIdx].items[itemIdx]) {
+        dayLog.meals[mealIdx].items[itemIdx] = {
+            checked: false,
+            qty: '',
+            substitute: { enabled: false }
+        };
+    }
+    return dayLog.meals[mealIdx].items[itemIdx];
+}
+
+function toggleDietItemCheck(mealIdx, itemIdx, checked) {
+    persistStudentDietLog((dayLog) => {
+        const item = ensureDietLogItem(dayLog, mealIdx, itemIdx);
+        item.checked = !!checked;
+    });
+}
+
+function updateDietItemQty(mealIdx, itemIdx, qty) {
+    persistStudentDietLog((dayLog) => {
+        const item = ensureDietLogItem(dayLog, mealIdx, itemIdx);
+        item.qty = String(qty || '');
+    });
+}
+
+function toggleDietItemSubstitute(mealIdx, itemIdx) {
+    persistStudentDietLog((dayLog, student) => {
+        const item = ensureDietLogItem(dayLog, mealIdx, itemIdx);
+        if (!item.substitute || typeof item.substitute !== 'object') item.substitute = { enabled: false };
+        const next = !item.substitute.enabled;
+        if (next) {
+            const baseItem = student?.mealBlocks?.[mealIdx]?.items?.[itemIdx] || {};
+            item.substitute = {
+                enabled: true,
+                name: '',
+                qty: item.qty || baseItem.qtd || '',
+                kcal: baseItem.kcal || '',
+                prot: baseItem.prot || '',
+                carb: baseItem.carb || '',
+                gord: baseItem.gord || ''
+            };
+        } else {
+            item.substitute = { enabled: false };
+        }
+    });
+}
+
+function updateDietItemSubField(mealIdx, itemIdx, field, value) {
+    persistStudentDietLog((dayLog) => {
+        const item = ensureDietLogItem(dayLog, mealIdx, itemIdx);
+        if (!item.substitute || typeof item.substitute !== 'object') item.substitute = { enabled: true };
+        item.substitute.enabled = true;
+        item.substitute[field] = value;
+    });
 }
 
 function renderStudentDietMain() {
@@ -7296,18 +7468,54 @@ function openFoodModal(mealIdx) {
     document.getElementById('food-modal-overlay').classList.add('active');
     document.getElementById('food-modal').classList.add('active');
     document.getElementById('food-nome').focus();
+    renderSimpleFoodLibrary('');
 }
 
 let foodSearchTimeout = null;
 let selectedFoodReference = null;
+const SIMPLE_FOOD_LIBRARY = [
+    { nome: 'Arroz cozido', kcal: 130, prot: 2.7, carb: 28, fat: 0.3 },
+    { nome: 'Feijão cozido', kcal: 76, prot: 4.8, carb: 13.6, fat: 0.5 },
+    { nome: 'Frango grelhado', kcal: 165, prot: 31, carb: 0, fat: 3.6 },
+    { nome: 'Ovo cozido', kcal: 155, prot: 13, carb: 1.1, fat: 11 },
+    { nome: 'Batata doce cozida', kcal: 86, prot: 1.6, carb: 20.1, fat: 0.1 },
+    { nome: 'Banana', kcal: 89, prot: 1.1, carb: 23, fat: 0.3 },
+    { nome: 'Aveia em flocos', kcal: 389, prot: 16.9, carb: 66.3, fat: 6.9 },
+    { nome: 'Iogurte natural', kcal: 61, prot: 3.5, carb: 4.7, fat: 3.3 },
+    { nome: 'Pão integral', kcal: 247, prot: 13, carb: 41, fat: 4.2 },
+    { nome: 'Azeite de oliva', kcal: 884, prot: 0, carb: 0, fat: 100 }
+];
+
+function renderSimpleFoodLibrary(query = '') {
+    const results = document.getElementById('food-library-results');
+    if (!results) return;
+    const q = normalizeText(query);
+    const baseList = SIMPLE_FOOD_LIBRARY.filter((item) => !q || normalizeText(item.nome).includes(q)).slice(0, 10);
+    if (!baseList.length) {
+        results.innerHTML = '<div class="ex-empty-block" style="padding:1rem;">Nenhum alimento simples encontrado.</div>';
+        results.classList.add('active');
+        return;
+    }
+    results.innerHTML = `
+        <div class="lib-category">Base rápida (simples)</div>
+        ${baseList.map((item) => `
+            <div class="lib-item" onclick='selectFoodFromAPI(${JSON.stringify(item).replace(/'/g, "&apos;")})'>
+                <div style="display:flex; flex-direction:column;">
+                    <span>${escHtml(item.nome)}</span>
+                    <small style="font-size:0.7rem; opacity:0.6;">${Math.round(item.kcal)}kcal | P:${item.prot}g C:${item.carb}g G:${item.fat}g (100g)</small>
+                </div>
+            </div>
+        `).join('')}
+    `;
+    results.classList.add('active');
+}
 
 function searchFoodAPI(query) {
     const results = document.getElementById('food-library-results');
     if (!results) return;
 
-    if (!query || query.length < 3) {
-        results.innerHTML = '';
-        results.classList.remove('active');
+    if (!query || query.length < 2) {
+        renderSimpleFoodLibrary(query || '');
         return;
     }
 
