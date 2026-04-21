@@ -3764,8 +3764,8 @@ function renderStudentDietContent(student) {
     const dayLog = getStudentDietLogForDate(student, dateKey);
 
     const summaryCard = `
-        <div class="diet-macro-summary-card">
-            <div class="diet-macro-summary-title">Hoje (${dateKey}) · ${macro.completion.done}/${macro.completion.total} itens</div>
+        <div class="diet-modern-summary-card">
+            <div class="diet-modern-summary-title">Macros Diários</div>
             <div class="diet-progress-row">
                 <div class="diet-progress-label protein">${uiSvgIcon('protein')} Proteína</div>
                 <div class="diet-progress-bar"><span class="diet-progress-fill protein" style="width:${macro.progress.protein}%"></span></div>
@@ -3786,16 +3786,38 @@ function renderStudentDietContent(student) {
                 <div class="diet-progress-bar"><span class="diet-progress-fill fat" style="width:${macro.progress.kcal}%"></span></div>
                 <div class="diet-progress-value">${macro.totals.consumed.kcal}/${macro.targets.kcal} kcal</div>
             </div>
+            <div class="diet-modern-summary-foot">Hoje (${dateKey}) · ${macro.completion.done}/${macro.completion.total} alimentos marcados</div>
         </div>
     `;
 
     const mealCards = meals.map((meal, mealIdx) => `
-        <div class="meal-block meal-glass-card">
-            <div class="block-header meal-header-glass tone-${mealIdx % 3}" style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="diet-modern-meal-card tone-${mealIdx % 3}">
+            <div class="diet-modern-meal-header">
                 <h3>${escHtml(meal.name)}</h3>
-                <span class="meal-inline-help">Marque, ajuste quantidade ou substitua</span>
+                <div class="diet-modern-meal-actions">
+                    <button type="button" class="diet-modern-icon-btn" onclick="toggleStudentMealAddForm(${mealIdx})" title="Adicionar alimento">
+                        <i class="ph-bold ph-plus"></i>
+                    </button>
+                    <button type="button" class="diet-modern-icon-btn ${isStudentMealCompleted(dayLog, mealIdx, meal) ? 'done' : ''}" onclick="toggleDietMealCheck(${mealIdx})" title="Marcar refeição completa">
+                        <i class="ph-bold ${isStudentMealCompleted(dayLog, mealIdx, meal) ? 'ph-check-circle' : 'ph-circle'}"></i>
+                    </button>
+                </div>
             </div>
-            <div class="meal-items-list">
+            ${activeStudentMealAddFormIdx === mealIdx ? `
+                <div class="diet-modern-add-food-box">
+                    <input type="text" class="diet-modern-input" placeholder="Alimento" value="${escHtml(studentDietMealDraft.name || '')}" oninput="updateStudentMealDraftField('name', this.value)">
+                    <input type="text" class="diet-modern-input" placeholder="Quantidade (ex: 120g)" value="${escHtml(studentDietMealDraft.qtd || '')}" oninput="updateStudentMealDraftField('qtd', this.value)">
+                    <input type="number" class="diet-modern-input" placeholder="kcal" value="${escHtml(studentDietMealDraft.kcal || '')}" oninput="updateStudentMealDraftField('kcal', this.value)">
+                    <input type="number" class="diet-modern-input" placeholder="Proteína" value="${escHtml(studentDietMealDraft.prot || '')}" oninput="updateStudentMealDraftField('prot', this.value)">
+                    <input type="number" class="diet-modern-input" placeholder="Carboidrato" value="${escHtml(studentDietMealDraft.carb || '')}" oninput="updateStudentMealDraftField('carb', this.value)">
+                    <input type="number" class="diet-modern-input" placeholder="Gordura" value="${escHtml(studentDietMealDraft.gord || '')}" oninput="updateStudentMealDraftField('gord', this.value)">
+                    <div class="diet-modern-add-food-actions">
+                        <button type="button" class="diet-modern-save-btn" onclick="saveStudentMealDraft(${mealIdx})">Salvar alimento</button>
+                        <button type="button" class="diet-modern-cancel-btn" onclick="toggleStudentMealAddForm(${mealIdx})">Cancelar</button>
+                    </div>
+                </div>
+            ` : ''}
+            <div class="diet-modern-food-list">
                 ${(meal.items || []).map((item, itemIdx) => {
                     const logEntry = getDietLogItem(dayLog, mealIdx, itemIdx);
                     const checked = !!logEntry?.checked;
@@ -3804,42 +3826,48 @@ function renderStudentDietContent(student) {
                     const qtyValue = logEntry?.qty || item.qtd || '';
                     const substituteEnabled = !!logEntry?.substitute?.enabled;
                     const sub = logEntry?.substitute || {};
-                    return `
-                    <div class="meal-item-row diet-item-row ${checked ? 'is-checked' : ''}">
-                        <div class="diet-item-head">
-                            <label class="diet-check-wrap">
-                                <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleDietItemCheck(${mealIdx}, ${itemIdx}, this.checked)">
-                                <span>${escHtml(item.nome)}</span>
-                            </label>
-                            <span class="diet-base-qty">Base: ${escHtml(item.qtd || '--')}</span>
+                    return `<div class="diet-modern-food-row ${checked ? 'is-checked' : ''}">
+                        <div class="diet-modern-food-main">
+                            <div style="flex:1;">
+                                <label class="diet-modern-check">
+                                    <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleDietItemCheck(${mealIdx}, ${itemIdx}, this.checked)">
+                                    <span>${escHtml(item.nome)}</span>
+                                </label>
+                                <span class="diet-modern-base-qty">Base: ${escHtml(item.qtd || '--')}</span>
+                            </div>
+                            ${item.addedByStudent ? `
+                                <button type="button" class="diet-modern-trash-btn" onclick="removeStudentMealFood(${mealIdx}, ${itemIdx})" title="Remover alimento">
+                                    <i class="ph-bold ph-trash"></i>
+                                </button>
+                            ` : ''}
                         </div>
-                        <div class="diet-item-controls">
-                            <input type="text" class="diet-qty-input" value="${escHtml(qtyValue)}" placeholder="Quantidade consumida"
+                        <div class="diet-modern-food-controls">
+                            <input type="text" class="diet-modern-input" value="${escHtml(qtyValue)}" placeholder="Quantidade consumida"
                                 oninput="updateDietItemQty(${mealIdx}, ${itemIdx}, this.value)">
-                            <button type="button" class="diet-sub-btn ${substituteEnabled ? 'active' : ''}" onclick="toggleDietItemSubstitute(${mealIdx}, ${itemIdx})">
+                            <button type="button" class="diet-modern-sub-btn ${substituteEnabled ? 'active' : ''}" onclick="toggleDietItemSubstitute(${mealIdx}, ${itemIdx})">
                                 ${substituteEnabled ? 'Cancelar Substituição' : 'Substituir alimento'}
                             </button>
                         </div>
                         ${substituteEnabled ? `
-                        <div class="diet-substitute-box">
-                            <input type="text" class="diet-sub-input" value="${escHtml(sub.name || '')}" placeholder="Alimento substituto"
+                        <div class="diet-modern-substitute-box">
+                            <input type="text" class="diet-modern-input" value="${escHtml(sub.name || '')}" placeholder="Alimento substituto"
                                 oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'name', this.value)">
-                            <input type="text" class="diet-sub-input" value="${escHtml(sub.qty || '')}" placeholder="Qtd substituta (ex: 120g)"
+                            <input type="text" class="diet-modern-input" value="${escHtml(sub.qty || '')}" placeholder="Qtd substituta (ex: 120g)"
                                 oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'qty', this.value)">
-                            <input type="number" class="diet-sub-input" value="${escHtml(sub.kcal || '')}" placeholder="kcal"
+                            <input type="number" class="diet-modern-input" value="${escHtml(sub.kcal || '')}" placeholder="kcal"
                                 oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'kcal', this.value)">
-                            <input type="number" class="diet-sub-input" value="${escHtml(sub.prot || '')}" placeholder="prot"
+                            <input type="number" class="diet-modern-input" value="${escHtml(sub.prot || '')}" placeholder="prot"
                                 oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'prot', this.value)">
-                            <input type="number" class="diet-sub-input" value="${escHtml(sub.carb || '')}" placeholder="carb"
+                            <input type="number" class="diet-modern-input" value="${escHtml(sub.carb || '')}" placeholder="carb"
                                 oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'carb', this.value)">
-                            <input type="number" class="diet-sub-input" value="${escHtml(sub.gord || '')}" placeholder="gord"
+                            <input type="number" class="diet-modern-input" value="${escHtml(sub.gord || '')}" placeholder="gord"
                                 oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'gord', this.value)">
                         </div>` : ''}
-                        <div class="meal-macros-mini">
-                            <span class="macro-badge kcal">${checked ? consumed.kcal : base.kcal} kcal</span>
-                            <span class="macro-badge protein">${uiSvgIcon('protein')} ${(checked ? consumed.prot : base.prot)}g P</span>
-                            <span class="macro-badge carb">${uiSvgIcon('carb')} ${(checked ? consumed.carb : base.carb)}g C</span>
-                            <span class="macro-badge fat">${uiSvgIcon('fat')} ${(checked ? consumed.gord : base.gord)}g G</span>
+                        <div class="diet-modern-macro-chips">
+                            <span class="diet-modern-chip kcal">${checked ? consumed.kcal : base.kcal} kcal</span>
+                            <span class="diet-modern-chip protein">${uiSvgIcon('protein')} ${(checked ? consumed.prot : base.prot)}g P</span>
+                            <span class="diet-modern-chip carb">${uiSvgIcon('carb')} ${(checked ? consumed.carb : base.carb)}g C</span>
+                            <span class="diet-modern-chip fat">${uiSvgIcon('fat')} ${(checked ? consumed.gord : base.gord)}g G</span>
                         </div>
                     </div>`;
                 }).join('')}
@@ -3848,6 +3876,84 @@ function renderStudentDietContent(student) {
     `).join('');
 
     return `${summaryCard}${mealCards}`;
+}
+
+let activeStudentMealAddFormIdx = null;
+let studentDietMealDraft = { name: '', qtd: '', kcal: '', prot: '', carb: '', gord: '' };
+
+function resetStudentMealDraft() {
+    studentDietMealDraft = { name: '', qtd: '', kcal: '', prot: '', carb: '', gord: '' };
+}
+
+function updateStudentMealDraftField(field, value) {
+    studentDietMealDraft[field] = value;
+}
+
+function toggleStudentMealAddForm(mealIdx) {
+    if (activeStudentMealAddFormIdx === mealIdx) {
+        activeStudentMealAddFormIdx = null;
+        resetStudentMealDraft();
+    } else {
+        activeStudentMealAddFormIdx = mealIdx;
+        resetStudentMealDraft();
+    }
+    refreshStudentDietViews();
+}
+
+function saveStudentMealDraft(mealIdx) {
+    const nome = String(studentDietMealDraft.name || '').trim();
+    if (!nome) return;
+    const qtd = String(studentDietMealDraft.qtd || '').trim() || '100g';
+    const prot = parseDecimalSafe(studentDietMealDraft.prot);
+    const carb = parseDecimalSafe(studentDietMealDraft.carb);
+    const gord = parseDecimalSafe(studentDietMealDraft.gord);
+    const kcalTyped = parseDecimalSafe(studentDietMealDraft.kcal);
+    const kcal = kcalTyped > 0 ? kcalTyped : Math.round((prot * 4) + (carb * 4) + (gord * 9));
+
+    persistStudentMealBlocks((student) => {
+        if (!Array.isArray(student.mealBlocks)) student.mealBlocks = [];
+        if (!student.mealBlocks[mealIdx]) return;
+        if (!Array.isArray(student.mealBlocks[mealIdx].items)) student.mealBlocks[mealIdx].items = [];
+        student.mealBlocks[mealIdx].items.push({
+            nome,
+            qtd,
+            kcal,
+            prot,
+            carb,
+            gord,
+            addedByStudent: true
+        });
+    });
+
+    activeStudentMealAddFormIdx = null;
+    resetStudentMealDraft();
+    refreshStudentDietViews();
+}
+
+function removeStudentMealFood(mealIdx, itemIdx) {
+    persistStudentMealBlocks((student) => {
+        const meal = student?.mealBlocks?.[mealIdx];
+        if (!meal || !Array.isArray(meal.items)) return;
+        meal.items.splice(itemIdx, 1);
+    });
+}
+
+function isStudentMealCompleted(dayLog, mealIdx, meal) {
+    const items = Array.isArray(meal?.items) ? meal.items : [];
+    if (!items.length) return false;
+    return items.every((_, itemIdx) => !!getDietLogItem(dayLog, mealIdx, itemIdx)?.checked);
+}
+
+function toggleDietMealCheck(mealIdx) {
+    persistStudentDietLog((dayLog, student) => {
+        const meal = student?.mealBlocks?.[mealIdx];
+        const items = Array.isArray(meal?.items) ? meal.items : [];
+        const allChecked = items.length > 0 && items.every((_, itemIdx) => !!getDietLogItem(dayLog, mealIdx, itemIdx)?.checked);
+        items.forEach((_, itemIdx) => {
+            const row = ensureDietLogItem(dayLog, mealIdx, itemIdx);
+            row.checked = !allChecked;
+        });
+    });
 }
 
 function persistStudentDietLog(updateFn) {
@@ -3865,6 +3971,18 @@ function persistStudentDietLog(updateFn) {
     students[idx] = student;
     saveStudentData(students);
     refreshStudentDietViews();
+}
+
+function persistStudentMealBlocks(updateFn) {
+    const studentId = memoryGetItem('currentStudentId');
+    if (!studentId || typeof updateFn !== 'function') return;
+    const students = readStorageJSON('trainerStudents', []);
+    const idx = students.findIndex((s) => String(s.id) === String(studentId));
+    if (idx < 0) return;
+    const student = students[idx];
+    updateFn(student);
+    students[idx] = student;
+    saveStudentData(students);
 }
 
 function refreshStudentDietViews() {

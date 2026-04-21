@@ -13391,3 +13391,260 @@ body {
         grid-template-columns: 1fr;
     }
 }
+
+.diet-modern-summary-card {
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 1rem 1.1rem;
+    background: linear-gradient(115deg, rgba(20, 20, 20, 0.96), rgba(33, 33, 33, 0.88));
+    margin-bottom: 1rem;
+}
+
+.diet-modern-summary-title {
+    font-size: 0.86rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--primary-color);
+    font-weight: 700;
+    margin-bottom: 0.8rem;
+}
+
+.diet-modern-summary-foot {
+    margin-top: 0.7rem;
+    font-size: 0.76rem;
+    color: var(--text-muted);
+}
+
+.diet-modern-meal-card {
+    border: 1px solid var(--border-color);
+    border-radius: 18px;
+    overflow: hidden;
+    background: rgba(13, 13, 13, 0.95);
+    margin-bottom: 1rem;
+}
+
+.diet-modern-meal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.9rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.diet-modern-meal-card.tone-0 .diet-modern-meal-header {
+    background: linear-gradient(90deg, rgba(132, 204, 22, 0.33), rgba(132, 204, 22, 0.1));
+}
+
+.diet-modern-meal-card.tone-1 .diet-modern-meal-header {
+    background: linear-gradient(90deg, rgba(45, 212, 191, 0.3), rgba(45, 212, 191, 0.08));
+}
+
+.diet-modern-meal-card.tone-2 .diet-modern-meal-header {
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.28), rgba(59, 130, 246, 0.08));
+}
+
+.diet-modern-meal-header h3 {
+    margin: 0;
+    font-size: 1.35rem;
+    color: #d9f99d;
+    font-weight: 700;
+}
+
+.diet-modern-meal-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.diet-modern-icon-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(0, 0, 0, 0.25);
+    color: rgba(255, 255, 255, 0.75);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.diet-modern-icon-btn.done {
+    color: #4ade80;
+    border-color: rgba(74, 222, 128, 0.45);
+}
+
+.diet-modern-food-list {
+    padding: 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.diet-modern-food-row {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 0.75rem;
+}
+
+.diet-modern-food-row.is-checked {
+    border-color: rgba(74, 222, 128, 0.45);
+    background: rgba(74, 222, 128, 0.09);
+}
+
+.diet-modern-food-main {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.diet-modern-check {
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.diet-modern-base-qty {
+    display: block;
+    margin-top: 0.1rem;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
+.diet-modern-trash-btn {
+    border: 1px solid rgba(248, 113, 113, 0.45);
+    background: rgba(248, 113, 113, 0.1);
+    color: #f87171;
+    border-radius: 9px;
+    width: 30px;
+    height: 30px;
+}
+
+.diet-modern-food-controls {
+    margin-top: 0.55rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.diet-modern-input {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-main);
+    padding: 0.5rem 0.62rem;
+    font-size: 0.82rem;
+    min-width: 130px;
+}
+
+.diet-modern-sub-btn,
+.diet-modern-save-btn,
+.diet-modern-cancel-btn {
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.77rem;
+    font-weight: 600;
+}
+
+.diet-modern-sub-btn {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-main);
+}
+
+.diet-modern-sub-btn.active {
+    border-color: rgba(251, 191, 36, 0.6);
+    background: rgba(251, 191, 36, 0.12);
+    color: #fde68a;
+}
+
+.diet-modern-substitute-box,
+.diet-modern-add-food-box {
+    margin-top: 0.55rem;
+    border: 1px dashed rgba(255, 255, 255, 0.25);
+    border-radius: 10px;
+    padding: 0.55rem;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem;
+}
+
+.diet-modern-add-food-box {
+    margin: 0.8rem;
+    margin-bottom: 0;
+    border-style: solid;
+    border-color: rgba(74, 222, 128, 0.3);
+    background: rgba(74, 222, 128, 0.05);
+}
+
+.diet-modern-add-food-actions {
+    grid-column: span 3;
+    display: flex;
+    gap: 0.45rem;
+}
+
+.diet-modern-save-btn {
+    border: 1px solid rgba(74, 222, 128, 0.4);
+    background: rgba(74, 222, 128, 0.16);
+    color: #86efac;
+}
+
+.diet-modern-cancel-btn {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-main);
+}
+
+.diet-modern-macro-chips {
+    margin-top: 0.55rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.diet-modern-chip {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    padding: 0.2rem 0.45rem;
+    font-size: 0.72rem;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.diet-modern-chip.kcal {
+    color: #e5e7eb;
+}
+
+.diet-modern-chip.protein {
+    color: #a3e635;
+}
+
+.diet-modern-chip.carb {
+    color: #22d3ee;
+}
+
+.diet-modern-chip.fat {
+    color: #facc15;
+}
+
+@media (max-width: 860px) {
+    .diet-modern-substitute-box,
+    .diet-modern-add-food-box {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .diet-modern-add-food-actions {
+        grid-column: span 2;
+    }
+}
+
+@media (max-width: 640px) {
+    .diet-modern-substitute-box,
+    .diet-modern-add-food-box {
+        grid-template-columns: 1fr;
+    }
+
+    .diet-modern-add-food-actions {
+        grid-column: span 1;
+    }
+}
