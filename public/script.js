@@ -972,10 +972,14 @@ function isSupabaseReady() {
 
 const SUPABASE_TABLES = {
     trainers: 'app_trainers',
-    students: 'app_students'
+    students: 'app_students',
+    foods: 'app_foods'
 };
 
 let supabaseStudentsSyncTimer = null;
+let supabaseFoodsChannel = null;
+let supabaseFoodsSyncTimer = null;
+let foodCatalogCache = [];
 
 function normalizeStudentRow(row) {
     if (!row) return null;
@@ -983,6 +987,158 @@ function normalizeStudentRow(row) {
     student.id = student.id || row.id || '';
     student.trainerCode = student.trainerCode || row.trainer_code || '';
     return student;
+}
+
+function normalizeFoodCatalogRow(row) {
+    if (!row) return null;
+    const name = sanitizeUserInput(row.name || row.nome || '', { maxLen: 140 });
+    if (!name) return null;
+    return {
+        id: String(row.id || ''),
+        name,
+        brand: sanitizeUserInput(row.brand || '', { maxLen: 80 }),
+        base_qty: Math.max(0.1, parseDecimalSafe(row.base_qty) || 100),
+        base_unit: ['g', 'ml', 'un'].includes(String(row.base_unit || '').toLowerCase())
+            ? String(row.base_unit).toLowerCase()
+            : 'g',
+        kcal: Math.max(0, parseDecimalSafe(row.kcal)),
+        protein: Math.max(0, parseDecimalSafe(row.protein)),
+        carb: Math.max(0, parseDecimalSafe(row.carb)),
+        fat: Math.max(0, parseDecimalSafe(row.fat)),
+        source: sanitizeUserInput(row.source || 'manual', { maxLen: 40 }) || 'manual',
+        created_by: sanitizeUserInput(row.created_by || '', { maxLen: 80 })
+    };
+}
+
+function getCurrentFoodCreatorId() {
+    return memoryGetItem('currentStudentId')
+        || memoryGetItem('currentTrainerCode')
+        || memoryGetItem('studentName')
+        || 'anon';
+}
+
+function parseAmountAndUnit(rawValue, fallbackUnit = 'g') {
+    const text = String(rawValue || '').trim().toLowerCase();
+    const amount = parseDecimalSafe(text.replace(',', '.').replace(/[^\d.]/g, ''));
+    const unit = text.includes('ml') ? 'ml' : (text.includes('un') ? 'un' : fallbackUnit);
+    return {
+        amount: amount > 0 ? amount : 0,
+        unit
+    };
+}
+
+function computeMacrosByAmount(food, amount, unit) {
+    const normalized = normalizeFoodCatalogRow(food);
+    if (!normalized) {
+        return { kcal: 0, protein: 0, carb: 0, fat: 0, base_qty: 100, base_unit: 'g' };
+    }
+    const safeAmount = Math.max(0.1, parseDecimalSafe(amount) || normalized.base_qty || 100);
+    const inputUnit = ['g', 'ml', 'un'].includes(String(unit || '').toLowerCase()) ? String(unit).toLowerCase() : normalized.base_unit;
+    const baseQty = Math.max(0.1, normalized.base_qty || 100);
+    const sameUnit = inputUnit === normalized.base_unit;
+    const factor = sameUnit ? (safeAmount / baseQty) : (safeAmount / baseQty);
+    return {
+        kcal: Math.round((normalized.kcal || 0) * factor),
+        protein: Math.round((normalized.protein || 0) * factor * 10) / 10,
+        carb: Math.round((normalized.carb || 0) * factor * 10) / 10,
+        fat: Math.round((normalized.fat || 0) * factor * 10) / 10,
+        base_qty: baseQty,
+        base_unit: normalized.base_unit
+    };
+}
+
+async function searchFoodsCatalog(query, limit = 12) {
+    const q = sanitizeUserInput(query || '', { maxLen: 90 });
+    if (!q || q.length < 2) return [];
+    if (!isSupabaseReady()) {
+        return foodCatalogCache
+            .filter((item) => normalizeText(item.name).includes(normalizeText(q)))
+            .slice(0, limit);
+    }
+    const { data, error } = await window.supabase
+        .from(SUPABASE_TABLES.foods)
+        .select('*')
+        .ilike('name', `%${q}%`)
+        .order('name', { ascending: true })
+        .limit(limit);
+    if (error) {
+        console.warn('Supabase foods search failed', error.message);
+        return [];
+    }
+    return (data || []).map(normalizeFoodCatalogRow).filter(Boolean);
+}
+
+async function insertFoodIntoCatalog(foodPayload = {}) {
+    const normalized = normalizeFoodCatalogRow(foodPayload);
+    if (!normalized || !normalized.name) return null;
+    if (!isSupabaseReady()) {
+        const fake = { ...normalized, id: `local-${Date.now()}` };
+        foodCatalogCache = [fake, ...foodCatalogCache.filter((x) => normalizeText(x.name) !== normalizeText(fake.name))];
+        return fake;
+    }
+    const row = {
+        name: normalized.name,
+        brand: normalized.brand || null,
+        base_qty: normalized.base_qty,
+        base_unit: normalized.base_unit,
+        kcal: normalized.kcal,
+        protein: normalized.protein,
+        carb: normalized.carb,
+        fat: normalized.fat,
+        source: normalized.source || 'manual',
+        created_by: normalized.created_by || getCurrentFoodCreatorId(),
+        updated_at: new Date().toISOString()
+    };
+    const { data, error } = await window.supabase
+        .from(SUPABASE_TABLES.foods)
+        .insert(row)
+        .select('*')
+        .single();
+    if (error) {
+        console.warn('Supabase food insert failed', error.message);
+        return null;
+    }
+    const inserted = normalizeFoodCatalogRow(data);
+    if (inserted) {
+        foodCatalogCache = [inserted, ...foodCatalogCache.filter((x) => String(x.id) !== String(inserted.id))];
+    }
+    return inserted;
+}
+
+async function syncFoodsCatalogFromSupabase() {
+    if (!isSupabaseReady()) return;
+    const { data, error } = await window.supabase
+        .from(SUPABASE_TABLES.foods)
+        .select('*')
+        .order('name', { ascending: true })
+        .limit(400);
+    if (error) {
+        console.warn('Supabase foods sync failed', error.message);
+        return;
+    }
+    foodCatalogCache = (data || []).map(normalizeFoodCatalogRow).filter(Boolean);
+}
+
+function scheduleFoodsCatalogSync(delayMs = 120) {
+    if (supabaseFoodsSyncTimer) clearTimeout(supabaseFoodsSyncTimer);
+    supabaseFoodsSyncTimer = setTimeout(() => {
+        syncFoodsCatalogFromSupabase();
+    }, delayMs);
+}
+
+function startSupabaseFoodsRealtimeSync() {
+    if (!isSupabaseReady()) return;
+    if (supabaseFoodsChannel) return;
+    supabaseFoodsChannel = window.supabase
+        .channel('foods-live-global')
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: SUPABASE_TABLES.foods },
+            () => scheduleFoodsCatalogSync(80)
+        )
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') scheduleFoodsCatalogSync(40);
+        });
 }
 
 function mergeDietLogEntries(baseEntry, incomingEntry) {
@@ -1195,8 +1351,12 @@ function stopSupabaseRealtimeSync() {
     if (supabaseTrainerChannel && isSupabaseReady()) {
         window.supabase.removeChannel(supabaseTrainerChannel);
     }
+    if (supabaseFoodsChannel && isSupabaseReady()) {
+        window.supabase.removeChannel(supabaseFoodsChannel);
+    }
     supabaseStudentsChannel = null;
     supabaseTrainerChannel = null;
+    supabaseFoodsChannel = null;
     supabaseRealtimeTrainerCode = '';
 }
 
@@ -3820,7 +3980,7 @@ function computeDietConsumedMacros(baseItem, logEntry) {
     }
 
     const base = getDietItemBaseMacros(baseItem);
-    const baseQty = Math.max(1, parseQuantityNumeric(baseItem?.qtd) || 1);
+    const baseQty = Math.max(0.1, parseDecimalSafe(baseItem?.baseQty) || parseQuantityNumeric(baseItem?.qtd) || 1);
     const consumedQty = Math.max(0.1, parseQuantityNumeric(logEntry?.qty) || baseQty);
     const ratio = consumedQty / baseQty;
 
@@ -3899,12 +4059,22 @@ function renderStudentDietContent(student) {
             </div>
             ${activeStudentMealAddFormIdx === mealIdx ? `
                 <div class="diet-modern-add-food-box">
-                    <input type="text" class="diet-modern-input" placeholder="Alimento" value="${escHtml(studentDietMealDraft.name || '')}" oninput="updateStudentMealDraftField('name', this.value)">
+                    <input type="text" class="diet-modern-input" placeholder="Alimento" value="${escHtml(studentDietMealDraft.name || '')}" oninput="updateStudentMealDraftName(this.value)">
                     <input type="text" class="diet-modern-input" placeholder="Quantidade (ex: 120g)" value="${escHtml(studentDietMealDraft.qtd || '')}" oninput="updateStudentMealDraftField('qtd', this.value)">
                     <input type="number" class="diet-modern-input" placeholder="kcal" value="${escHtml(studentDietMealDraft.kcal || '')}" oninput="updateStudentMealDraftField('kcal', this.value)">
                     <input type="number" class="diet-modern-input" placeholder="Proteína" value="${escHtml(studentDietMealDraft.prot || '')}" oninput="updateStudentMealDraftField('prot', this.value)">
                     <input type="number" class="diet-modern-input" placeholder="Carboidrato" value="${escHtml(studentDietMealDraft.carb || '')}" oninput="updateStudentMealDraftField('carb', this.value)">
                     <input type="number" class="diet-modern-input" placeholder="Gordura" value="${escHtml(studentDietMealDraft.gord || '')}" oninput="updateStudentMealDraftField('gord', this.value)">
+                    ${studentDietFoodSearchResults.length ? `
+                        <div class="diet-modern-draft-results">
+                            ${studentDietFoodSearchResults.map((food, idx) => `
+                                <button type="button" class="diet-modern-draft-item" onclick="selectStudentMealDraftFood(${idx})">
+                                    <strong>${escHtml(food.name)}</strong>
+                                    <span>${food.kcal}kcal · P ${food.protein}g · C ${food.carb}g · G ${food.fat}g (${food.base_qty}${food.base_unit})</span>
+                                </button>
+                            `).join('')}
+                        </div>
+                    ` : ''}
                     <div class="diet-modern-add-food-actions">
                         <button type="button" class="diet-modern-save-btn" onclick="saveStudentMealDraft(${mealIdx})">Salvar alimento</button>
                         <button type="button" class="diet-modern-cancel-btn" onclick="toggleStudentMealAddForm(${mealIdx})">Cancelar</button>
@@ -4025,6 +4195,8 @@ function getDietDailyCompletion(student, dateKey = getTodayDateKey()) {
 let activeStudentMealAddFormIdx = null;
 let studentDietMealDraft = { name: '', qtd: '', kcal: '', prot: '', carb: '', gord: '' };
 let studentDietSelectedDateKey = getTodayDateKey();
+let studentDietFoodSearchResults = [];
+let studentDietFoodSearchTimer = null;
 
 function setStudentDietDate(dateKey) {
     const safe = /^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || '')) ? String(dateKey) : getTodayDateKey();
@@ -4035,10 +4207,60 @@ function setStudentDietDate(dateKey) {
 
 function resetStudentMealDraft() {
     studentDietMealDraft = { name: '', qtd: '', kcal: '', prot: '', carb: '', gord: '' };
+    studentDietFoodSearchResults = [];
 }
 
 function updateStudentMealDraftField(field, value) {
     studentDietMealDraft[field] = value;
+    if (field === 'qtd' && studentDietMealDraft.baseQty) {
+        const parsed = parseAmountAndUnit(value, studentDietMealDraft.baseUnit || 'g');
+        const calc = computeMacrosByAmount({
+            name: studentDietMealDraft.name,
+            base_qty: studentDietMealDraft.baseQty,
+            base_unit: studentDietMealDraft.baseUnit || 'g',
+            kcal: parseDecimalSafe(studentDietMealDraft.kcal),
+            protein: parseDecimalSafe(studentDietMealDraft.prot),
+            carb: parseDecimalSafe(studentDietMealDraft.carb),
+            fat: parseDecimalSafe(studentDietMealDraft.gord)
+        }, parsed.amount || parseDecimalSafe(studentDietMealDraft.baseQty), parsed.unit || studentDietMealDraft.baseUnit || 'g');
+        studentDietMealDraft.kcal = String(calc.kcal);
+        studentDietMealDraft.prot = String(calc.protein);
+        studentDietMealDraft.carb = String(calc.carb);
+        studentDietMealDraft.gord = String(calc.fat);
+        refreshStudentDietViews();
+    }
+}
+
+function updateStudentMealDraftName(value) {
+    updateStudentMealDraftField('name', value);
+    if (studentDietFoodSearchTimer) clearTimeout(studentDietFoodSearchTimer);
+    const term = String(value || '').trim();
+    if (term.length < 2) {
+        studentDietFoodSearchResults = [];
+        refreshStudentDietViews();
+        return;
+    }
+    studentDietFoodSearchTimer = setTimeout(async () => {
+        studentDietFoodSearchResults = await searchFoodsCatalog(term, 8);
+        refreshStudentDietViews();
+    }, 220);
+}
+
+function selectStudentMealDraftFood(index) {
+    const food = studentDietFoodSearchResults[index];
+    if (!food) return;
+    studentDietMealDraft.name = food.name;
+    studentDietMealDraft.qtd = `${food.base_qty}${food.base_unit}`;
+    studentDietMealDraft.kcal = String(food.kcal);
+    studentDietMealDraft.prot = String(food.protein);
+    studentDietMealDraft.carb = String(food.carb);
+    studentDietMealDraft.gord = String(food.fat);
+    studentDietMealDraft.foodId = food.id;
+    studentDietMealDraft.baseQty = food.base_qty;
+    studentDietMealDraft.baseUnit = food.base_unit;
+    studentDietMealDraft.source = food.source || 'catalog';
+    studentDietFoodSearchResults = [];
+    refreshStudentDietViews();
 }
 
 function toggleStudentMealAddForm(mealIdx) {
@@ -4052,15 +4274,53 @@ function toggleStudentMealAddForm(mealIdx) {
     refreshStudentDietViews();
 }
 
-function saveStudentMealDraft(mealIdx) {
+async function saveStudentMealDraft(mealIdx) {
     const nome = String(studentDietMealDraft.name || '').trim();
     if (!nome) return;
     const qtd = String(studentDietMealDraft.qtd || '').trim() || '100g';
-    const prot = parseDecimalSafe(studentDietMealDraft.prot);
-    const carb = parseDecimalSafe(studentDietMealDraft.carb);
-    const gord = parseDecimalSafe(studentDietMealDraft.gord);
-    const kcalTyped = parseDecimalSafe(studentDietMealDraft.kcal);
-    const kcal = kcalTyped > 0 ? kcalTyped : Math.round((prot * 4) + (carb * 4) + (gord * 9));
+    const parsedQty = parseAmountAndUnit(qtd, String(studentDietMealDraft.baseUnit || 'g').toLowerCase());
+    const baseQty = Math.max(0.1, parseDecimalSafe(studentDietMealDraft.baseQty) || parsedQty.amount || 100);
+    const baseUnit = ['g', 'ml', 'un'].includes(String(studentDietMealDraft.baseUnit || '').toLowerCase())
+        ? String(studentDietMealDraft.baseUnit).toLowerCase()
+        : (parsedQty.unit || 'g');
+    const source = studentDietMealDraft.source || (studentDietMealDraft.foodId ? 'catalog' : 'manual');
+
+    let foodId = studentDietMealDraft.foodId || '';
+    let baseKcal = parseDecimalSafe(studentDietMealDraft.kcal);
+    let baseProt = parseDecimalSafe(studentDietMealDraft.prot);
+    let baseCarb = parseDecimalSafe(studentDietMealDraft.carb);
+    let baseFat = parseDecimalSafe(studentDietMealDraft.gord);
+
+    if (!foodId) {
+        const inserted = await insertFoodIntoCatalog({
+            name: nome,
+            base_qty: baseQty,
+            base_unit: baseUnit,
+            kcal: baseKcal,
+            protein: baseProt,
+            carb: baseCarb,
+            fat: baseFat,
+            source: source === 'manual' ? 'manual' : source,
+            created_by: getCurrentFoodCreatorId()
+        });
+        if (inserted) {
+            foodId = inserted.id;
+            baseKcal = inserted.kcal;
+            baseProt = inserted.protein;
+            baseCarb = inserted.carb;
+            baseFat = inserted.fat;
+        }
+    }
+
+    const calc = computeMacrosByAmount({
+        name: nome,
+        base_qty: baseQty,
+        base_unit: baseUnit,
+        kcal: baseKcal,
+        protein: baseProt,
+        carb: baseCarb,
+        fat: baseFat
+    }, parsedQty.amount || baseQty, parsedQty.unit || baseUnit);
 
     persistStudentMealBlocks((student) => {
         if (!Array.isArray(student.mealBlocks)) student.mealBlocks = [];
@@ -4069,11 +4329,15 @@ function saveStudentMealDraft(mealIdx) {
         student.mealBlocks[mealIdx].items.push({
             nome,
             qtd,
-            kcal,
-            prot,
-            carb,
-            gord,
-            addedByStudent: true
+            kcal: calc.kcal,
+            prot: calc.protein,
+            carb: calc.carb,
+            gord: calc.fat,
+            addedByStudent: true,
+            foodId: foodId || '',
+            baseQty,
+            baseUnit,
+            source
         });
     });
 
@@ -4546,6 +4810,10 @@ async function initStudentDashboard() {
     if (trainerCode && trainerCode !== '00000') {
         await syncStudentsFromSupabase(trainerCode);
         startSupabaseRealtimeSync(trainerCode);
+    }
+    if (isSupabaseReady()) {
+        startSupabaseFoodsRealtimeSync();
+        scheduleFoodsCatalogSync(30);
     }
     const studentId = memoryGetItem('currentStudentId');
     const studentName = memoryGetItem('studentName') || 'Aluno';
@@ -5570,6 +5838,10 @@ function initTrainerDashboard() {
     if (trainerCode && trainerCode !== '00000') {
         syncStudentsFromSupabase(trainerCode);
         startSupabaseRealtimeSync(trainerCode);
+    }
+    if (isSupabaseReady()) {
+        startSupabaseFoodsRealtimeSync();
+        scheduleFoodsCatalogSync(30);
     }
 
     if (canAutoEnterDashboard) {
@@ -7744,41 +8016,49 @@ function openFoodModal(mealIdx) {
     document.getElementById('food-modal-overlay').classList.add('active');
     document.getElementById('food-modal').classList.add('active');
     document.getElementById('food-nome').focus();
+    if (isSupabaseReady() && (!Array.isArray(foodCatalogCache) || foodCatalogCache.length === 0)) {
+        scheduleFoodsCatalogSync(10);
+    }
     renderSimpleFoodLibrary('');
 }
 
 let foodSearchTimeout = null;
 let selectedFoodReference = null;
-const SIMPLE_FOOD_LIBRARY = [
-    { nome: 'Arroz cozido', kcal: 130, prot: 2.7, carb: 28, fat: 0.3 },
-    { nome: 'Feijão cozido', kcal: 76, prot: 4.8, carb: 13.6, fat: 0.5 },
-    { nome: 'Frango grelhado', kcal: 165, prot: 31, carb: 0, fat: 3.6 },
-    { nome: 'Ovo cozido', kcal: 155, prot: 13, carb: 1.1, fat: 11 },
-    { nome: 'Batata doce cozida', kcal: 86, prot: 1.6, carb: 20.1, fat: 0.1 },
-    { nome: 'Banana', kcal: 89, prot: 1.1, carb: 23, fat: 0.3 },
-    { nome: 'Aveia em flocos', kcal: 389, prot: 16.9, carb: 66.3, fat: 6.9 },
-    { nome: 'Iogurte natural', kcal: 61, prot: 3.5, carb: 4.7, fat: 3.3 },
-    { nome: 'Pão integral', kcal: 247, prot: 13, carb: 41, fat: 4.2 },
-    { nome: 'Azeite de oliva', kcal: 884, prot: 0, carb: 0, fat: 100 }
+const FOOD_LIBRARY_FALLBACK = [
+    { id: '', name: 'Arroz cozido', brand: '', base_qty: 100, base_unit: 'g', kcal: 130, protein: 2.7, carb: 28, fat: 0.3, source: 'manual' },
+    { id: '', name: 'Feijao cozido', brand: '', base_qty: 100, base_unit: 'g', kcal: 76, protein: 4.8, carb: 13.6, fat: 0.5, source: 'manual' },
+    { id: '', name: 'Frango grelhado', brand: '', base_qty: 100, base_unit: 'g', kcal: 165, protein: 31, carb: 0, fat: 3.6, source: 'manual' },
+    { id: '', name: 'Ovo cozido', brand: '', base_qty: 100, base_unit: 'g', kcal: 155, protein: 13, carb: 1.1, fat: 11, source: 'manual' }
 ];
-
 function renderSimpleFoodLibrary(query = '') {
     const results = document.getElementById('food-library-results');
     if (!results) return;
     const q = normalizeText(query);
-    const baseList = SIMPLE_FOOD_LIBRARY.filter((item) => !q || normalizeText(item.nome).includes(q)).slice(0, 10);
+    const sourceList = (foodCatalogCache && foodCatalogCache.length > 0) ? foodCatalogCache : FOOD_LIBRARY_FALLBACK;
+    const baseList = sourceList.filter((item) => !q || normalizeText(item.name).includes(q)).slice(0, 12);
     if (!baseList.length) {
-        results.innerHTML = '<div class="ex-empty-block" style="padding:1rem;">Nenhum alimento simples encontrado.</div>';
+        results.innerHTML = '<div class="ex-empty-block" style="padding:1rem;">Nenhum alimento no banco encontrado.</div>';
         results.classList.add('active');
         return;
     }
     results.innerHTML = `
-        <div class="lib-category">Base rápida (simples)</div>
+        <div class="lib-category">Resultados (Banco de Alimentos)</div>
         ${baseList.map((item) => `
-            <div class="lib-item" onclick='selectFoodFromAPI(${JSON.stringify(item).replace(/'/g, "&apos;")})'>
+            <div class="lib-item" onclick='selectFoodFromAPI(${JSON.stringify({
+                nome: item.name,
+                brand: item.brand || '',
+                kcal: item.kcal,
+                prot: item.protein,
+                carb: item.carb,
+                fat: item.fat,
+                base_qty: item.base_qty,
+                base_unit: item.base_unit,
+                foodId: item.id,
+                source: item.source || 'catalog'
+            }).replace(/'/g, "&apos;")})'>
                 <div style="display:flex; flex-direction:column;">
-                    <span>${escHtml(item.nome)}</span>
-                    <small style="font-size:0.7rem; opacity:0.6;">${Math.round(item.kcal)}kcal | P:${item.prot}g C:${item.carb}g G:${item.fat}g (100g)</small>
+                    <span>${escHtml(item.name)}${item.brand ? ` - ${escHtml(item.brand)}` : ''}</span>
+                    <small style="font-size:0.7rem; opacity:0.6;">${Math.round(item.kcal)}kcal | P:${item.protein}g C:${item.carb}g G:${item.fat}g (por ${item.base_qty}${item.base_unit})</small>
                 </div>
             </div>
         `).join('')}
@@ -7801,36 +8081,64 @@ function searchFoodAPI(query) {
         results.classList.add('active');
 
         try {
-            // Open Food Facts API (optimized for Brazil)
-            const url = `https://br.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=10`;
-            const resp = await fetch(url, { headers: { 'User-Agent': 'AplicativoConsultoria - Browser - v1.0' } });
-            const data = await resp.json();
-
             let html = '';
-            if (data.products && data.products.length > 0) {
-                html += `<div class="lib-category">Resultados (Open Food Facts)</div>`;
-                data.products.forEach(p => {
-                    const name = p.product_name || 'Desconhecido';
-                    const brand = p.brands ? ` - ${p.brands}` : '';
-                    const display = `${name}${brand}`;
-
-                    // Essential macro data
-                    const pData = {
-                        nome: display,
-                        kcal: Math.round(p.nutriments?.['energy-kcal_100g'] || 0),
-                        prot: p.nutriments?.proteins_100g || 0,
-                        carb: p.nutriments?.carbohydrates_100g || 0,
-                        fat: p.nutriments?.fat_100g || 0
+            const catalogResults = await searchFoodsCatalog(query, 12);
+            if (catalogResults.length > 0) {
+                html += `<div class="lib-category">Resultados (Banco de Alimentos)</div>`;
+                catalogResults.forEach((item) => {
+                    const dataItem = {
+                        nome: item.name,
+                        brand: item.brand || '',
+                        kcal: item.kcal,
+                        prot: item.protein,
+                        carb: item.carb,
+                        fat: item.fat,
+                        base_qty: item.base_qty,
+                        base_unit: item.base_unit,
+                        foodId: item.id,
+                        source: item.source || 'catalog'
                     };
-
-                    html += `<div class="lib-item" onclick='selectFoodFromAPI(${JSON.stringify(pData).replace(/'/g, "&apos;")})'>
+                    html += `<div class="lib-item" onclick='selectFoodFromAPI(${JSON.stringify(dataItem).replace(/'/g, "&apos;")})'>
                         <div style="display:flex; flex-direction:column;">
-                            <span>${display}</span>
-                            <small style="font-size:0.7rem; opacity:0.6;">${pData.kcal}kcal | P:${pData.prot}g C:${pData.carb}g (por 100g)</small>
+                            <span>${escHtml(item.name)}${item.brand ? ` - ${escHtml(item.brand)}` : ''}</span>
+                            <small style="font-size:0.7rem; opacity:0.6;">${Math.round(item.kcal)}kcal | P:${item.protein}g C:${item.carb}g G:${item.fat}g (por ${item.base_qty}${item.base_unit})</small>
                         </div>
                     </div>`;
                 });
-            } else {
+            }
+
+            if (catalogResults.length === 0) {
+                const url = `https://br.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=10`;
+                const resp = await fetch(url, { headers: { 'User-Agent': 'AplicativoConsultoria - Browser - v1.0' } });
+                const data = await resp.json();
+                if (data.products && data.products.length > 0) {
+                    html += `<div class="lib-category">Resultados (Open Food Facts)</div>`;
+                    data.products.forEach(p => {
+                        const name = p.product_name || 'Desconhecido';
+                        const brand = p.brands ? ` - ${p.brands}` : '';
+                        const display = `${name}${brand}`;
+                        const pData = {
+                            nome: display,
+                            brand: p.brands || '',
+                            kcal: Math.round(p.nutriments?.['energy-kcal_100g'] || 0),
+                            prot: p.nutriments?.proteins_100g || 0,
+                            carb: p.nutriments?.carbohydrates_100g || 0,
+                            fat: p.nutriments?.fat_100g || 0,
+                            base_qty: 100,
+                            base_unit: 'g',
+                            source: 'openfoodfacts'
+                        };
+                        html += `<div class="lib-item" onclick='selectFoodFromAPI(${JSON.stringify(pData).replace(/'/g, "&apos;")})'>
+                            <div style="display:flex; flex-direction:column;">
+                                <span>${display}</span>
+                                <small style="font-size:0.7rem; opacity:0.6;">${pData.kcal}kcal | P:${pData.prot}g C:${pData.carb}g (por 100g)</small>
+                            </div>
+                        </div>`;
+                    });
+                }
+            }
+
+            if (!html) {
                 html = '<div class="ex-empty-block" style="padding:1rem;">Nenhum alimento encontrado.</div>';
             }
 
@@ -7843,24 +8151,31 @@ function searchFoodAPI(query) {
 }
 
 function selectFoodFromAPI(data) {
+    const baseQty = Math.max(0.1, parseDecimalSafe(data.base_qty) || 100);
+    const baseUnit = ['g', 'ml', 'un'].includes(String(data.base_unit || '').toLowerCase()) ? String(data.base_unit).toLowerCase() : 'g';
     selectedFoodReference = {
         nome: data.nome,
-        kcal100: parseDecimalSafe(data.kcal),
-        prot100: parseDecimalSafe(data.prot),
-        carb100: parseDecimalSafe(data.carb),
-        fat100: parseDecimalSafe(data.fat)
+        brand: data.brand || '',
+        foodId: data.foodId || '',
+        source: data.source || 'manual',
+        base_qty: baseQty,
+        base_unit: baseUnit,
+        kcalBase: parseDecimalSafe(data.kcal),
+        protBase: parseDecimalSafe(data.prot),
+        carbBase: parseDecimalSafe(data.carb),
+        fatBase: parseDecimalSafe(data.fat)
     };
 
     const summary = getDietPlannerSummary();
     const mealTarget = summary.mealTargets[pendingMealIdx] || 250;
     const mealCurrent = summary.mealKcals[pendingMealIdx] || 0;
     const mealRemaining = Math.max(80, mealTarget - mealCurrent);
-    const suggestionGrams = selectedFoodReference.kcal100 > 0
-        ? Math.max(30, Math.min(350, Math.round((mealRemaining / selectedFoodReference.kcal100) * 100)))
-        : 100;
+    const suggestionAmount = selectedFoodReference.kcalBase > 0
+        ? Math.max(1, Math.round((mealRemaining / selectedFoodReference.kcalBase) * selectedFoodReference.base_qty))
+        : selectedFoodReference.base_qty;
 
     document.getElementById('food-nome').value = data.nome;
-    document.getElementById('food-qtd').value = `${suggestionGrams}g`;
+    document.getElementById('food-qtd').value = `${suggestionAmount}${selectedFoodReference.base_unit}`;
     recalculateFoodFromQuantity();
     updateFoodTargetHint();
 
@@ -7873,17 +8188,62 @@ function selectFoodFromAPI(data) {
 
 function recalculateFoodFromQuantity() {
     if (!selectedFoodReference) return;
-    const qtyText = document.getElementById('food-qtd')?.value || '';
-    const qty = Math.max(1, parseDecimalSafe(qtyText.replace(/[^\d.,]/g, '').replace(',', '.')) || 100);
-    const scale = qty / 100;
-    const kcal = Math.round(selectedFoodReference.kcal100 * scale);
-    const prot = Math.round(selectedFoodReference.prot100 * scale * 10) / 10;
-    const carb = Math.round(selectedFoodReference.carb100 * scale * 10) / 10;
-    const fat = Math.round(selectedFoodReference.fat100 * scale * 10) / 10;
+    const qtyText = document.getElementById('food-qtd')?.value || `${selectedFoodReference.base_qty}${selectedFoodReference.base_unit}`;
+    const parsed = parseAmountAndUnit(qtyText, selectedFoodReference.base_unit);
+    const amount = parsed.amount > 0 ? parsed.amount : selectedFoodReference.base_qty;
+    const calc = computeMacrosByAmount({
+        name: selectedFoodReference.nome,
+        base_qty: selectedFoodReference.base_qty,
+        base_unit: selectedFoodReference.base_unit,
+        kcal: selectedFoodReference.kcalBase,
+        protein: selectedFoodReference.protBase,
+        carb: selectedFoodReference.carbBase,
+        fat: selectedFoodReference.fatBase
+    }, amount, parsed.unit);
+    const kcal = calc.kcal;
+    const prot = calc.protein;
+    const carb = calc.carb;
+    const fat = calc.fat;
     document.getElementById('food-kcal').value = String(kcal);
     document.getElementById('food-prot').value = String(prot);
     document.getElementById('food-carb').value = String(carb);
     document.getElementById('food-gord').value = String(fat);
+}
+
+async function saveCurrentFoodToCatalog() {
+    const nome = sanitizeUserInput(document.getElementById('food-nome')?.value, { maxLen: 140 });
+    if (!nome) return;
+    const qtyRaw = document.getElementById('food-qtd')?.value || '100g';
+    const parsed = parseAmountAndUnit(qtyRaw, 'g');
+    const inserted = await insertFoodIntoCatalog({
+        name: nome,
+        brand: selectedFoodReference?.brand || '',
+        base_qty: parsed.amount > 0 ? parsed.amount : 100,
+        base_unit: parsed.unit || 'g',
+        kcal: parseDecimalSafe(document.getElementById('food-kcal')?.value),
+        protein: parseDecimalSafe(document.getElementById('food-prot')?.value),
+        carb: parseDecimalSafe(document.getElementById('food-carb')?.value),
+        fat: parseDecimalSafe(document.getElementById('food-gord')?.value),
+        source: selectedFoodReference?.source || 'manual',
+        created_by: getCurrentFoodCreatorId()
+    });
+    if (inserted) {
+        selectedFoodReference = {
+            nome: inserted.name,
+            brand: inserted.brand || '',
+            foodId: inserted.id,
+            source: inserted.source || 'manual',
+            base_qty: inserted.base_qty,
+            base_unit: inserted.base_unit,
+            kcalBase: inserted.kcal,
+            protBase: inserted.protein,
+            carbBase: inserted.carb,
+            fatBase: inserted.fat
+        };
+        const hintEl = document.getElementById('food-target-hint');
+        if (hintEl) hintEl.textContent = `${inserted.name} salvo no banco global.`;
+        scheduleFoodsCatalogSync(30);
+    }
 }
 
 function updateFoodTargetHint() {
@@ -7940,7 +8300,18 @@ function confirmAddFood() {
 
     if (!nome.trim()) return;
 
-    mealBlocks[pendingMealIdx].items.push({ nome: nome.trim(), qtd: qtd || '100g', kcal, prot, carb, gord });
+    mealBlocks[pendingMealIdx].items.push({
+        nome: nome.trim(),
+        qtd: qtd || '100g',
+        kcal,
+        prot,
+        carb,
+        gord,
+        foodId: selectedFoodReference?.foodId || '',
+        baseQty: selectedFoodReference?.base_qty || parseAmountAndUnit(qtd || '100g', 'g').amount || 100,
+        baseUnit: selectedFoodReference?.base_unit || parseAmountAndUnit(qtd || '100g', 'g').unit || 'g',
+        source: selectedFoodReference?.source || 'manual'
+    });
     renderMeals();
     updateDietPlannerSummary();
     closeFoodModal();
