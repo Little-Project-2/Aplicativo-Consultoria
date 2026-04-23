@@ -2052,6 +2052,26 @@ async function loadSPAComponents() {
     await Promise.all(promises);
 }
 
+async function ensureScreenElement(screenId, pagePath) {
+    const existing = document.getElementById(screenId);
+    if (existing) return existing;
+    if (!pagePath) return null;
+
+    try {
+        const res = await fetch(pagePath, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const html = await res.text();
+        const sanitizedHtml = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+        const app = document.getElementById('app');
+        if (!app) return null;
+        app.insertAdjacentHTML('beforeend', sanitizedHtml);
+        return document.getElementById(screenId);
+    } catch (err) {
+        console.error(`Falha ao carregar tela ${screenId} (${pagePath})`, err);
+        return null;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     await loadSPAComponents();
     setupClientSideFormProtection();
@@ -2357,20 +2377,32 @@ function goToStudentArea() {
     if (studentScreen) studentScreen.classList.add('active');
 }
 
-function goToGlobalLogin() {
-    hideAllScreens();
-    const loginScreen = document.getElementById('global-login-screen');
-    if (loginScreen) {
-        loginScreen.classList.add('active');
+async function goToGlobalLogin() {
+    const loginScreen = await ensureScreenElement('global-login-screen', 'pages/login.html');
+    if (!loginScreen) {
+        console.warn('Tela de login indisponivel, abrindo fallback do aluno.');
+        goToStudentArea();
         return;
     }
-    goToStudentArea();
+    hideAllScreens();
+    loginScreen.classList.add('active');
 }
 
-function goToProfileCreate() {
+async function goToProfileCreate() {
+    const profileCreateScreen = await ensureScreenElement('profile-create-screen', 'pages/profile-create.html');
+    if (!profileCreateScreen) {
+        const hasInline = setAuthInlineFeedback(
+            'login-inline-feedback',
+            'Nao foi possivel abrir a tela de cadastro. Recarregue a pagina e tente novamente.',
+            'error'
+        );
+        if (!hasInline) {
+            alert('Nao foi possivel abrir a tela de cadastro. Recarregue a pagina e tente novamente.');
+        }
+        return;
+    }
     hideAllScreens();
-    const profileCreateScreen = document.getElementById('profile-create-screen');
-    if (profileCreateScreen) profileCreateScreen.classList.add('active');
+    profileCreateScreen.classList.add('active');
 }
 
 function openTrainerArea() {
