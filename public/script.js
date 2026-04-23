@@ -2106,26 +2106,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (hasPublicHome) {
         const activeUser = await getSupabaseSessionUser();
         if (activeUser) {
-            const profile = await getProfileByUserId(activeUser.id);
-            const role = normalizeAppRole(profile?.role || activeUser?.user_metadata?.role);
-            if (role) {
-                await processLogin({
-                    id: activeUser.id,
-                    role,
-                    name: sanitizeUserInput(profile?.name || activeUser?.user_metadata?.name || activeUser?.email || 'Usuário', { maxLen: 90 }),
-                    email: activeUser?.email || '',
-                    trainerCode: sanitizeCodeInput(profile?.trainer_code || '', 5)
-                });
-                return;
-            }
+            await processLogin({
+                id: activeUser.id,
+                roles: normalizeAppRoles(activeUser?.user_metadata?.roles, activeUser?.user_metadata?.role),
+                name: sanitizeUserInput(activeUser?.user_metadata?.name || activeUser?.email || 'Usuário', { maxLen: 90 }),
+                email: activeUser?.email || ''
+            });
+            return;
         }
     }
 
-    // Fast path: remember-me token (auto-login instantâneo)
-    if (tryAutoStudentLogin()) return;
+    // Fast path: remember-me token only in local demo mode.
+    if (ENABLE_DEMO_ACCESS && tryAutoStudentLogin()) return;
 
     // Legacy fallback for sessions without token
-    const studentId = memoryGetItem('currentStudentId');
+    const studentId = ENABLE_DEMO_ACCESS ? memoryGetItem('currentStudentId') : null;
     if (studentId) {
         const students = readStorageJSON('trainerStudents', []);
         const legacyStudent = students.find(s => String(s.id) === String(studentId));
@@ -2137,6 +2132,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         memoryRemoveItem('currentStudentId');
         memoryRemoveItem('connectedTrainerCode');
         memoryRemoveItem('studentName');
+    }
+
+    const login = document.getElementById('global-login-screen');
+    if (login) {
+        hideAllScreens();
+        login.classList.add('active');
+        return;
     }
 
     const home = document.getElementById('home-screen');
@@ -2356,6 +2358,12 @@ function goToStudentArea() {
 }
 
 function goToGlobalLogin() {
+    hideAllScreens();
+    const loginScreen = document.getElementById('global-login-screen');
+    if (loginScreen) {
+        loginScreen.classList.add('active');
+        return;
+    }
     goToStudentArea();
 }
 
@@ -2383,6 +2391,48 @@ function normalizeAppRole(role) {
     return '';
 }
 
+function normalizeAppRoles(rolesLike, legacyRole = '') {
+    const candidates = [];
+    if (Array.isArray(rolesLike)) {
+        candidates.push(...rolesLike);
+    } else if (typeof rolesLike === 'string' && rolesLike.trim()) {
+        candidates.push(...rolesLike.split(','));
+    }
+    if (legacyRole) candidates.push(legacyRole);
+    const normalized = [];
+    candidates.forEach((entry) => {
+        const role = normalizeAppRole(entry);
+        if (role && !normalized.includes(role)) normalized.push(role);
+    });
+    if (normalized.length === 0) normalized.push('student');
+    return normalized;
+}
+
+function rolesFromChoice(choice) {
+    const normalized = String(choice || '').trim().toLowerCase();
+    if (normalized === 'trainer' || normalized === 'treinador') return ['trainer'];
+    if (normalized === 'both' || normalized === 'ambos') return ['trainer', 'student'];
+    return ['student'];
+}
+
+function hasAppRole(rolesLike, role) {
+    return normalizeAppRoles(rolesLike).includes(role);
+}
+
+function isEmailConfirmed(user) {
+    return !!user?.email_confirmed_at;
+}
+
+function mapOnboardingStep(profile, roles) {
+    const normalizedRoles = normalizeAppRoles(roles, profile?.role);
+    const hasStudent = normalizedRoles.includes('student');
+
+    if (!profile?.profile_complete) return 'profile_setup';
+    if (hasStudent && !profile?.anamnesis) return 'profile_setup';
+    if (hasStudent && !sanitizeCodeInput(profile?.connected_trainer_code || '', 5)) return 'trainer_connect';
+    return 'done';
+}
+
 async function getSupabaseSessionUser() {
     if (typeof window.supabase?.auth?.getSession !== 'function') return null;
     const { data, error } = await window.supabase.auth.getSession();
@@ -2394,11 +2444,214 @@ async function getProfileByUserId(userId) {
     if (!isSupabaseReady() || !userId) return null;
     const { data, error } = await window.supabase
         .from('profiles')
-        .select('id,role,name,trainer_code')
+        .select('id,role,roles,name,avatar_url,trainer_code,connected_trainer_code,profile_complete,onboarding_step,anamnesis')
         .eq('id', String(userId))
         .maybeSingle();
     if (error) return null;
     return data || null;
+}
+
+async function upsertOwnProfile(payload) {
+    if (!isSupabaseReady()) return null;
+    const { data, error } = await window.supabase
+        .from('profiles')
+        .upsert(payload, { onConflict: 'id' })
+        .select('id,role,roles,name,avatar_url,trainer_code,connected_trainer_code,profile_complete,onboarding_step,anamnesis')
+        .maybeSingle();
+    if (error) {
+        console.warn('Falha ao salvar perfil.', error.message || error);
+        return null;
+    }
+    return data || null;
+}
+
+function cacheAuthenticatedContext(user, profile, roles, onboardingStep) {
+    if (user?.id) memorySetItem('currentUserId', String(user.id));
+    if (user?.email) memorySetItem('currentUserEmail', sanitizeEmailInput(user.email));
+    memorySetItem('currentUserRoles', JSON.stringify(roles));
+    memorySetItem('currentUserRole', roles[0] || 'student');
+    memorySetItem('currentOnboardingStep', onboardingStep);
+    if (profile?.connected_trainer_code) {
+        memorySetItem('connectedTrainerCode', sanitizeCodeInput(profile.connected_trainer_code, 5));
+    }
+}
+
+async function openStudentDashboardForUser(userId, trainerCode = '') {
+    if (tryAutoStudentLogin()) return true;
+    let students = readStorageJSON('trainerStudents', []);
+    let student = students.find((s) => String(s.userId || '') === String(userId));
+
+    if (!student && trainerCode && isSupabaseReady()) {
+        await syncStudentsFromSupabase(trainerCode);
+        students = readStorageJSON('trainerStudents', []);
+        student = students.find((s) => String(s.userId || '') === String(userId));
+    }
+
+    if (!student) return false;
+    return openStudentDashboardSession(student, { persistToken: true });
+}
+
+function showProfileSetupScreen(profile, roles) {
+    hideAllScreens();
+    const screen = document.getElementById('profile-setup-screen');
+    if (!screen) {
+        goToProfileCreate();
+        return;
+    }
+    screen.classList.add('active');
+    screen.dataset.roles = JSON.stringify(roles);
+
+    const nameInput = document.getElementById('profile-setup-name');
+    const avatarInput = document.getElementById('profile-setup-avatar');
+    const heading = document.getElementById('profile-setup-heading');
+    const studentHint = document.getElementById('profile-setup-student-hint');
+    const roleList = roles.map((r) => (r === 'trainer' ? 'Treinador' : 'Aluno')).join(' + ');
+
+    if (heading) heading.textContent = `Finalizar conta (${roleList})`;
+    if (nameInput) nameInput.value = sanitizeUserInput(profile?.name || memoryGetItem('studentName') || '', { maxLen: 90 });
+    if (avatarInput) avatarInput.value = sanitizeUserInput(profile?.avatar_url || '', { maxLen: 300 });
+    if (studentHint) studentHint.style.display = roles.includes('student') ? '' : 'none';
+}
+
+function showTrainerConnectScreen() {
+    hideAllScreens();
+    const studentScreen = document.getElementById('student-screen');
+    if (studentScreen) studentScreen.classList.add('active');
+
+    const title = document.getElementById('student-connect-title');
+    const subtitle = document.getElementById('student-connect-subtitle');
+    if (title) title.textContent = 'Conectar com Treinador';
+    if (subtitle) subtitle.textContent = 'Adicione o código do treinador para concluir seu acesso como aluno';
+}
+
+async function routeByOnboarding(user, profile, roles) {
+    const onboardingStep = mapOnboardingStep(profile, roles);
+    cacheAuthenticatedContext(user, profile, roles, onboardingStep);
+
+    if (onboardingStep === 'profile_setup') {
+        if ((profile?.onboarding_step || '') !== 'profile_setup') {
+            await upsertOwnProfile({ id: user.id, onboarding_step: 'profile_setup' });
+        }
+        showProfileSetupScreen(profile, roles);
+        return;
+    }
+
+    if (onboardingStep === 'trainer_connect') {
+        if ((profile?.onboarding_step || '') !== 'trainer_connect') {
+            await upsertOwnProfile({ id: user.id, onboarding_step: 'trainer_connect' });
+        }
+        showTrainerConnectScreen();
+        return;
+    }
+
+    if (roles.includes('student')) {
+        const connectedCode = sanitizeCodeInput(profile?.connected_trainer_code || '', 5);
+        if (await openStudentDashboardForUser(user.id, connectedCode)) return;
+        showTrainerConnectScreen();
+        return;
+    }
+
+    window.location.href = 'trainer.html';
+}
+
+function setProfileSetupFeedback(message, isError = false) {
+    const feedback = document.getElementById('profile-setup-feedback');
+    if (!feedback) return;
+    feedback.textContent = message || '';
+    feedback.style.display = message ? 'block' : 'none';
+    feedback.style.color = isError ? '#ff8b8b' : 'var(--primary-color)';
+}
+
+async function completeProfileSetup() {
+    const activeUser = await getSupabaseSessionUser();
+    if (!activeUser) {
+        alert('Sua sessao expirou. Faca login novamente para continuar o onboarding.');
+        goToGlobalLogin();
+        return;
+    }
+
+    const screen = document.getElementById('profile-setup-screen');
+    let storedRoles = [];
+    try {
+        storedRoles = JSON.parse(screen?.dataset?.roles || memoryGetItem('currentUserRoles') || '[]');
+    } catch (err) {
+        storedRoles = [];
+    }
+    const roles = normalizeAppRoles(storedRoles, memoryGetItem('currentUserRole'));
+
+    const hasStudent = roles.includes('student');
+    const displayName = sanitizeUserInput(document.getElementById('profile-setup-name')?.value, { maxLen: 90 });
+    const avatarUrl = sanitizeUserInput(document.getElementById('profile-setup-avatar')?.value, { maxLen: 300 });
+    const newPass = document.getElementById('profile-setup-pass')?.value || '';
+    const passConfirm = document.getElementById('profile-setup-pass-confirm')?.value || '';
+
+    if (!displayName || displayName.length < 3) {
+        setProfileSetupFeedback('Informe seu nome com pelo menos 3 caracteres.', true);
+        return;
+    }
+
+    if (newPass || passConfirm) {
+        const hasLetter = /[A-Za-z]/.test(newPass);
+        const hasNumber = /\d/.test(newPass);
+        if (newPass !== passConfirm) {
+            setProfileSetupFeedback('A confirmação da senha não confere.', true);
+            return;
+        }
+        if (newPass.length < 8 || !hasLetter || !hasNumber) {
+            setProfileSetupFeedback('A senha precisa ter 8+ caracteres com letras e números.', true);
+            return;
+        }
+    }
+
+    setProfileSetupFeedback('Salvando...');
+
+    if (newPass) {
+        const { error: passwordError } = await window.supabase.auth.updateUser({ password: newPass });
+        if (passwordError) {
+            setProfileSetupFeedback(passwordError.message || 'Não foi possível atualizar a senha.', true);
+            return;
+        }
+    }
+
+    const { error: updateUserError } = await window.supabase.auth.updateUser({
+        data: { name: displayName, roles, role: roles[0] }
+    });
+    if (updateUserError) {
+        setProfileSetupFeedback(updateUserError.message || 'Não foi possível atualizar seus dados de conta.', true);
+        return;
+    }
+
+    const targetStep = hasStudent ? 'profile_setup' : 'done';
+    const profile = await upsertOwnProfile({
+        id: activeUser.id,
+        role: roles[0],
+        roles,
+        name: displayName,
+        avatar_url: avatarUrl || null,
+        profile_complete: true,
+        onboarding_step: targetStep
+    });
+
+    if (!profile) {
+        setProfileSetupFeedback('Não foi possível salvar o perfil no banco.', true);
+        return;
+    }
+
+    if (!hasStudent) {
+        await routeByOnboarding(activeUser, profile, roles);
+        return;
+    }
+
+    memorySetItem('onboardingPendingQuestionnaire', '1');
+    setProfileSetupFeedback('');
+    hideAllScreens();
+    const app = document.getElementById('app');
+    if (app) app.classList.add('wide');
+    const qScreen = document.getElementById('student-questionnaire-screen');
+    if (qScreen) qScreen.classList.add('active');
+    switchQTab('saude');
+    const nameField = document.getElementById('q_nome');
+    if (nameField && !nameField.value) nameField.value = displayName;
 }
 
 async function handleEmailLogin() {
@@ -2406,12 +2659,12 @@ async function handleEmailLogin() {
     const pass = document.getElementById('login-pass').value;
 
     if (!EMAIL_REGEX.test(email)) {
-        alert('Informe um e-mail válido.');
+        alert('Informe um e-mail valido.');
         return;
     }
 
     if (typeof window.supabase?.auth?.signInWithPassword !== 'function') {
-        alert('Login indisponível. Configure o Supabase primeiro.');
+        alert('Login indisponivel. Configure o Supabase primeiro.');
         return;
     }
 
@@ -2425,20 +2678,48 @@ async function handleEmailLogin() {
         return;
     }
 
-    const profile = await getProfileByUserId(data.user.id);
-    const role = normalizeAppRole(profile?.role || data.user?.user_metadata?.role);
-    if (!role) {
-        alert('Perfil sem tipo de usuário. Contate o suporte.');
+    if (!isEmailConfirmed(data.user)) {
+        await window.supabase.auth.signOut();
+        memorySetItem('pendingVerificationEmail', email);
+        alert('Seu e-mail ainda nao foi verificado. Use o botao "Reenviar verificacao de e-mail" se precisar.');
         return;
     }
 
     await processLogin({
         id: data.user.id,
-        role,
-        name: sanitizeUserInput(profile?.name || data.user?.user_metadata?.name || data.user?.email || 'Usuário', { maxLen: 90 }),
+        roles: normalizeAppRoles(data.user?.user_metadata?.roles, data.user?.user_metadata?.role),
+        name: sanitizeUserInput(data.user?.user_metadata?.name || data.user?.email || 'Usuário', { maxLen: 90 }),
         email: data.user?.email || '',
-        trainerCode: sanitizeCodeInput(profile?.trainer_code || '', 5)
+        trainerCode: ''
     });
+}
+
+async function resendVerificationEmailFromLogin() {
+    const emailInput = sanitizeEmailInput(document.getElementById('login-email')?.value);
+    const rememberedEmail = sanitizeEmailInput(memoryGetItem('pendingVerificationEmail') || '');
+    const email = emailInput || rememberedEmail;
+
+    if (!EMAIL_REGEX.test(email)) {
+        alert('Digite seu e-mail no campo acima para reenviar a verificacao.');
+        return;
+    }
+    if (typeof window.supabase?.auth?.resend !== 'function') {
+        alert('Reenvio indisponivel no momento.');
+        return;
+    }
+
+    const { error } = await window.supabase.auth.resend({
+        type: 'signup',
+        email,
+        options: { emailRedirectTo: `${window.location.origin}/` }
+    });
+    if (error) {
+        alert(error.message || 'Nao foi possivel reenviar o e-mail de verificacao.');
+        return;
+    }
+
+    memorySetItem('pendingVerificationEmail', email);
+    alert('Enviamos um novo e-mail de verificacao. Confira sua caixa de entrada e spam.');
 }
 
 async function handleProfileCreation() {
@@ -2448,7 +2729,7 @@ async function handleProfileCreation() {
     const passConfirm = document.getElementById('reg-pass-confirm')?.value || '';
     const acceptedTerms = !!document.getElementById('reg-terms')?.checked;
     const rawRole = document.querySelector('input[name="reg-role"]:checked')?.value || 'student';
-    const role = normalizeAppRole(rawRole) || 'student';
+    const roles = rolesFromChoice(rawRole);
 
     if (!name || !email || !pass || !passConfirm) {
         alert('Preencha todos os campos para criar sua conta.');
@@ -2483,7 +2764,7 @@ async function handleProfileCreation() {
     }
 
     if (typeof window.supabase?.auth?.signUp !== 'function') {
-        alert('Cadastro indisponível. Configure o Supabase primeiro.');
+        alert('Cadastro indisponivel. Configure o Supabase primeiro.');
         return;
     }
 
@@ -2494,52 +2775,45 @@ async function handleProfileCreation() {
             emailRedirectTo: `${window.location.origin}/`,
             data: {
                 name,
-                role
+                roles,
+                role: roles[0]
             }
         }
     });
 
     if (error) {
-        alert(error.message || 'Não foi possível criar sua conta.');
+        alert(error.message || 'Nao foi possivel criar sua conta.');
         return;
     }
 
     const user = data?.user;
     if (!user) {
-        alert('Conta criada, mas não foi possível carregar seu perfil.');
+        alert('Conta criada, mas nao foi possivel carregar seu perfil.');
         return;
     }
-
-    let trainerCode = '';
-    if (role === 'trainer') trainerCode = await generateUniqueTrainerCode();
-
-    await window.supabase
-        .from('profiles')
-        .upsert({
-            id: user.id,
-            role,
-            name,
-            trainer_code: trainerCode || null,
-            profile_complete: true
-        }, { onConflict: 'id' });
 
     if (data?.session?.user) {
-        await processLogin({
+        const trainerCode = roles.includes('trainer') ? await generateUniqueTrainerCode() : '';
+        await upsertOwnProfile({
             id: user.id,
-            role,
+            role: roles[0],
+            roles,
             name,
-            email,
-            trainerCode
+            trainer_code: trainerCode || null,
+            profile_complete: false,
+            onboarding_step: 'pending_verification'
         });
-        return;
+        await window.supabase.auth.signOut();
     }
 
-    alert('Conta criada com sucesso. Verifique seu e-mail para confirmar o cadastro.');
+    memorySetItem('pendingVerificationEmail', email);
+    alert('Conta criada com sucesso. Verifique seu e-mail, depois faca login para continuar o onboarding.');
+    goToGlobalLogin();
 }
 
 async function handleGoogleLogin() {
     if (typeof window.supabase?.auth?.signInWithOAuth !== 'function') {
-        alert('Login Google indisponível no momento.');
+        alert('Login Google indisponivel no momento.');
         return;
     }
     const { error } = await window.supabase.auth.signInWithOAuth({
@@ -2547,46 +2821,68 @@ async function handleGoogleLogin() {
         options: { redirectTo: `${window.location.origin}/` }
     });
     if (error) {
-        alert(error.message || 'Não foi possível iniciar o login com Google.');
+        alert(error.message || 'Nao foi possivel iniciar o login com Google.');
     }
 }
 
 async function processLogin(user) {
-    const safeUserName = sanitizeUserInput(user?.name || 'Aluno', { maxLen: 90 }) || 'Aluno';
-    const safeEmail = sanitizeEmailInput(user?.email || '');
-    const normalizedRole = normalizeAppRole(user?.role);
-    if (user?.id) memorySetItem('currentUserId', String(user.id));
-    if (safeEmail) memorySetItem('currentUserEmail', safeEmail);
-    if (normalizedRole) memorySetItem('currentUserRole', normalizedRole);
-
-    if (normalizedRole === 'trainer') {
-        let trainerCode = sanitizeCodeInput(user?.trainerCode || memoryGetItem('currentTrainerCode') || '', 5);
-        if (!trainerCode) trainerCode = await generateUniqueTrainerCode();
-
-        memorySetItem('trainerName', safeUserName.split(' ')[0]);
-        memorySetItem('currentTrainerCode', trainerCode);
-        cacheTrainerLocal({
-            code: trainerCode,
-            name: safeUserName,
-            consultoria_name: `Consultoria de ${safeUserName.split(' ')[0]} `,
-            services: 'treino'
-        });
-        await ensureTrainerExistsRemote(
-            trainerCode,
-            safeUserName,
-            `Consultoria de ${safeUserName.split(' ')[0]} `
-        );
-        window.location.href = 'trainer.html';
-        return;
-    } else if (normalizedRole === 'student') {
-        memorySetItem('studentName', safeUserName);
-        if (!tryAutoStudentLogin()) {
-            goToStudentArea();
-        }
+    const sessionUser = await getSupabaseSessionUser();
+    const activeUser = sessionUser || user || null;
+    if (!activeUser?.id) {
+        alert('Sessao invalida. Faca login novamente.');
+        goToGlobalLogin();
         return;
     }
 
-    alert('Tipo de usuário inválido para login.');
+    if (!isEmailConfirmed(activeUser)) {
+        await window.supabase.auth.signOut();
+        alert('Verifique seu e-mail antes de acessar o aplicativo.');
+        goToGlobalLogin();
+        return;
+    }
+
+    const safeUserName = sanitizeUserInput(user?.name || activeUser?.user_metadata?.name || activeUser?.email || 'Usuário', { maxLen: 90 }) || 'Usuário';
+    const safeEmail = sanitizeEmailInput(activeUser?.email || user?.email || '');
+    const requestedRoles = normalizeAppRoles(user?.roles, user?.role || activeUser?.user_metadata?.role);
+    let profile = await getProfileByUserId(activeUser.id);
+
+    if (!profile) {
+        let trainerCode = '';
+        if (requestedRoles.includes('trainer')) trainerCode = await generateUniqueTrainerCode();
+        profile = await upsertOwnProfile({
+            id: activeUser.id,
+            role: requestedRoles[0],
+            roles: requestedRoles,
+            name: safeUserName,
+            trainer_code: trainerCode || null,
+            profile_complete: false,
+            onboarding_step: 'profile_setup'
+        });
+    }
+
+    if (!profile) {
+        alert('Nao foi possivel carregar seu perfil. Tente novamente.');
+        return;
+    }
+
+    const roles = normalizeAppRoles(profile.roles, profile.role || requestedRoles[0]);
+    const needsTrainerCode = roles.includes('trainer') && !sanitizeCodeInput(profile.trainer_code || '', 5);
+    if (needsTrainerCode) {
+        const trainerCode = await generateUniqueTrainerCode();
+        profile = (await upsertOwnProfile({
+            id: activeUser.id,
+            trainer_code: trainerCode,
+            role: roles[0],
+            roles
+        })) || { ...profile, trainer_code: trainerCode };
+    }
+
+    if (safeEmail) memorySetItem('currentUserEmail', safeEmail);
+    memorySetItem('studentName', safeUserName);
+    memorySetItem('trainerName', safeUserName.split(' ')[0]);
+    if (profile?.trainer_code) memorySetItem('currentTrainerCode', sanitizeCodeInput(profile.trainer_code, 5));
+
+    await routeByOnboarding(activeUser, profile, roles);
 }
 
 let currentWorkoutTab = 0;
@@ -5605,8 +5901,8 @@ async function connectStudent() {
         return;
     }
     const profile = await getProfileByUserId(activeUser.id);
-    const role = normalizeAppRole(profile?.role || activeUser?.user_metadata?.role);
-    if (role !== 'student') {
+    const roles = normalizeAppRoles(profile?.roles || activeUser?.user_metadata?.roles, profile?.role || activeUser?.user_metadata?.role);
+    if (!roles.includes('student')) {
         alert('Apenas contas de aluno podem usar esta opção.');
         return;
     }
@@ -5696,6 +5992,17 @@ async function connectStudent() {
 }
 
 function confirmConnection() {
+    const onboardingDraft = memoryGetItem('onboardingQuestionnaireDraft');
+    const onboardingPending = memoryGetItem('onboardingPendingQuestionnaire') === '1';
+    const onboardingStep = memoryGetItem('currentOnboardingStep');
+    if ((onboardingPending && onboardingDraft) || onboardingStep === 'trainer_connect') {
+        finalizeStudentOnboardingConnection().catch((err) => {
+            console.error('Erro ao finalizar onboarding do aluno', err);
+            alert('Não foi possível concluir a conexão com o treinador.');
+        });
+        return;
+    }
+
     hideAllScreens();
     document.getElementById('app').classList.add('wide');
     document.getElementById('student-questionnaire-screen').classList.add('active');
@@ -5734,11 +6041,6 @@ async function submitQuestionnaire() {
 
     if (nome.length < 2) {
         alert('Informe seu nome para continuar.');
-        return;
-    }
-
-    if (!pendingTrainerCode || pendingTrainerCode.length !== 5) {
-        alert('Conexão com treinador inválida. Refaça o processo de conexão.');
         return;
     }
 
@@ -5783,6 +6085,38 @@ async function submitQuestionnaire() {
             consultoria_antes: sanitizeUserInput(document.getElementById('q_consultoria_antes')?.value, { maxLen: 300, allowNewlines: true })
         }
     };
+
+    const questionnairePayload = {
+        name: nome,
+        age,
+        gender,
+        weight,
+        height,
+        goal,
+        questionnaire
+    };
+
+    const onboardingPending = memoryGetItem('onboardingPendingQuestionnaire') === '1';
+    if (onboardingPending && (!pendingTrainerCode || pendingTrainerCode.length !== 5)) {
+        memorySetItem('onboardingQuestionnaireDraft', JSON.stringify(questionnairePayload));
+        const activeUser = await getSupabaseSessionUser();
+        if (activeUser) {
+            await upsertOwnProfile({
+                id: activeUser.id,
+                anamnesis: questionnairePayload,
+                profile_complete: true,
+                onboarding_step: 'trainer_connect'
+            });
+        }
+        alert('Anamnese salva. Agora conecte o código do treinador para concluir.');
+        showTrainerConnectScreen();
+        return;
+    }
+
+    if (!pendingTrainerCode || pendingTrainerCode.length !== 5) {
+        alert('Conexão com treinador inválida. Refaça o processo de conexão.');
+        return;
+    }
 
     let id = Math.floor(10000 + Math.random() * 90000).toString();
     const usedIds = new Set((readStorageJSON('trainerStudents', [])).map(s => String(s.id)));
@@ -5838,7 +6172,137 @@ async function submitQuestionnaire() {
     });
     memorySetItem('trainerNotifications', JSON.stringify(notifs));
 
+    const activeUser = await getSupabaseSessionUser();
+    if (activeUser) {
+        const profile = await getProfileByUserId(activeUser.id);
+        const roles = normalizeAppRoles(profile?.roles || activeUser?.user_metadata?.roles, profile?.role || activeUser?.user_metadata?.role);
+        await upsertOwnProfile({
+            id: activeUser.id,
+            role: roles[0],
+            roles,
+            profile_complete: true,
+            connected_trainer_code: pendingTrainerCode,
+            onboarding_step: 'done',
+            anamnesis: questionnairePayload
+        });
+        memorySetItem('currentOnboardingStep', 'done');
+        memoryRemoveItem('onboardingPendingQuestionnaire');
+        memoryRemoveItem('onboardingQuestionnaireDraft');
+    }
+
     // Save current session info + remember-me token
+    openStudentDashboardSession(newStudent);
+}
+
+async function finalizeStudentOnboardingConnection() {
+    const activeUser = await getSupabaseSessionUser();
+    if (!activeUser) {
+        goToGlobalLogin();
+        return;
+    }
+    const profile = await getProfileByUserId(activeUser.id);
+    const roles = normalizeAppRoles(profile?.roles || activeUser?.user_metadata?.roles, profile?.role || activeUser?.user_metadata?.role);
+    if (!roles.includes('student')) {
+        alert('Essa conta não possui papel de aluno.');
+        return;
+    }
+
+    const draftRaw = memoryGetItem('onboardingQuestionnaireDraft');
+    let draft = null;
+    if (draftRaw) {
+        try {
+            draft = JSON.parse(draftRaw);
+        } catch (err) {
+            memoryRemoveItem('onboardingQuestionnaireDraft');
+        }
+    }
+    if (!draft && profile?.anamnesis && typeof profile.anamnesis === 'object') {
+        draft = profile.anamnesis;
+    }
+    if (!draft) {
+        alert('A anamnese nao foi encontrada. Refaça essa etapa.');
+        hideAllScreens();
+        const app = document.getElementById('app');
+        if (app) app.classList.add('wide');
+        const qScreen = document.getElementById('student-questionnaire-screen');
+        if (qScreen) qScreen.classList.add('active');
+        return;
+    }
+
+    const trainerCode = sanitizeCodeInput(pendingTrainerCode, 5);
+    if (trainerCode.length !== 5) {
+        alert('Código do treinador inválido.');
+        return;
+    }
+
+    let students = readStorageJSON('trainerStudents', []);
+    let existingStudent = students.find((s) => String(s.userId || '') === String(activeUser.id));
+    let studentId = existingStudent?.id || Math.floor(10000 + Math.random() * 90000).toString();
+    const usedIds = new Set(students.map((s) => String(s.id)));
+    while ((!existingStudent && usedIds.has(studentId)) || studentId === ADMIN_STUDENT_CODE || studentId === SELF_TRAINING_STUDENT_CODE) {
+        studentId = Math.floor(10000 + Math.random() * 90000).toString();
+    }
+
+    const newStudent = {
+        id: studentId,
+        userId: String(activeUser.id),
+        name: sanitizeUserInput(draft.name || activeUser?.user_metadata?.name || 'Aluno', { maxLen: 90 }),
+        age: String(draft.age || '25'),
+        gender: draft.gender || 'M',
+        weight: String(draft.weight || '70'),
+        height: String(draft.height || '175'),
+        goal: sanitizeUserInput(draft.goal || 'Hipertrofia', { maxLen: 120 }),
+        active: false,
+        pending: true,
+        trainerCode,
+        joinedAt: existingStudent?.joinedAt || new Date().toISOString(),
+        workoutBlocks: Array.isArray(existingStudent?.workoutBlocks) && existingStudent.workoutBlocks.length > 0
+            ? existingStudent.workoutBlocks
+            : getDefaultWorkoutBlocks(),
+        mealBlocks: [],
+        metricHistory: Array.isArray(existingStudent?.metricHistory) && existingStudent.metricHistory.length > 0
+            ? existingStudent.metricHistory
+            : [{
+                date: new Date().toISOString(),
+                weight: parseFloat(draft.weight || 70),
+                height: parseFloat(draft.height || 175),
+                bodyFat: null
+            }],
+        personalRecords: existingStudent?.personalRecords || {},
+        questionnaire: draft.questionnaire || draft || {}
+    };
+    newStudent.tmbBase = Math.round(calcTMBMifflin(newStudent.weight, newStudent.height, newStudent.age, newStudent.gender));
+    const dietBase = createDietBaseFromStudent(newStudent);
+    newStudent.mealBlocks = Array.isArray(existingStudent?.mealBlocks) && existingStudent.mealBlocks.length > 0
+        ? existingStudent.mealBlocks
+        : dietBase.mealBlocks;
+    newStudent.dietMeta = existingStudent?.dietMeta && typeof existingStudent.dietMeta === 'object'
+        ? existingStudent.dietMeta
+        : dietBase.dietMeta;
+
+    students = students.filter((s) => String(s.id) !== String(newStudent.id));
+    students.push(newStudent);
+    saveStudentData(students);
+
+    if (isSupabaseReady()) {
+        const fallbackName = trainerCode === '00001' ? 'Administrador Teste' : 'Treinador';
+        const fallbackConsultoria = fallbackName ? `Consultoria de ${fallbackName.split(' ')[0]} ` : '';
+        await ensureTrainerExistsRemote(trainerCode, fallbackName, fallbackConsultoria);
+    }
+
+    await upsertOwnProfile({
+        id: activeUser.id,
+        role: roles[0],
+        roles,
+        profile_complete: true,
+        connected_trainer_code: trainerCode,
+        onboarding_step: 'done',
+        anamnesis: draft
+    });
+
+    memorySetItem('currentOnboardingStep', 'done');
+    memoryRemoveItem('onboardingPendingQuestionnaire');
+    memoryRemoveItem('onboardingQuestionnaireDraft');
     openStudentDashboardSession(newStudent);
 }
 
@@ -6773,8 +7237,8 @@ async function connectTrainer() {
     }
 
     const profile = await getProfileByUserId(activeUser.id);
-    const role = normalizeAppRole(profile?.role || activeUser?.user_metadata?.role);
-    if (role !== 'trainer') {
+    const roles = normalizeAppRoles(profile?.roles || activeUser?.user_metadata?.roles, profile?.role || activeUser?.user_metadata?.role);
+    if (!roles.includes('trainer')) {
         alert('Seu usuário não tem permissão de treinador.');
         window.location.href = 'index.html';
         return;
@@ -6790,9 +7254,11 @@ async function connectTrainer() {
     const trainerName = sanitizeUserInput(profile?.name || activeUser?.user_metadata?.name || activeUser?.email || 'Treinador', { maxLen: 90 }) || 'Treinador';
     memorySetItem('trainerName', trainerName.split(' ')[0]);
     memorySetItem('currentTrainerCode', trainerCode);
+    const profileRoles = normalizeAppRoles(profile?.roles, profile?.role || 'trainer');
+    if (!profileRoles.includes('trainer')) profileRoles.unshift('trainer');
     await window.supabase
         .from('profiles')
-        .update({ trainer_code: trainerCode, role: 'trainer' })
+        .update({ trainer_code: trainerCode, role: 'trainer', roles: profileRoles })
         .eq('id', activeUser.id);
     await ensureTrainerExistsRemote(
         trainerCode,
@@ -6815,8 +7281,8 @@ async function createConsultoria() {
         return;
     }
     const profile = await getProfileByUserId(activeUser.id);
-    const role = normalizeAppRole(profile?.role || activeUser?.user_metadata?.role);
-    if (role !== 'trainer') {
+    const roles = normalizeAppRoles(profile?.roles || activeUser?.user_metadata?.roles, profile?.role || activeUser?.user_metadata?.role);
+    if (!roles.includes('trainer')) {
         alert('Apenas treinadores podem criar consultoria.');
         return;
     }
@@ -6878,8 +7344,8 @@ async function initTrainerDashboard() {
     }
 
     const profile = await getProfileByUserId(sessionUser.id);
-    const sessionRole = normalizeAppRole(profile?.role || sessionUser?.user_metadata?.role);
-    if (sessionRole !== 'trainer') {
+    const sessionRoles = normalizeAppRoles(profile?.roles || sessionUser?.user_metadata?.roles, profile?.role || sessionUser?.user_metadata?.role);
+    if (!sessionRoles.includes('trainer')) {
         alert('Acesso restrito ao treinador.');
         window.location.href = 'index.html';
         return;
@@ -6924,9 +7390,11 @@ async function initTrainerDashboard() {
     let trainerCodeResolved = sanitizeCodeInput(profile?.trainer_code || memoryGetItem('currentTrainerCode') || '', 5);
     if (!trainerCodeResolved) {
         trainerCodeResolved = await generateUniqueTrainerCode();
+        const updateRoles = normalizeAppRoles(profile?.roles, profile?.role || 'trainer');
+        if (!updateRoles.includes('trainer')) updateRoles.unshift('trainer');
         await window.supabase
             .from('profiles')
-            .update({ trainer_code: trainerCodeResolved, role: 'trainer' })
+            .update({ trainer_code: trainerCodeResolved, role: 'trainer', roles: updateRoles })
             .eq('id', sessionUser.id);
     }
     memorySetItem('trainerName', trainerNameResolved.split(' ')[0]);
@@ -7205,8 +7673,8 @@ async function getLoggedTrainerUserRecord() {
     const sessionUser = await getSupabaseSessionUser();
     if (!sessionUser) return null;
     const profile = await getProfileByUserId(sessionUser.id);
-    const role = normalizeAppRole(profile?.role || sessionUser?.user_metadata?.role);
-    if (role !== 'trainer') return null;
+    const roles = normalizeAppRoles(profile?.roles || sessionUser?.user_metadata?.roles, profile?.role || sessionUser?.user_metadata?.role);
+    if (!roles.includes('trainer')) return null;
     return { sessionUser, profile };
 }
 

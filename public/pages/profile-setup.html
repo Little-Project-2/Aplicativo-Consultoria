@@ -1,0 +1,44 @@
+<div id="profile-setup-screen" class="screen">
+    <button class="btn-back" onclick="goToGlobalLogin()">
+        <i class="ph-bold ph-arrow-left"></i> Voltar
+    </button>
+
+    <div class="student-login-container">
+        <div class="logo-icon glow lg">
+            <i class="ph-bold ph-user-circle"></i>
+        </div>
+        <h2 id="profile-setup-heading">Finalizar conta</h2>
+        <p class="subtitle">Apos login e verificacao do e-mail, complete seu perfil para continuar.</p>
+        <p class="subtitle" style="font-size:0.78rem; margin-top:-0.25rem;">
+            Fluxo: Perfil -> (Aluno) Anamnese -> Codigo do treinador -> Acesso liberado.
+        </p>
+
+        <form class="login-form" onsubmit="event.preventDefault(); completeProfileSetup();">
+            <div class="input-group">
+                <label for="profile-setup-name">NOME DE EXIBICAO</label>
+                <input type="text" id="profile-setup-name" placeholder="Como seu nome aparecera" required>
+            </div>
+            <div class="input-group">
+                <label for="profile-setup-avatar">FOTO (URL)</label>
+                <input type="url" id="profile-setup-avatar" placeholder="https://.../foto.jpg">
+            </div>
+            <div class="input-group">
+                <label for="profile-setup-pass">NOVA SENHA (OPCIONAL)</label>
+                <input type="password" id="profile-setup-pass" placeholder="Atualize sua senha">
+            </div>
+            <div class="input-group">
+                <label for="profile-setup-pass-confirm">CONFIRMAR NOVA SENHA</label>
+                <input type="password" id="profile-setup-pass-confirm" placeholder="Repita a nova senha">
+            </div>
+
+            <p id="profile-setup-student-hint" class="subtitle" style="display:none; margin-top:0.3rem;">
+                Como voce e aluno, apos salvar iremos abrir sua anamnese inicial.
+            </p>
+            <p id="profile-setup-feedback" class="subtitle" style="display:none; margin-top:0.3rem;"></p>
+
+            <button type="submit" class="btn-primary" style="margin-top: 1rem;">
+                Salvar e Continuar
+            </button>
+        </form>
+    </div>
+</div>
