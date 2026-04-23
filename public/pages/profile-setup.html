@@ -1,44 +1,59 @@
-<div id="profile-setup-screen" class="screen">
-    <button class="btn-back" onclick="goToGlobalLogin()">
+<div id="profile-setup-screen" class="screen auth-screen">
+    <div class="auth-bg-layer">
+        <div class="auth-orb auth-orb-a"></div>
+        <div class="auth-orb auth-orb-b"></div>
+        <div class="auth-grid"></div>
+    </div>
+
+    <button class="btn-back auth-back" onclick="goToGlobalLogin()">
         <i class="ph-bold ph-arrow-left"></i> Voltar
     </button>
 
-    <div class="student-login-container">
-        <div class="logo-icon glow lg">
-            <i class="ph-bold ph-user-circle"></i>
-        </div>
-        <h2 id="profile-setup-heading">Finalizar conta</h2>
-        <p class="subtitle">Apos login e verificacao do e-mail, complete seu perfil para continuar.</p>
-        <p class="subtitle" style="font-size:0.78rem; margin-top:-0.25rem;">
-            Fluxo: Perfil -> (Aluno) Anamnese -> Codigo do treinador -> Acesso liberado.
-        </p>
+    <section class="auth-shell">
+        <article class="auth-card auth-card-setup">
+            <header class="auth-header">
+                <div class="auth-brand-badge"><i class="ph-bold ph-user-circle"></i></div>
+                <p class="auth-kicker">Onboarding</p>
+                <h2 id="profile-setup-heading" class="auth-title">Finalizar conta</h2>
+                <p class="auth-subtitle">Complete seus dados para liberar o acesso completo.</p>
+                <p class="auth-helper">Fluxo: Perfil -> (Aluno) Anamnese -> Codigo do treinador -> Acesso.</p>
+            </header>
 
-        <form class="login-form" onsubmit="event.preventDefault(); completeProfileSetup();">
-            <div class="input-group">
-                <label for="profile-setup-name">NOME DE EXIBICAO</label>
-                <input type="text" id="profile-setup-name" placeholder="Como seu nome aparecera" required>
-            </div>
-            <div class="input-group">
-                <label for="profile-setup-avatar">FOTO (URL)</label>
-                <input type="url" id="profile-setup-avatar" placeholder="https://.../foto.jpg">
-            </div>
-            <div class="input-group">
-                <label for="profile-setup-pass">NOVA SENHA (OPCIONAL)</label>
-                <input type="password" id="profile-setup-pass" placeholder="Atualize sua senha">
-            </div>
-            <div class="input-group">
-                <label for="profile-setup-pass-confirm">CONFIRMAR NOVA SENHA</label>
-                <input type="password" id="profile-setup-pass-confirm" placeholder="Repita a nova senha">
-            </div>
+            <form class="auth-form" onsubmit="event.preventDefault(); completeProfileSetup();">
+                <div class="auth-field">
+                    <i class="ph-bold ph-identification-card auth-field-icon"></i>
+                    <input type="text" id="profile-setup-name" placeholder=" " required>
+                    <label for="profile-setup-name">Nome de exibicao</label>
+                </div>
 
-            <p id="profile-setup-student-hint" class="subtitle" style="display:none; margin-top:0.3rem;">
-                Como voce e aluno, apos salvar iremos abrir sua anamnese inicial.
-            </p>
-            <p id="profile-setup-feedback" class="subtitle" style="display:none; margin-top:0.3rem;"></p>
+                <div class="auth-field">
+                    <i class="ph-bold ph-image auth-field-icon"></i>
+                    <input type="url" id="profile-setup-avatar" placeholder=" ">
+                    <label for="profile-setup-avatar">Foto (URL)</label>
+                </div>
 
-            <button type="submit" class="btn-primary" style="margin-top: 1rem;">
-                Salvar e Continuar
-            </button>
-        </form>
-    </div>
+                <div class="auth-field">
+                    <i class="ph-bold ph-lock-key auth-field-icon"></i>
+                    <input type="password" id="profile-setup-pass" placeholder=" ">
+                    <label for="profile-setup-pass">Nova senha (opcional)</label>
+                </div>
+
+                <div class="auth-field">
+                    <i class="ph-bold ph-lock-key auth-field-icon"></i>
+                    <input type="password" id="profile-setup-pass-confirm" placeholder=" ">
+                    <label for="profile-setup-pass-confirm">Confirmar nova senha</label>
+                </div>
+
+                <p id="profile-setup-student-hint" class="auth-helper" style="display:none; margin-top:-0.25rem;">
+                    Como aluno, a proxima etapa sera o preenchimento da anamnese.
+                </p>
+                <p id="profile-setup-feedback" class="auth-inline-feedback" style="display:none;"></p>
+
+                <button type="submit" class="btn-primary auth-submit" id="profile-setup-submit-btn">
+                    <span id="profile-setup-btn-text">Salvar e continuar</span>
+                    <span id="profile-setup-btn-spinner" class="auth-btn-spinner" style="display:none;"></span>
+                </button>
+            </form>
+        </article>
+    </section>
 </div>

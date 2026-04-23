@@ -2554,12 +2554,36 @@ async function routeByOnboarding(user, profile, roles) {
     window.location.href = 'trainer.html';
 }
 
-function setProfileSetupFeedback(message, isError = false) {
-    const feedback = document.getElementById('profile-setup-feedback');
-    if (!feedback) return;
+function setAuthInlineFeedback(elementId, message = '', type = 'info') {
+    const feedback = document.getElementById(elementId);
+    if (!feedback) return false;
     feedback.textContent = message || '';
     feedback.style.display = message ? 'block' : 'none';
-    feedback.style.color = isError ? '#ff8b8b' : 'var(--primary-color)';
+    feedback.classList.remove('is-error', 'is-success', 'is-info', 'is-warning');
+    if (message) feedback.classList.add(`is-${type}`);
+    return true;
+}
+
+function setAuthSubmitLoading(config = {}, isLoading = false) {
+    const button = document.getElementById(config.buttonId || '');
+    if (!button) return;
+    const textEl = document.getElementById(config.textId || '');
+    const spinnerEl = document.getElementById(config.spinnerId || '');
+    if (textEl && !textEl.dataset.defaultText) {
+        textEl.dataset.defaultText = textEl.textContent || '';
+    }
+    button.disabled = !!isLoading;
+    button.classList.toggle('is-loading', !!isLoading);
+    if (textEl) {
+        textEl.textContent = isLoading
+            ? (config.loadingText || 'Carregando...')
+            : (textEl.dataset.defaultText || textEl.textContent || '');
+    }
+    if (spinnerEl) spinnerEl.style.display = isLoading ? 'inline-block' : 'none';
+}
+
+function setProfileSetupFeedback(message, isError = false) {
+    setAuthInlineFeedback('profile-setup-feedback', message, isError ? 'error' : 'success');
 }
 
 async function completeProfileSetup() {
@@ -2603,95 +2627,131 @@ async function completeProfileSetup() {
         }
     }
 
-    setProfileSetupFeedback('Salvando...');
+    setProfileSetupFeedback('');
+    setAuthSubmitLoading({
+        buttonId: 'profile-setup-submit-btn',
+        textId: 'profile-setup-btn-text',
+        spinnerId: 'profile-setup-btn-spinner',
+        loadingText: 'Salvando...'
+    }, true);
 
-    if (newPass) {
-        const { error: passwordError } = await window.supabase.auth.updateUser({ password: newPass });
-        if (passwordError) {
-            setProfileSetupFeedback(passwordError.message || 'Não foi possível atualizar a senha.', true);
+    try {
+        if (newPass) {
+            const { error: passwordError } = await window.supabase.auth.updateUser({ password: newPass });
+            if (passwordError) {
+                setProfileSetupFeedback(passwordError.message || 'Não foi possível atualizar a senha.', true);
+                return;
+            }
+        }
+
+        const { error: updateUserError } = await window.supabase.auth.updateUser({
+            data: { name: displayName, roles, role: roles[0] }
+        });
+        if (updateUserError) {
+            setProfileSetupFeedback(updateUserError.message || 'Não foi possível atualizar seus dados de conta.', true);
             return;
         }
+
+        const targetStep = hasStudent ? 'profile_setup' : 'done';
+        const profile = await upsertOwnProfile({
+            id: activeUser.id,
+            role: roles[0],
+            roles,
+            name: displayName,
+            avatar_url: avatarUrl || null,
+            profile_complete: true,
+            onboarding_step: targetStep
+        });
+
+        if (!profile) {
+            setProfileSetupFeedback('Não foi possível salvar o perfil no banco.', true);
+            return;
+        }
+
+        if (!hasStudent) {
+            await routeByOnboarding(activeUser, profile, roles);
+            return;
+        }
+
+        memorySetItem('onboardingPendingQuestionnaire', '1');
+        setProfileSetupFeedback('');
+        hideAllScreens();
+        const app = document.getElementById('app');
+        if (app) app.classList.add('wide');
+        const qScreen = document.getElementById('student-questionnaire-screen');
+        if (qScreen) qScreen.classList.add('active');
+        switchQTab('saude');
+        const nameField = document.getElementById('q_nome');
+        if (nameField && !nameField.value) nameField.value = displayName;
+    } finally {
+        setAuthSubmitLoading({
+            buttonId: 'profile-setup-submit-btn',
+            textId: 'profile-setup-btn-text',
+            spinnerId: 'profile-setup-btn-spinner',
+            loadingText: 'Salvando...'
+        }, false);
     }
-
-    const { error: updateUserError } = await window.supabase.auth.updateUser({
-        data: { name: displayName, roles, role: roles[0] }
-    });
-    if (updateUserError) {
-        setProfileSetupFeedback(updateUserError.message || 'Não foi possível atualizar seus dados de conta.', true);
-        return;
-    }
-
-    const targetStep = hasStudent ? 'profile_setup' : 'done';
-    const profile = await upsertOwnProfile({
-        id: activeUser.id,
-        role: roles[0],
-        roles,
-        name: displayName,
-        avatar_url: avatarUrl || null,
-        profile_complete: true,
-        onboarding_step: targetStep
-    });
-
-    if (!profile) {
-        setProfileSetupFeedback('Não foi possível salvar o perfil no banco.', true);
-        return;
-    }
-
-    if (!hasStudent) {
-        await routeByOnboarding(activeUser, profile, roles);
-        return;
-    }
-
-    memorySetItem('onboardingPendingQuestionnaire', '1');
-    setProfileSetupFeedback('');
-    hideAllScreens();
-    const app = document.getElementById('app');
-    if (app) app.classList.add('wide');
-    const qScreen = document.getElementById('student-questionnaire-screen');
-    if (qScreen) qScreen.classList.add('active');
-    switchQTab('saude');
-    const nameField = document.getElementById('q_nome');
-    if (nameField && !nameField.value) nameField.value = displayName;
 }
 
 async function handleEmailLogin() {
     const email = sanitizeEmailInput(document.getElementById('login-email')?.value);
-    const pass = document.getElementById('login-pass').value;
+    const pass = document.getElementById('login-pass')?.value || '';
+    const showLoginFeedback = (message, type = 'error') => {
+        const hasInline = setAuthInlineFeedback('login-inline-feedback', message, type);
+        if (!hasInline && message) alert(message);
+    };
+    showLoginFeedback('');
 
     if (!EMAIL_REGEX.test(email)) {
-        alert('Informe um e-mail valido.');
+        showLoginFeedback('Informe um e-mail valido.', 'error');
         return;
     }
 
     if (typeof window.supabase?.auth?.signInWithPassword !== 'function') {
-        alert('Login indisponivel. Configure o Supabase primeiro.');
+        showLoginFeedback('Login indisponivel. Configure o Supabase primeiro.', 'error');
         return;
     }
 
-    const { data, error } = await window.supabase.auth.signInWithPassword({
-        email,
-        password: pass
-    });
+    setAuthSubmitLoading({
+        buttonId: 'login-submit-btn',
+        textId: 'login-btn-text',
+        spinnerId: 'login-btn-spinner',
+        loadingText: 'Entrando...'
+    }, true);
 
-    if (error || !data?.user) {
-        alert('E-mail ou senha incorretos.');
-        return;
+    try {
+        const { data, error } = await window.supabase.auth.signInWithPassword({
+            email,
+            password: pass
+        });
+
+        if (error || !data?.user) {
+            showLoginFeedback('E-mail ou senha incorretos.', 'error');
+            return;
+        }
+
+        if (!isEmailConfirmed(data.user)) {
+            await window.supabase.auth.signOut();
+            memorySetItem('pendingVerificationEmail', email);
+            showLoginFeedback('Seu e-mail ainda nao foi verificado. Use "Reenviar verificacao de e-mail".', 'warning');
+            return;
+        }
+
+        await processLogin({
+            id: data.user.id,
+            roles: normalizeAppRoles(data.user?.user_metadata?.roles, data.user?.user_metadata?.role),
+            name: sanitizeUserInput(data.user?.user_metadata?.name || data.user?.email || 'Usuário', { maxLen: 90 }),
+            email: data.user?.email || '',
+            trainerCode: ''
+        });
+    } finally {
+        setAuthSubmitLoading({
+            buttonId: 'login-submit-btn',
+            textId: 'login-btn-text',
+            spinnerId: 'login-btn-spinner',
+            loadingText: 'Entrando...'
+        }, false);
     }
-
-    if (!isEmailConfirmed(data.user)) {
-        await window.supabase.auth.signOut();
-        memorySetItem('pendingVerificationEmail', email);
-        alert('Seu e-mail ainda nao foi verificado. Use o botao "Reenviar verificacao de e-mail" se precisar.');
-        return;
-    }
-
-    await processLogin({
-        id: data.user.id,
-        roles: normalizeAppRoles(data.user?.user_metadata?.roles, data.user?.user_metadata?.role),
-        name: sanitizeUserInput(data.user?.user_metadata?.name || data.user?.email || 'Usuário', { maxLen: 90 }),
-        email: data.user?.email || '',
-        trainerCode: ''
-    });
 }
 
 async function resendVerificationEmailFromLogin() {
@@ -2700,11 +2760,13 @@ async function resendVerificationEmailFromLogin() {
     const email = emailInput || rememberedEmail;
 
     if (!EMAIL_REGEX.test(email)) {
-        alert('Digite seu e-mail no campo acima para reenviar a verificacao.');
+        const hasInline = setAuthInlineFeedback('login-inline-feedback', 'Digite seu e-mail para reenviar a verificacao.', 'error');
+        if (!hasInline) alert('Digite seu e-mail no campo acima para reenviar a verificacao.');
         return;
     }
     if (typeof window.supabase?.auth?.resend !== 'function') {
-        alert('Reenvio indisponivel no momento.');
+        const hasInline = setAuthInlineFeedback('login-inline-feedback', 'Reenvio indisponivel no momento.', 'error');
+        if (!hasInline) alert('Reenvio indisponivel no momento.');
         return;
     }
 
@@ -2714,12 +2776,14 @@ async function resendVerificationEmailFromLogin() {
         options: { emailRedirectTo: `${window.location.origin}/` }
     });
     if (error) {
-        alert(error.message || 'Nao foi possivel reenviar o e-mail de verificacao.');
+        const hasInline = setAuthInlineFeedback('login-inline-feedback', error.message || 'Nao foi possivel reenviar o e-mail de verificacao.', 'error');
+        if (!hasInline) alert(error.message || 'Nao foi possivel reenviar o e-mail de verificacao.');
         return;
     }
 
     memorySetItem('pendingVerificationEmail', email);
-    alert('Enviamos um novo e-mail de verificacao. Confira sua caixa de entrada e spam.');
+    const hasInline = setAuthInlineFeedback('login-inline-feedback', 'Enviamos um novo e-mail de verificacao. Confira sua caixa de entrada e spam.', 'success');
+    if (!hasInline) alert('Enviamos um novo e-mail de verificacao. Confira sua caixa de entrada e spam.');
 }
 
 async function handleProfileCreation() {
@@ -2731,84 +2795,106 @@ async function handleProfileCreation() {
     const rawRole = document.querySelector('input[name="reg-role"]:checked')?.value || 'student';
     const roles = rolesFromChoice(rawRole);
 
+    const showSignupFeedback = (message, type = 'error') => {
+        const hasInline = setAuthInlineFeedback('signup-inline-feedback', message, type);
+        if (!hasInline && message) alert(message);
+    };
+    showSignupFeedback('');
+
     if (!name || !email || !pass || !passConfirm) {
-        alert('Preencha todos os campos para criar sua conta.');
+        showSignupFeedback('Preencha todos os campos para criar sua conta.', 'error');
         return;
     }
 
     if (name.length < 3) {
-        alert('Informe seu nome completo (minimo 3 caracteres).');
+        showSignupFeedback('Informe seu nome completo (minimo 3 caracteres).', 'error');
         return;
     }
 
     if (!EMAIL_REGEX.test(email)) {
-        alert('Informe um e-mail valido.');
+        showSignupFeedback('Informe um e-mail valido.', 'error');
         return;
     }
 
     const hasLetter = /[A-Za-z]/.test(pass);
     const hasNumber = /\d/.test(pass);
     if (pass.length < 8 || !hasLetter || !hasNumber) {
-        alert('A senha deve ter ao menos 8 caracteres, com letras e numeros.');
+        showSignupFeedback('A senha deve ter ao menos 8 caracteres, com letras e numeros.', 'error');
         return;
     }
 
     if (pass !== passConfirm) {
-        alert('A confirmacao de senha nao confere.');
+        showSignupFeedback('A confirmacao de senha nao confere.', 'error');
         return;
     }
 
     if (!acceptedTerms) {
-        alert('Voce precisa aceitar os Termos de Uso para continuar.');
+        showSignupFeedback('Voce precisa aceitar os Termos de Uso para continuar.', 'error');
         return;
     }
 
     if (typeof window.supabase?.auth?.signUp !== 'function') {
-        alert('Cadastro indisponivel. Configure o Supabase primeiro.');
+        showSignupFeedback('Cadastro indisponivel. Configure o Supabase primeiro.', 'error');
         return;
     }
 
-    const { data, error } = await window.supabase.auth.signUp({
-        email,
-        password: pass,
-        options: {
-            emailRedirectTo: `${window.location.origin}/`,
-            data: {
-                name,
-                roles,
-                role: roles[0]
+    setAuthSubmitLoading({
+        buttonId: 'signup-submit-btn',
+        textId: 'signup-btn-text',
+        spinnerId: 'signup-btn-spinner',
+        loadingText: 'Criando conta...'
+    }, true);
+
+    try {
+        const { data, error } = await window.supabase.auth.signUp({
+            email,
+            password: pass,
+            options: {
+                emailRedirectTo: `${window.location.origin}/`,
+                data: {
+                    name,
+                    roles,
+                    role: roles[0]
+                }
             }
-        }
-    });
-
-    if (error) {
-        alert(error.message || 'Nao foi possivel criar sua conta.');
-        return;
-    }
-
-    const user = data?.user;
-    if (!user) {
-        alert('Conta criada, mas nao foi possivel carregar seu perfil.');
-        return;
-    }
-
-    if (data?.session?.user) {
-        const trainerCode = roles.includes('trainer') ? await generateUniqueTrainerCode() : '';
-        await upsertOwnProfile({
-            id: user.id,
-            role: roles[0],
-            roles,
-            name,
-            trainer_code: trainerCode || null,
-            profile_complete: false,
-            onboarding_step: 'pending_verification'
         });
-        await window.supabase.auth.signOut();
-    }
 
-    memorySetItem('pendingVerificationEmail', email);
-    alert('Conta criada com sucesso. Verifique seu e-mail, depois faca login para continuar o onboarding.');
-    goToGlobalLogin();
+        if (error) {
+            showSignupFeedback(error.message || 'Nao foi possivel criar sua conta.', 'error');
+            return;
+        }
+
+        const user = data?.user;
+        if (!user) {
+            showSignupFeedback('Conta criada, mas nao foi possivel carregar seu perfil.', 'error');
+            return;
+        }
+
+        if (data?.session?.user) {
+            const trainerCode = roles.includes('trainer') ? await generateUniqueTrainerCode() : '';
+            await upsertOwnProfile({
+                id: user.id,
+                role: roles[0],
+                roles,
+                name,
+                trainer_code: trainerCode || null,
+                profile_complete: false,
+                onboarding_step: 'pending_verification'
+            });
+            await window.supabase.auth.signOut();
+        }
+
+        memorySetItem('pendingVerificationEmail', email);
+        showSignupFeedback('Conta criada com sucesso. Verifique seu e-mail para continuar.', 'success');
+        setTimeout(() => goToGlobalLogin(), 900);
+    } finally {
+        setAuthSubmitLoading({
+            buttonId: 'signup-submit-btn',
+            textId: 'signup-btn-text',
+            spinnerId: 'signup-btn-spinner',
+            loadingText: 'Criando conta...'
+        }, false);
+    }
 }
 
 async function handleGoogleLogin() {

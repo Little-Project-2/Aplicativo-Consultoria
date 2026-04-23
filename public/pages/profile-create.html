@@ -1,69 +1,93 @@
-<div id="profile-create-screen" class="screen">
-    <button class="btn-back" onclick="goToGlobalLogin()">
+<div id="profile-create-screen" class="screen auth-screen">
+    <div class="auth-bg-layer">
+        <div class="auth-orb auth-orb-a"></div>
+        <div class="auth-orb auth-orb-b"></div>
+        <div class="auth-grid"></div>
+    </div>
+
+    <button class="btn-back auth-back" onclick="goToGlobalLogin()">
         <i class="ph-bold ph-arrow-left"></i> Voltar
     </button>
 
-    <div class="student-login-container">
-        <div class="logo-icon glow lg">
-            <i class="ph-bold ph-user-plus"></i>
-        </div>
-        <h2>Criar sua Conta</h2>
-        <p class="subtitle">Voce podera criar uma conta de treinador / aluno / ambos</p>
+    <section class="auth-shell">
+        <article class="auth-card auth-card-signup">
+            <header class="auth-header">
+                <div class="auth-brand-badge"><i class="ph-bold ph-user-plus"></i></div>
+                <p class="auth-kicker">Criacao de conta</p>
+                <h2 class="auth-title">Crie sua conta profissional</h2>
+                <p class="auth-subtitle">Voce podera entrar como treinador, aluno ou ambos.</p>
+            </header>
 
-        <form class="login-form" id="signup-form" onsubmit="event.preventDefault(); handleProfileCreation();">
-            <div class="input-group">
-                <label for="reg-name">NOME COMPLETO</label>
-                <input type="text" id="reg-name" placeholder="Ex: Nicolas Silveira" required autocomplete="name">
-            </div>
-            <div class="input-group">
-                <label for="reg-email">E-MAIL</label>
-                <input type="email" id="reg-email" placeholder="seu@email.com" required autocomplete="email" inputmode="email">
-            </div>
-            <div class="input-group">
-                <label for="reg-pass">CRIAR SENHA</label>
-                <input type="password" id="reg-pass" placeholder="Minimo 8 caracteres" required minlength="8" autocomplete="new-password">
-            </div>
-            <div class="input-group">
-                <label for="reg-pass-confirm">CONFIRMAR SENHA</label>
-                <input type="password" id="reg-pass-confirm" placeholder="Repita sua senha" required minlength="8" autocomplete="new-password">
-            </div>
+            <p id="signup-inline-feedback" class="auth-inline-feedback" style="display:none;"></p>
 
-            <div class="input-group">
-                <label>VOCE E:</label>
-                <div class="radio-group">
-                    <label class="radio-card">
-                        <input type="radio" name="reg-role" value="student" checked>
-                        <div class="radio-content">
-                            <i class="ph-bold ph-barbell"></i>
-                            <span>Aluno</span>
-                        </div>
-                    </label>
-                    <label class="radio-card">
-                        <input type="radio" name="reg-role" value="trainer">
-                        <div class="radio-content">
-                            <i class="ph-bold ph-clipboard-text"></i>
-                            <span>Treinador</span>
-                        </div>
-                    </label>
-                    <label class="radio-card">
-                        <input type="radio" name="reg-role" value="both">
-                        <div class="radio-content">
-                            <i class="ph-bold ph-arrows-left-right"></i>
-                            <span>Ambos</span>
-                        </div>
-                    </label>
+            <form class="auth-form" id="signup-form" onsubmit="event.preventDefault(); handleProfileCreation();">
+                <div class="auth-field">
+                    <i class="ph-bold ph-user auth-field-icon"></i>
+                    <input type="text" id="reg-name" placeholder=" " required autocomplete="name">
+                    <label for="reg-name">Nome completo</label>
                 </div>
-            </div>
 
-            <label class="checkbox-wrapper" style="margin-top:0.25rem;">
-                <input type="checkbox" id="reg-terms" required>
-                <span class="checkmark"></span>
-                <span>Aceito os Termos de Uso e Privacidade</span>
-            </label>
+                <div class="auth-field">
+                    <i class="ph-bold ph-envelope auth-field-icon"></i>
+                    <input type="email" id="reg-email" placeholder=" " required autocomplete="email" inputmode="email">
+                    <label for="reg-email">E-mail</label>
+                </div>
 
-            <button type="submit" class="btn-primary" id="signup-submit-btn" style="margin-top: 1rem;">
-                Criar Conta
-            </button>
-        </form>
-    </div>
+                <div class="auth-field">
+                    <i class="ph-bold ph-password auth-field-icon"></i>
+                    <input type="password" id="reg-pass" placeholder=" " required minlength="8" autocomplete="new-password">
+                    <label for="reg-pass">Criar senha</label>
+                </div>
+
+                <div class="auth-field">
+                    <i class="ph-bold ph-password auth-field-icon"></i>
+                    <input type="password" id="reg-pass-confirm" placeholder=" " required minlength="8" autocomplete="new-password">
+                    <label for="reg-pass-confirm">Confirmar senha</label>
+                </div>
+
+                <div class="auth-section">
+                    <p class="auth-section-label">Voce e</p>
+                    <div class="auth-role-grid">
+                        <label class="auth-role-card">
+                            <input type="radio" name="reg-role" value="student" checked>
+                            <div class="auth-role-content">
+                                <i class="ph-bold ph-barbell"></i>
+                                <span class="auth-role-title">Aluno</span>
+                                <small>Receber plano e acompanhamento</small>
+                            </div>
+                        </label>
+
+                        <label class="auth-role-card">
+                            <input type="radio" name="reg-role" value="trainer">
+                            <div class="auth-role-content">
+                                <i class="ph-bold ph-clipboard-text"></i>
+                                <span class="auth-role-title">Treinador</span>
+                                <small>Gerenciar alunos e consultoria</small>
+                            </div>
+                        </label>
+
+                        <label class="auth-role-card auth-role-card-wide">
+                            <input type="radio" name="reg-role" value="both">
+                            <div class="auth-role-content">
+                                <i class="ph-bold ph-arrows-left-right"></i>
+                                <span class="auth-role-title">Ambos</span>
+                                <small>Usar os dois contextos na mesma conta</small>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <label class="checkbox-wrapper auth-terms">
+                    <input type="checkbox" id="reg-terms" required>
+                    <span class="checkmark"></span>
+                    <span>Aceito os Termos de Uso e Privacidade</span>
+                </label>
+
+                <button type="submit" class="btn-primary auth-submit" id="signup-submit-btn">
+                    <span id="signup-btn-text">Criar conta</span>
+                    <span id="signup-btn-spinner" class="auth-btn-spinner" style="display:none;"></span>
+                </button>
+            </form>
+        </article>
+    </section>
 </div>
