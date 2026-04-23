@@ -1,8 +1,9 @@
 // supabase.js
 
-// Projeto Supabase (publico)
-const supabaseUrl = 'https://kvesydpaggznsvownbgu.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt2ZXN5ZHBhZ2d6bnN2b3duYmd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5MTMwNjAsImV4cCI6MjA5MDQ4OTA2MH0.uuzcWMBn_QzetdN7PsHRduoWU-t4KMyy6qlT_oHEMYg';
+// Projeto Supabase via config externa (public/app-config.js)
+const appConfig = window.__APP_CONFIG__ || {};
+const supabaseUrl = String(appConfig.supabaseUrl || '').trim();
+const supabaseAnonKey = String(appConfig.supabaseAnonKey || '').trim();
 
 const supabaseStorage = (() => {
     const memoryStore = new Map();
@@ -44,7 +45,9 @@ const supabaseStorage = (() => {
 const supabaseFactory = window.supabase;
 let supabaseClient = null;
 
-if (supabaseFactory && typeof supabaseFactory.createClient === 'function') {
+if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn('Supabase indisponivel: configure window.__APP_CONFIG__.supabaseUrl e supabaseAnonKey.');
+} else if (supabaseFactory && typeof supabaseFactory.createClient === 'function') {
     supabaseClient = supabaseFactory.createClient(supabaseUrl, supabaseAnonKey, {
         auth: {
             persistSession: true,

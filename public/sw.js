@@ -1,5 +1,5 @@
-const PRECACHE_CACHE = "consultoria-precache-v7";
-const RUNTIME_CACHE = "consultoria-runtime-v7";
+const PRECACHE_CACHE = "consultoria-precache-v8";
+const RUNTIME_CACHE = "consultoria-runtime-v8";
 const OFFLINE_URL = "./offline.html";
 
 const PRECACHE_URLS = [

@@ -64,13 +64,16 @@ const ADMIN_STUDENT_NAME = 'Nicolas';
 const SELF_TRAINING_STUDENT_CODE = '77777';
 const SELF_TRAINING_STUDENT_NAME = 'Diego';
 const SELF_TRAINING_STUDENT_CODES = [SELF_TRAINING_STUDENT_CODE];
+const ENABLE_DEMO_ACCESS = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const STUDENT_AUTH_TOKEN_KEY = 'student_access_token_v1';
 const TRAINER_SETTINGS_KEY = 'trainer_settings_v1';
 let activeDashboardFilter = 'all';
+let activeEngagementRange = 7;
 let lastMainTrainerView = 'dashboard';
 let trainerDrawerOpen = false;
 let trainerRouteLock = false;
+const TRAINER_DASHBOARD_TUTORIAL_KEY = 'trainer_dashboard_tutorial_v1';
 
 const DEMO_WORKOUT_BLOCKS = [
     {
@@ -541,14 +544,61 @@ function updateDashboardFilterUI(counts) {
     });
 }
 
-function buildEngagementSeries() {
+function getTrainerDashboardTutorialStorageKey() {
+    const trainerCode = memoryGetItem('currentTrainerCode') || '00001';
+    return `${TRAINER_DASHBOARD_TUTORIAL_KEY}:${trainerCode}`;
+}
+
+function isTrainerDashboardTutorialSeen() {
+    return memoryGetItem(getTrainerDashboardTutorialStorageKey()) === '1';
+}
+
+function showTrainerDashboardTutorial() {
+    const tutorial = document.getElementById('dashboard-onboarding');
+    if (!tutorial) return;
+    tutorial.style.display = '';
+    tutorial.classList.add('is-visible');
+}
+
+function dismissTrainerDashboardTutorial(markAsSeen = true) {
+    const tutorial = document.getElementById('dashboard-onboarding');
+    if (tutorial) {
+        tutorial.classList.remove('is-visible');
+        tutorial.style.display = 'none';
+    }
+    if (markAsSeen) {
+        memorySetItem(getTrainerDashboardTutorialStorageKey(), '1');
+    }
+}
+
+function syncTrainerDashboardTutorialVisibility() {
+    const tutorial = document.getElementById('dashboard-onboarding');
+    const reopen = document.getElementById('dashboard-tutorial-reopen');
+    if (!tutorial) return;
+    const seen = isTrainerDashboardTutorialSeen();
+    if (seen) {
+        tutorial.style.display = 'none';
+        tutorial.classList.remove('is-visible');
+    } else {
+        tutorial.style.display = '';
+        tutorial.classList.add('is-visible');
+    }
+    if (reopen) {
+        reopen.style.display = seen ? 'inline-flex' : 'none';
+    }
+}
+
+function buildEngagementSeries(daysBack = 7) {
     const now = new Date();
     const days = [];
-    for (let i = 6; i >= 0; i -= 1) {
+    const totalDays = Math.max(7, Number(daysBack) || 7);
+    for (let i = totalDays - 1; i >= 0; i -= 1) {
         const d = new Date(now);
         d.setDate(now.getDate() - i);
         const key = d.toISOString().slice(0, 10);
-        const label = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+        const label = totalDays <= 7
+            ? d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')
+            : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
         days.push({ key, label, date: d, count: 0 });
     }
     const history = readStorageJSON('workoutHistory', []);
@@ -562,16 +612,45 @@ function buildEngagementSeries() {
     return days;
 }
 
+function setEngagementRange(days, event) {
+    if (event) event.stopPropagation();
+    activeEngagementRange = Number(days) || 7;
+    document.querySelectorAll('.engagement-range-btn').forEach((btn) => {
+        const isActive = Number(btn.dataset.range) === activeEngagementRange;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+    const subtitle = document.querySelector('.engagement-header .subtitle');
+    if (subtitle) {
+        subtitle.textContent = `Treinos concluidos nos ultimos ${activeEngagementRange} dias`;
+    }
+    renderEngagementChart();
+}
+
 function renderEngagementChart() {
     const svg = document.getElementById('engagement-chart');
     const labels = document.getElementById('engagement-labels');
     const totalEl = document.getElementById('engagement-total');
+    const tooltip = document.getElementById('engagement-tooltip');
     if (!svg || !labels || !totalEl) return;
 
-    const series = buildEngagementSeries();
+    const series = buildEngagementSeries(activeEngagementRange);
+    document.querySelectorAll('.engagement-range-btn').forEach((btn) => {
+        const isActive = Number(btn.dataset.range) === activeEngagementRange;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
     const counts = series.map((d) => d.count);
     const total = counts.reduce((sum, val) => sum + val, 0);
+    const avg = total > 0 ? (total / series.length) : 0;
+    const peakPoint = series.reduce((best, item) => (item.count > (best?.count || -1) ? item : best), null);
     totalEl.textContent = total;
+    const avgEl = document.getElementById('engagement-avg');
+    if (avgEl) avgEl.textContent = avg.toFixed(1);
+    const peakEl = document.getElementById('engagement-peak');
+    if (peakEl) {
+        peakEl.textContent = peakPoint && peakPoint.count > 0 ? `${peakPoint.label} (${peakPoint.count})` : '-';
+    }
 
     const width = 300;
     const height = 120;
@@ -586,22 +665,104 @@ function renderEngagementChart() {
         return { x, y, value: d.count };
     });
 
-    const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+    const smoothPath = (pts) => {
+        if (pts.length <= 1) return '';
+        let path = `M ${pts[0].x} ${pts[0].y}`;
+        for (let i = 0; i < pts.length - 1; i += 1) {
+            const current = pts[i];
+            const next = pts[i + 1];
+            const cx = (current.x + next.x) / 2;
+            path += ` Q ${cx} ${current.y}, ${next.x} ${next.y}`;
+        }
+        return path;
+    };
+
+    const linePath = smoothPath(points);
     const areaPath = `${linePath} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`;
+    const gridLines = Array.from({ length: 4 }, (_, i) => {
+        const value = Math.round((maxVal / 3) * i);
+        const y = height - padding - (value * yScale);
+        return `<line x1="${padding}" y1="${y}" x2="${width - padding}" y2="${y}" class="engagement-grid-line"></line>`;
+    }).join('');
 
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.classList.remove('engagement-chart-enter');
+    void svg.offsetWidth;
+    svg.classList.add('engagement-chart-enter');
+    svg.classList.toggle('is-empty', total === 0);
     svg.innerHTML = `
+        <defs>
+            <linearGradient id="engagementAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="rgba(163,230,53,0.35)"></stop>
+                <stop offset="100%" stop-color="rgba(163,230,53,0.01)"></stop>
+            </linearGradient>
+        </defs>
+        ${gridLines}
+        <line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" class="engagement-baseline"></line>
         <path class="engagement-area" d="${areaPath}"></path>
         <path class="engagement-line" d="${linePath}"></path>
-        ${points.map(p => `<circle class="engagement-dot" cx="${p.x}" cy="${p.y}" r="3"></circle>`).join('')}
+        ${points.map((p, idx) => `
+            <circle
+                class="engagement-dot"
+                cx="${p.x}"
+                cy="${p.y}"
+                r="4"
+                tabindex="0"
+                data-index="${idx}"
+                data-label="${series[idx].label}"
+                data-value="${p.value}"
+            ></circle>
+        `).join('')}
     `;
 
-    labels.innerHTML = series.map((d) => `
+    const labelStride = series.length > 14 ? 3 : (series.length > 7 ? 2 : 1);
+    labels.style.setProperty('--engagement-label-count', String(series.length));
+    labels.innerHTML = series.map((d, index) => `
         <div class="engagement-label">
-            <span>${d.label}</span>
+            <span>${index % labelStride === 0 ? d.label : ''}</span>
             <strong>${d.count}</strong>
         </div>
     `).join('');
+
+    const line = svg.querySelector('.engagement-line');
+    if (line && typeof line.getTotalLength === 'function') {
+        const length = line.getTotalLength();
+        line.style.strokeDasharray = `${length}`;
+        line.style.strokeDashoffset = `${length}`;
+        requestAnimationFrame(() => {
+            line.style.strokeDashoffset = '0';
+        });
+    }
+
+    if (tooltip) {
+        tooltip.style.opacity = '0';
+    }
+    svg.querySelectorAll('.engagement-dot').forEach((dot) => {
+        const show = (evt) => {
+            if (!tooltip) return;
+            const value = dot.getAttribute('data-value') || '0';
+            const label = dot.getAttribute('data-label') || '';
+            tooltip.textContent = `${label}: ${value} treino${value === '1' ? '' : 's'}`;
+            tooltip.style.opacity = '1';
+
+            const svgRect = svg.getBoundingClientRect();
+            const targetRect = (evt?.target || dot).getBoundingClientRect();
+            const left = targetRect.left - svgRect.left + targetRect.width / 2;
+            const top = targetRect.top - svgRect.top - 10;
+            tooltip.style.left = `${left}px`;
+            tooltip.style.top = `${top}px`;
+        };
+        const hide = () => {
+            if (!tooltip) return;
+            tooltip.style.opacity = '0';
+        };
+
+        dot.addEventListener('mouseenter', show);
+        dot.addEventListener('mousemove', show);
+        dot.addEventListener('focus', show);
+        dot.addEventListener('mouseleave', hide);
+        dot.addEventListener('blur', hide);
+    });
 }
 
 function uiSvgIcon(name, className = '') {
@@ -665,7 +826,7 @@ function upgradeSidebarNavIcons() {
             'nav-dashboard': 'nav-dashboard',
             'nav-alunos': 'nav-alunos',
             'nav-duvidas': 'nav-duvidas',
-            'nav-exercicios': 'nav-exercicios'
+            'nav-config': 'nav-config'
         };
 
         Object.entries(mapping).forEach(([id, iconName]) => {
@@ -680,8 +841,6 @@ function upgradeSidebarNavIcons() {
         });
 
         const extraMap = [
-            { selector: '.sidebar-nav .nav-item:nth-of-type(5) i', icon: 'nav-avaliacoes' },
-            { selector: '.sidebar-nav .nav-item:nth-of-type(6) i', icon: 'nav-config' },
             { selector: '.sidebar-footer .btn-logout i', icon: 'nav-logout' }
         ];
 
@@ -782,10 +941,11 @@ function setupClientSideFormProtection() {
 
 function studentCanEditWorkout(student) {
     const id = String(student?.id || '');
-    return SELF_TRAINING_STUDENT_CODES.includes(id);
+    return !!student?.canSelfEditWorkout || (ENABLE_DEMO_ACCESS && SELF_TRAINING_STUDENT_CODES.includes(id));
 }
 
 function ensureSelfTrainingStudent() {
+    if (!ENABLE_DEMO_ACCESS) return;
     const students = readStorageJSON('trainerStudents', []);
     const nowIso = new Date().toISOString();
     const selfLastWorkout = new Date();
@@ -856,6 +1016,7 @@ function ensureSelfTrainingStudent() {
 }
 
 function ensureAdminStudent() {
+    if (!ENABLE_DEMO_ACCESS) return;
     const students = readStorageJSON('trainerStudents', []);
     const nowIso = new Date().toISOString();
     const adminLastWorkout = new Date();
@@ -949,7 +1110,6 @@ const SYNC_KEYS = [
     'workoutHistory',
     'trainerNotifications',
     'allTrainers',
-    'registeredUsers',
     'customExercises',
     'trainer_settings_v1'
 ];
@@ -980,13 +1140,154 @@ let supabaseStudentsSyncTimer = null;
 let supabaseFoodsChannel = null;
 let supabaseFoodsSyncTimer = null;
 let foodCatalogCache = [];
+const DIET_SCHEMA_VERSION = 2;
+
+function normalizeDietMetaShape(meta) {
+    const m = meta && typeof meta === 'object' ? meta : {};
+    return {
+        kcal: parseDecimalSafe(m.kcal) || '',
+        protein: parseDecimalSafe(m.protein) || '',
+        carb: parseDecimalSafe(m.carb) || '',
+        fat: parseDecimalSafe(m.fat) || ''
+    };
+}
+
+function normalizeDietMealItem(item = {}) {
+    const name = sanitizeUserInput(item.nome || item.name || '', { maxLen: 140 }) || 'Alimento';
+    const qtd = sanitizeUserInput(item.qtd || '100g', { maxLen: 40 }) || '100g';
+    const kcal = parseDecimalSafe(item.kcal);
+    const prot = parseDecimalSafe(item.prot || item.protein);
+    const carb = parseDecimalSafe(item.carb);
+    const gord = parseDecimalSafe(item.gord || item.fat);
+    return {
+        nome: name,
+        qtd,
+        kcal: Number.isFinite(kcal) ? kcal : Math.round((prot * 4) + (carb * 4) + (gord * 9)),
+        prot: Number.isFinite(prot) ? prot : 0,
+        carb: Number.isFinite(carb) ? carb : 0,
+        gord: Number.isFinite(gord) ? gord : 0,
+        foodId: String(item.foodId || item.food_id || ''),
+        baseQty: Math.max(0.1, parseDecimalSafe(item.baseQty || item.base_qty) || parseAmountAndUnit(qtd, 'g').amount || 100),
+        baseUnit: ['g', 'ml', 'un'].includes(String(item.baseUnit || item.base_unit || '').toLowerCase())
+            ? String(item.baseUnit || item.base_unit).toLowerCase()
+            : (parseAmountAndUnit(qtd, 'g').unit || 'g'),
+        source: sanitizeUserInput(item.source || 'manual', { maxLen: 40 }) || 'manual'
+    };
+}
+
+function normalizeDietMealBlocksShape(mealBlocks) {
+    const blocks = Array.isArray(mealBlocks) ? mealBlocks : [];
+    return blocks.map((meal, idx) => ({
+        name: sanitizeUserInput(meal?.name || `Refeição ${idx + 1}`, { maxLen: 80 }) || `Refeição ${idx + 1}`,
+        items: Array.isArray(meal?.items) ? meal.items.map(normalizeDietMealItem) : []
+    }));
+}
+
+function normalizeDietLogsShape(dietLogs, mealBlocks) {
+    const logs = dietLogs && typeof dietLogs === 'object' ? dietLogs : {};
+    const normalized = {};
+    Object.keys(logs).forEach((dateKey) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey))) return;
+        const entry = logs[dateKey] && typeof logs[dateKey] === 'object' ? logs[dateKey] : {};
+        const meals = entry.meals && typeof entry.meals === 'object' ? entry.meals : {};
+        const normalizedMeals = {};
+        Object.keys(meals).forEach((mealIdxKey) => {
+            const mealIdx = parseInt(mealIdxKey, 10);
+            if (!Number.isFinite(mealIdx) || mealIdx < 0) return;
+            const mealLog = meals[mealIdxKey] && typeof meals[mealIdxKey] === 'object' ? meals[mealIdxKey] : {};
+            const items = mealLog.items && typeof mealLog.items === 'object' ? mealLog.items : {};
+            const normalizedItems = {};
+            Object.keys(items).forEach((itemIdxKey) => {
+                const itemIdx = parseInt(itemIdxKey, 10);
+                if (!Number.isFinite(itemIdx) || itemIdx < 0) return;
+                const row = items[itemIdxKey] && typeof items[itemIdxKey] === 'object' ? items[itemIdxKey] : {};
+                const sub = row.substitute && typeof row.substitute === 'object' ? row.substitute : {};
+                normalizedItems[itemIdx] = {
+                    checked: !!row.checked,
+                    qty: sanitizeUserInput(row.qty || '', { maxLen: 40 }),
+                    substitute: {
+                        enabled: !!sub.enabled,
+                        name: sanitizeUserInput(sub.name || '', { maxLen: 140 }),
+                        qty: sanitizeUserInput(sub.qty || '', { maxLen: 40 }),
+                        kcal: parseDecimalSafe(sub.kcal) || 0,
+                        prot: parseDecimalSafe(sub.prot) || 0,
+                        carb: parseDecimalSafe(sub.carb) || 0,
+                        gord: parseDecimalSafe(sub.gord) || 0,
+                        foodId: String(sub.foodId || sub.food_id || ''),
+                        baseQty: Math.max(0.1, parseDecimalSafe(sub.baseQty || sub.base_qty) || 100),
+                        baseUnit: ['g', 'ml', 'un'].includes(String(sub.baseUnit || sub.base_unit || '').toLowerCase())
+                            ? String(sub.baseUnit || sub.base_unit).toLowerCase()
+                            : 'g',
+                        source: sanitizeUserInput(sub.source || 'manual', { maxLen: 40 }) || 'manual'
+                    }
+                };
+            });
+            normalizedMeals[mealIdx] = { items: normalizedItems };
+        });
+
+        // ensure all current meal items have a log slot
+        (Array.isArray(mealBlocks) ? mealBlocks : []).forEach((meal, mealIdx) => {
+            if (!normalizedMeals[mealIdx]) normalizedMeals[mealIdx] = { items: {} };
+            (Array.isArray(meal?.items) ? meal.items : []).forEach((_, itemIdx) => {
+                if (!normalizedMeals[mealIdx].items[itemIdx]) {
+                    normalizedMeals[mealIdx].items[itemIdx] = {
+                        checked: false,
+                        qty: '',
+                        substitute: { enabled: false, name: '', qty: '', kcal: 0, prot: 0, carb: 0, gord: 0, foodId: '', baseQty: 100, baseUnit: 'g', source: 'manual' }
+                    };
+                }
+            });
+        });
+        normalized[dateKey] = { meals: normalizedMeals };
+    });
+    return normalized;
+}
+
+function normalizeStudentDietSchema(studentLike = {}) {
+    const student = studentLike && typeof studentLike === 'object' ? studentLike : {};
+    const mealBlocks = normalizeDietMealBlocksShape(student.mealBlocks);
+    const dietMeta = normalizeDietMetaShape(student.dietMeta);
+    const dietLogs = normalizeDietLogsShape(student.dietLogs, mealBlocks);
+    return {
+        ...student,
+        mealBlocks,
+        dietMeta,
+        dietLogs,
+        dietSchemaVersion: DIET_SCHEMA_VERSION
+    };
+}
+
+function normalizeStudentsDietSchema(students = []) {
+    return (Array.isArray(students) ? students : []).map((student) => normalizeStudentDietSchema(student));
+}
+
+function needsDietSchemaMigration(student) {
+    if (!student || typeof student !== 'object') return true;
+    const version = parseInt(student.dietSchemaVersion || 0, 10) || 0;
+    if (version < DIET_SCHEMA_VERSION) return true;
+    if (!Array.isArray(student.mealBlocks)) return true;
+    if (!student.dietMeta || typeof student.dietMeta !== 'object') return true;
+    if (!student.dietLogs || typeof student.dietLogs !== 'object') return true;
+    return false;
+}
+
+function migrateStoredStudentsDietSchema({ syncRemote = true } = {}) {
+    const localStudents = readStorageJSON('trainerStudents', []);
+    if (!Array.isArray(localStudents) || localStudents.length === 0) return false;
+    const shouldMigrate = localStudents.some(needsDietSchemaMigration);
+    if (!shouldMigrate) return false;
+    const normalized = normalizeStudentsDietSchema(localStudents);
+    memorySetItem('trainerStudents', JSON.stringify(normalized));
+    if (syncRemote && isSupabaseReady()) queueSupabaseStudentsSync(normalized);
+    return true;
+}
 
 function normalizeStudentRow(row) {
     if (!row) return null;
     const student = row.data && typeof row.data === 'object' ? row.data : {};
     student.id = student.id || row.id || '';
     student.trainerCode = student.trainerCode || row.trainer_code || '';
-    return student;
+    return normalizeStudentDietSchema(student);
 }
 
 function normalizeFoodCatalogRow(row) {
@@ -1011,9 +1312,9 @@ function normalizeFoodCatalogRow(row) {
 }
 
 function getCurrentFoodCreatorId() {
-    return memoryGetItem('currentStudentId')
+    return memoryGetItem('currentUserId')
+        || memoryGetItem('currentStudentId')
         || memoryGetItem('currentTrainerCode')
-        || memoryGetItem('studentName')
         || 'anon';
 }
 
@@ -1063,7 +1364,9 @@ async function searchFoodsCatalog(query, limit = 12) {
         .limit(limit);
     if (error) {
         console.warn('Supabase foods search failed', error.message);
-        return [];
+        return foodCatalogCache
+            .filter((item) => normalizeText(item.name).includes(normalizeText(q)))
+            .slice(0, limit);
     }
     return (data || []).map(normalizeFoodCatalogRow).filter(Boolean);
 }
@@ -1071,11 +1374,44 @@ async function searchFoodsCatalog(query, limit = 12) {
 async function insertFoodIntoCatalog(foodPayload = {}) {
     const normalized = normalizeFoodCatalogRow(foodPayload);
     if (!normalized || !normalized.name) return null;
+
+    const normalizedName = normalizeText(normalized.name);
+    const normalizedBrand = normalizeText(normalized.brand || '');
+    const localMatch = (foodCatalogCache || []).find((item) =>
+        normalizeText(item.name) === normalizedName
+        && normalizeText(item.brand || '') === normalizedBrand
+        && String(item.base_unit || 'g') === String(normalized.base_unit || 'g')
+    );
+    if (localMatch) return localMatch;
+
     if (!isSupabaseReady()) {
         const fake = { ...normalized, id: `local-${Date.now()}` };
-        foodCatalogCache = [fake, ...foodCatalogCache.filter((x) => normalizeText(x.name) !== normalizeText(fake.name))];
+        foodCatalogCache = [fake, ...foodCatalogCache.filter((x) =>
+            !(normalizeText(x.name) === normalizedName && normalizeText(x.brand || '') === normalizedBrand)
+        )];
         return fake;
     }
+
+    const { data: existingRows, error: existingError } = await window.supabase
+        .from(SUPABASE_TABLES.foods)
+        .select('*')
+        .ilike('name', normalized.name)
+        .limit(20);
+    if (!existingError && Array.isArray(existingRows)) {
+        const existing = existingRows
+            .map(normalizeFoodCatalogRow)
+            .find((item) =>
+                item
+                && normalizeText(item.name) === normalizedName
+                && normalizeText(item.brand || '') === normalizedBrand
+                && String(item.base_unit || 'g') === String(normalized.base_unit || 'g')
+            );
+        if (existing) {
+            foodCatalogCache = [existing, ...foodCatalogCache.filter((x) => String(x.id) !== String(existing.id))];
+            return existing;
+        }
+    }
+
     const row = {
         name: normalized.name,
         brand: normalized.brand || null,
@@ -1096,7 +1432,11 @@ async function insertFoodIntoCatalog(foodPayload = {}) {
         .single();
     if (error) {
         console.warn('Supabase food insert failed', error.message);
-        return null;
+        const fallback = { ...normalized, id: `local-${Date.now()}` };
+        foodCatalogCache = [fallback, ...foodCatalogCache.filter((x) =>
+            !(normalizeText(x.name) === normalizedName && normalizeText(x.brand || '') === normalizedBrand)
+        )];
+        return fallback;
     }
     const inserted = normalizeFoodCatalogRow(data);
     if (inserted) {
@@ -1191,7 +1531,12 @@ function mergeStudentRemoteLocal(localStudent, remoteStudent) {
         ? remote.dietMeta
         : (local.dietMeta && typeof local.dietMeta === 'object' ? local.dietMeta : {});
     merged.dietLogs = mergeDietLogsByDate(local.dietLogs, remote.dietLogs);
-    return merged;
+    merged.dietSchemaVersion = Math.max(
+        parseInt(local.dietSchemaVersion || 0, 10) || 0,
+        parseInt(remote.dietSchemaVersion || 0, 10) || 0,
+        DIET_SCHEMA_VERSION
+    );
+    return normalizeStudentDietSchema(merged);
 }
 
 async function getTrainerByCodeRemote(code) {
@@ -1274,12 +1619,23 @@ async function generateUniqueTrainerCode() {
 
 async function ensureTrainerExistsRemote(code, fallbackName = 'Treinador', fallbackConsultoria = '') {
     if (!isSupabaseReady() || !code) return null;
+    const sessionUser = await getSupabaseSessionUser();
     const existing = await getTrainerByCodeRemote(code);
-    if (existing) return existing;
+    if (existing) {
+        if (!existing.owner_id && sessionUser?.id) {
+            await window.supabase
+                .from(SUPABASE_TABLES.trainers)
+                .update({ owner_id: sessionUser.id })
+                .eq('code', String(code));
+            return { ...existing, owner_id: sessionUser.id };
+        }
+        return existing;
+    }
     const row = {
         code: String(code),
         name: fallbackName,
         consultoria_name: fallbackConsultoria,
+        owner_id: sessionUser?.id || null,
         services: 'treino',
         updated_at: new Date().toISOString()
     };
@@ -1305,7 +1661,7 @@ async function syncStudentsFromSupabase(trainerCode) {
     }
     if (!data) return;
     const remoteStudents = data.map(normalizeStudentRow).filter(Boolean);
-    const localStudents = readStorageJSON('trainerStudents', []);
+    const localStudents = normalizeStudentsDietSchema(readStorageJSON('trainerStudents', []));
     const students = remoteStudents.map((remoteStudent) => {
         const localMatch = localStudents.find((s) => String(s.id) === String(remoteStudent.id));
         return mergeStudentRemoteLocal(localMatch, remoteStudent);
@@ -1415,7 +1771,7 @@ function startSupabaseRealtimeSync(trainerCode) {
 function queueSupabaseStudentsSync(students) {
     if (!isSupabaseReady()) return;
     if (supabaseStudentsSyncTimer) clearTimeout(supabaseStudentsSyncTimer);
-    const payload = JSON.parse(JSON.stringify(students || []));
+    const payload = normalizeStudentsDietSchema(JSON.parse(JSON.stringify(students || [])));
     supabaseStudentsSyncTimer = setTimeout(async () => {
         const ids = payload.map((student) => String(student.id || '')).filter(Boolean);
         let remoteById = new Map();
@@ -1687,7 +2043,8 @@ async function loadSPAComponents() {
             const res = await fetch(url);
             if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
             const html = await res.text();
-            container.outerHTML = html;
+            const sanitizedHtml = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+            container.outerHTML = sanitizedHtml;
         } catch (e) {
             console.error('Error loading component:', url, e);
         }
@@ -1698,8 +2055,11 @@ async function loadSPAComponents() {
 document.addEventListener('DOMContentLoaded', async () => {
     await loadSPAComponents();
     setupClientSideFormProtection();
-    ensureAdminStudent();
-    ensureSelfTrainingStudent();
+    migrateStoredStudentsDietSchema({ syncRemote: false });
+    if (ENABLE_DEMO_ACCESS) {
+        ensureAdminStudent();
+        ensureSelfTrainingStudent();
+    }
     applyTrainerBranding();
     upgradeSidebarNavIcons();
     setupInstallButton();
@@ -1713,6 +2073,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    document.addEventListener('keydown', (event) => {
+        const foodModal = document.getElementById('food-modal');
+        if (foodModal?.classList.contains('active')) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closeFoodModal();
+                return;
+            }
+            if (event.key === 'Enter' && event.target?.id === 'food-qtd') {
+                event.preventDefault();
+                confirmAddFood();
+                return;
+            }
+        }
+        if (dietFoodPickerState?.open && event.key === 'Escape') {
+            event.preventDefault();
+            closeDietFoodPicker();
+        }
+    });
+
     // Prevent # anchors from jumping the page in app navigation
     document.querySelectorAll('.sidebar-nav .nav-item[href="#"]').forEach((link) => {
         if (link.dataset.preventInit === '1') return;
@@ -1721,6 +2101,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     optimizeMediaElements(document);
+
+    const hasPublicHome = !!document.getElementById('home-screen');
+    if (hasPublicHome) {
+        const activeUser = await getSupabaseSessionUser();
+        if (activeUser) {
+            const profile = await getProfileByUserId(activeUser.id);
+            const role = normalizeAppRole(profile?.role || activeUser?.user_metadata?.role);
+            if (role) {
+                await processLogin({
+                    id: activeUser.id,
+                    role,
+                    name: sanitizeUserInput(profile?.name || activeUser?.user_metadata?.name || activeUser?.email || 'Usuário', { maxLen: 90 }),
+                    email: activeUser?.email || '',
+                    trainerCode: sanitizeCodeInput(profile?.trainer_code || '', 5)
+                });
+                return;
+            }
+        }
+    }
 
     // Fast path: remember-me token (auto-login instantâneo)
     if (tryAutoStudentLogin()) return;
@@ -1836,6 +2235,42 @@ function copyTrainerCode(event) {
     copyAccessCode('dash-trainer-code', 'btn-copy-code-menu');
 }
 
+function showAdminCopyFeedback() {
+    const badge = document.getElementById('sidebar-trainer-code-badge');
+    if (!badge) return;
+    badge.classList.add('copied');
+    clearTimeout(window.__sidebarCodeCopiedTimer);
+    window.__sidebarCodeCopiedTimer = setTimeout(() => {
+        badge.classList.remove('copied');
+    }, 1200);
+    if (typeof showDietRuntimeMessage === 'function') {
+        showDietRuntimeMessage('Código copiado com sucesso.', 'success');
+    }
+}
+
+function copySidebarAdminCode(event) {
+    if (event) event.stopPropagation();
+    const code = (document.getElementById('sidebar-trainer-code')?.textContent || '').replace(/\D/g, '');
+    if (!code) return;
+    const fallbackCopy = () => {
+        const temp = document.createElement('textarea');
+        temp.value = code;
+        temp.setAttribute('readonly', '');
+        temp.style.position = 'fixed';
+        temp.style.opacity = '0';
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+        showAdminCopyFeedback();
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(showAdminCopyFeedback).catch(fallbackCopy);
+    } else {
+        fallbackCopy();
+    }
+}
+
 function toggleTrainerProfileMenu(event) {
     if (event) event.stopPropagation();
     const overlay = document.getElementById('trainer-profile-sheet-overlay');
@@ -1941,7 +2376,32 @@ function toggleElement(id) {
 
 // â”€â”€â”€ Authentication Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function handleEmailLogin() {
+function normalizeAppRole(role) {
+    const value = String(role || '').trim().toLowerCase();
+    if (value === 'treinador' || value === 'trainer') return 'trainer';
+    if (value === 'aluno' || value === 'student') return 'student';
+    return '';
+}
+
+async function getSupabaseSessionUser() {
+    if (typeof window.supabase?.auth?.getSession !== 'function') return null;
+    const { data, error } = await window.supabase.auth.getSession();
+    if (error) return null;
+    return data?.session?.user || null;
+}
+
+async function getProfileByUserId(userId) {
+    if (!isSupabaseReady() || !userId) return null;
+    const { data, error } = await window.supabase
+        .from('profiles')
+        .select('id,role,name,trainer_code')
+        .eq('id', String(userId))
+        .maybeSingle();
+    if (error) return null;
+    return data || null;
+}
+
+async function handleEmailLogin() {
     const email = sanitizeEmailInput(document.getElementById('login-email')?.value);
     const pass = document.getElementById('login-pass').value;
 
@@ -1950,23 +2410,45 @@ function handleEmailLogin() {
         return;
     }
 
-    const users = readStorageJSON('registeredUsers', []);
-    const user = users.find(u => String(u.email || '').trim().toLowerCase() === email && u.password === pass);
-
-    if (user) {
-        processLogin(user);
-    } else {
-        alert('E-mail ou senha incorretos.');
+    if (typeof window.supabase?.auth?.signInWithPassword !== 'function') {
+        alert('Login indisponível. Configure o Supabase primeiro.');
+        return;
     }
+
+    const { data, error } = await window.supabase.auth.signInWithPassword({
+        email,
+        password: pass
+    });
+
+    if (error || !data?.user) {
+        alert('E-mail ou senha incorretos.');
+        return;
+    }
+
+    const profile = await getProfileByUserId(data.user.id);
+    const role = normalizeAppRole(profile?.role || data.user?.user_metadata?.role);
+    if (!role) {
+        alert('Perfil sem tipo de usuário. Contate o suporte.');
+        return;
+    }
+
+    await processLogin({
+        id: data.user.id,
+        role,
+        name: sanitizeUserInput(profile?.name || data.user?.user_metadata?.name || data.user?.email || 'Usuário', { maxLen: 90 }),
+        email: data.user?.email || '',
+        trainerCode: sanitizeCodeInput(profile?.trainer_code || '', 5)
+    });
 }
 
-function handleProfileCreation() {
+async function handleProfileCreation() {
     const name = sanitizeUserInput(document.getElementById('reg-name')?.value, { maxLen: 90 });
     const email = sanitizeEmailInput(document.getElementById('reg-email')?.value);
     const pass = document.getElementById('reg-pass').value;
     const passConfirm = document.getElementById('reg-pass-confirm')?.value || '';
     const acceptedTerms = !!document.getElementById('reg-terms')?.checked;
-    const role = document.querySelector('input[name="reg-role"]:checked')?.value || 'student';
+    const rawRole = document.querySelector('input[name="reg-role"]:checked')?.value || 'student';
+    const role = normalizeAppRole(rawRole) || 'student';
 
     if (!name || !email || !pass || !passConfirm) {
         alert('Preencha todos os campos para criar sua conta.');
@@ -2000,74 +2482,111 @@ function handleProfileCreation() {
         return;
     }
 
-    let users = readStorageJSON('registeredUsers', []);
-    if (users.some(u => String(u.email || '').trim().toLowerCase() === email)) {
-        alert('Este e-mail já está cadastrado.');
+    if (typeof window.supabase?.auth?.signUp !== 'function') {
+        alert('Cadastro indisponível. Configure o Supabase primeiro.');
         return;
     }
 
-    const newUser = { name, email, password: pass, role, joinedAt: new Date().toISOString() };
-    users.push(newUser);
-    memorySetItem('registeredUsers', JSON.stringify(users));
-
-    alert('Conta criada com sucesso! Voce ja esta logado.');
-    processLogin(newUser);
-}
-
-function handleGoogleLogin() {
-    // Simulated Google Login
-    const w = 500, h = 600;
-    const left = (screen.width / 2) - (w / 2);
-    const top = (screen.height / 2) - (h / 2);
-
-    // We can't actually open Google Auth without a client ID, so we simulate the UI
-    const mockWin = window.open('about:blank', 'GoogleAuth', `width=${w},height=${h},top=${top},left=${left}`);
-    mockWin.document.write(`
-        <body style="background:#f8f9fa; font-family: sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; margin:0;">
-            <div style="background:#fff; padding:2rem; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1); text-align:center;">
-                <svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true" style="margin-bottom:1rem;">
-                    <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.2-1.4 3.5-5.4 3.5-3.2 0-5.9-2.7-5.9-6s2.7-6 5.9-6c1.8 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3 14.6 2 12 2 6.9 2 2.8 6.1 2.8 11.2S6.9 20.4 12 20.4c6.8 0 9-4.7 9-7.1 0-.5 0-.8-.1-1.2H12z"/>
-                </svg>
-                <h2 style="margin:0 0 0.5rem 0;">Fazer login com Google</h2>
-                <p style="color:#5f6368; margin-bottom:2rem;">Use sua Conta do Google para continuar</p>
-                <button onclick="window.opener.postMessage('google_success', '*'); window.close();" style="background:#1a73e8; color:white; border:none; padding:10px 24px; border-radius:4px; font-weight:500; cursor:pointer;">Continuar como Usuário</button>
-            </div>
-        </body>
-    `);
-
-    // Listen for the mock success message
-    window.addEventListener('message', (event) => {
-        if (event.data === 'google_success') {
-            const mockGoogleUser = { name: 'Google User', email: 'google@test.com', role: 'student' };
-            processLogin(mockGoogleUser);
+    const { data, error } = await window.supabase.auth.signUp({
+        email,
+        password: pass,
+        options: {
+            emailRedirectTo: `${window.location.origin}/`,
+            data: {
+                name,
+                role
+            }
         }
-    }, { once: true });
+    });
+
+    if (error) {
+        alert(error.message || 'Não foi possível criar sua conta.');
+        return;
+    }
+
+    const user = data?.user;
+    if (!user) {
+        alert('Conta criada, mas não foi possível carregar seu perfil.');
+        return;
+    }
+
+    let trainerCode = '';
+    if (role === 'trainer') trainerCode = await generateUniqueTrainerCode();
+
+    await window.supabase
+        .from('profiles')
+        .upsert({
+            id: user.id,
+            role,
+            name,
+            trainer_code: trainerCode || null,
+            profile_complete: true
+        }, { onConflict: 'id' });
+
+    if (data?.session?.user) {
+        await processLogin({
+            id: user.id,
+            role,
+            name,
+            email,
+            trainerCode
+        });
+        return;
+    }
+
+    alert('Conta criada com sucesso. Verifique seu e-mail para confirmar o cadastro.');
 }
 
-function processLogin(user) {
-    const safeUserName = sanitizeUserInput(user?.name || 'Aluno', { maxLen: 90 }) || 'Aluno';
+async function handleGoogleLogin() {
+    if (typeof window.supabase?.auth?.signInWithOAuth !== 'function') {
+        alert('Login Google indisponível no momento.');
+        return;
+    }
+    const { error } = await window.supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${window.location.origin}/` }
+    });
+    if (error) {
+        alert(error.message || 'Não foi possível iniciar o login com Google.');
+    }
+}
 
-    if (user.role === 'trainer') {
-        // Find or create a trainer code for this user
-        let trainerCode = memoryGetItem('currentTrainerCode') || '00001';
+async function processLogin(user) {
+    const safeUserName = sanitizeUserInput(user?.name || 'Aluno', { maxLen: 90 }) || 'Aluno';
+    const safeEmail = sanitizeEmailInput(user?.email || '');
+    const normalizedRole = normalizeAppRole(user?.role);
+    if (user?.id) memorySetItem('currentUserId', String(user.id));
+    if (safeEmail) memorySetItem('currentUserEmail', safeEmail);
+    if (normalizedRole) memorySetItem('currentUserRole', normalizedRole);
+
+    if (normalizedRole === 'trainer') {
+        let trainerCode = sanitizeCodeInput(user?.trainerCode || memoryGetItem('currentTrainerCode') || '', 5);
+        if (!trainerCode) trainerCode = await generateUniqueTrainerCode();
+
         memorySetItem('trainerName', safeUserName.split(' ')[0]);
         memorySetItem('currentTrainerCode', trainerCode);
+        cacheTrainerLocal({
+            code: trainerCode,
+            name: safeUserName,
+            consultoria_name: `Consultoria de ${safeUserName.split(' ')[0]} `,
+            services: 'treino'
+        });
+        await ensureTrainerExistsRemote(
+            trainerCode,
+            safeUserName,
+            `Consultoria de ${safeUserName.split(' ')[0]} `
+        );
         window.location.href = 'trainer.html';
-    } else {
+        return;
+    } else if (normalizedRole === 'student') {
         memorySetItem('studentName', safeUserName);
-        // Find if this user already has an ID, or generate one
-        let studentId = memoryGetItem('currentStudentId') || Math.floor(10000 + Math.random() * 90000).toString();
-        if (studentId === ADMIN_STUDENT_CODE || studentId === SELF_TRAINING_STUDENT_CODE) {
-            studentId = Math.floor(10000 + Math.random() * 90000).toString();
+        if (!tryAutoStudentLogin()) {
+            goToStudentArea();
         }
-        memorySetItem('currentStudentId', studentId);
-
-        hideAllScreens();
-        document.getElementById('app').classList.add('wide');
-        document.getElementById('student-dashboard-screen').classList.add('active');
-        initStudentDashboard();
-        switchStudentView('home'); // Land on Menu/Dashboard
+        return;
     }
+
+    alert('Tipo de usuário inválido para login.');
 }
 
 let currentWorkoutTab = 0;
@@ -4108,24 +4627,27 @@ function renderStudentDietContent(student) {
                         <div class="diet-modern-food-controls">
                             <input type="text" class="diet-modern-input" value="${escHtml(qtyValue)}" placeholder="Quantidade consumida"
                                 oninput="updateDietItemQty(${mealIdx}, ${itemIdx}, this.value)">
-                            <button type="button" class="diet-modern-sub-btn ${substituteEnabled ? 'active' : ''}" onclick="toggleDietItemSubstitute(${mealIdx}, ${itemIdx})">
-                                ${substituteEnabled ? 'Cancelar Substituição' : 'Substituir alimento'}
+                            <button type="button" class="diet-modern-sub-btn ${substituteEnabled ? 'active' : ''}" onclick="openDietItemSubstitutePicker(${mealIdx}, ${itemIdx})">
+                                ${substituteEnabled ? 'Trocar substituto' : 'Substituir alimento'}
                             </button>
+                            ${substituteEnabled ? `
+                                <button type="button" class="diet-modern-sub-btn" onclick="toggleDietItemSubstitute(${mealIdx}, ${itemIdx})">
+                                    Cancelar
+                                </button>
+                            ` : ''}
                         </div>
                         ${substituteEnabled ? `
                         <div class="diet-modern-substitute-box">
-                            <input type="text" class="diet-modern-input" value="${escHtml(sub.name || '')}" placeholder="Alimento substituto"
-                                oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'name', this.value)">
-                            <input type="text" class="diet-modern-input" value="${escHtml(sub.qty || '')}" placeholder="Qtd substituta (ex: 120g)"
-                                oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'qty', this.value)">
-                            <input type="number" class="diet-modern-input" value="${escHtml(sub.kcal || '')}" placeholder="kcal"
-                                oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'kcal', this.value)">
-                            <input type="number" class="diet-modern-input" value="${escHtml(sub.prot || '')}" placeholder="prot"
-                                oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'prot', this.value)">
-                            <input type="number" class="diet-modern-input" value="${escHtml(sub.carb || '')}" placeholder="carb"
-                                oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'carb', this.value)">
-                            <input type="number" class="diet-modern-input" value="${escHtml(sub.gord || '')}" placeholder="gord"
-                                oninput="updateDietItemSubField(${mealIdx}, ${itemIdx}, 'gord', this.value)">
+                            <div class="diet-substitute-summary">
+                                <strong>${escHtml(sub.name || 'Substituto')}</strong>
+                                <span>${escHtml(sub.qty || '--')}</span>
+                            </div>
+                            <div class="diet-modern-macro-chips">
+                                <span class="diet-modern-chip kcal">${parseDecimalSafe(sub.kcal) || 0} kcal</span>
+                                <span class="diet-modern-chip protein">${uiSvgIcon('protein')} ${parseDecimalSafe(sub.prot) || 0}g P</span>
+                                <span class="diet-modern-chip carb">${uiSvgIcon('carb')} ${parseDecimalSafe(sub.carb) || 0}g C</span>
+                                <span class="diet-modern-chip fat">${uiSvgIcon('fat')} ${parseDecimalSafe(sub.gord) || 0}g G</span>
+                            </div>
                         </div>` : ''}
                         <div class="diet-modern-macro-chips">
                             <span class="diet-modern-chip kcal">${checked ? consumed.kcal : base.kcal} kcal</span>
@@ -4197,6 +4719,28 @@ let studentDietMealDraft = { name: '', qtd: '', kcal: '', prot: '', carb: '', go
 let studentDietSelectedDateKey = getTodayDateKey();
 let studentDietFoodSearchResults = [];
 let studentDietFoodSearchTimer = null;
+let dietFoodPickerState = {
+    open: false,
+    context: '',
+    mealIdx: null,
+    itemIdx: null,
+    query: '',
+    loading: false,
+    allResults: [],
+    results: [],
+    selected: null,
+    qty: '',
+    highlightIndex: -1,
+    filters: {
+        macro: 'all',
+        kcal: 'all',
+        type: 'all',
+        meal: 'all',
+        favoritesOnly: false,
+        recentOnly: false
+    }
+};
+let dietFoodPickerTimer = null;
 
 function setStudentDietDate(dateKey) {
     const safe = /^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || '')) ? String(dateKey) : getTodayDateKey();
@@ -4360,6 +4904,33 @@ function isStudentMealCompleted(dayLog, mealIdx, meal) {
     return items.every((_, itemIdx) => !!getDietLogItem(dayLog, mealIdx, itemIdx)?.checked);
 }
 
+function showDietRuntimeMessage(message, type = 'info') {
+    const text = sanitizeUserInput(message || '', { maxLen: 220 });
+    if (!text) return;
+    let toast = document.getElementById('diet-runtime-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'diet-runtime-toast';
+        toast.className = 'diet-runtime-toast';
+        document.body.appendChild(toast);
+    }
+    toast.classList.remove('show', 'success', 'error', 'info');
+    toast.classList.add(type || 'info');
+    toast.textContent = text;
+    requestAnimationFrame(() => toast.classList.add('show'));
+    clearTimeout(window.__dietRuntimeToastTimer);
+    window.__dietRuntimeToastTimer = setTimeout(() => toast.classList.remove('show'), 2800);
+}
+
+function ensureDietWriteAllowed(context = 'diet') {
+    if (navigator.onLine === false) {
+        showDietRuntimeMessage('Sem internet. Conecte-se para editar a dieta.', 'error');
+        if (context === 'planner') setSettingsSavebarState('error', 'Conecte-se para salvar alterações');
+        return false;
+    }
+    return true;
+}
+
 function toggleDietMealCheck(mealIdx) {
     persistStudentDietLog((dayLog, student) => {
         const meal = student?.mealBlocks?.[mealIdx];
@@ -4373,6 +4944,7 @@ function toggleDietMealCheck(mealIdx) {
 }
 
 function persistStudentDietLog(updateFn) {
+    if (!ensureDietWriteAllowed('student')) return;
     const studentId = memoryGetItem('currentStudentId');
     if (!studentId || typeof updateFn !== 'function') return;
     const students = readStorageJSON('trainerStudents', []);
@@ -4390,6 +4962,7 @@ function persistStudentDietLog(updateFn) {
 }
 
 function persistStudentMealBlocks(updateFn) {
+    if (!ensureDietWriteAllowed('student')) return;
     const studentId = memoryGetItem('currentStudentId');
     if (!studentId || typeof updateFn !== 'function') return;
     const students = readStorageJSON('trainerStudents', []);
@@ -4398,7 +4971,7 @@ function persistStudentMealBlocks(updateFn) {
     const student = students[idx];
     updateFn(student);
     students[idx] = student;
-    saveStudentData(students);
+    saveStudentData(normalizeStudentsDietSchema(students));
 }
 
 function refreshStudentDietViews() {
@@ -4424,7 +4997,7 @@ function ensureDietLogItem(dayLog, mealIdx, itemIdx) {
         dayLog.meals[mealIdx].items[itemIdx] = {
             checked: false,
             qty: '',
-            substitute: { enabled: false }
+            substitute: { enabled: false, name: '', qty: '', kcal: 0, prot: 0, carb: 0, gord: 0, foodId: '', baseQty: 100, baseUnit: 'g', source: 'manual' }
         };
     }
     return dayLog.meals[mealIdx].items[itemIdx];
@@ -4444,34 +5017,482 @@ function updateDietItemQty(mealIdx, itemIdx, qty) {
     });
 }
 
-function toggleDietItemSubstitute(mealIdx, itemIdx) {
-    persistStudentDietLog((dayLog, student) => {
-        const item = ensureDietLogItem(dayLog, mealIdx, itemIdx);
-        if (!item.substitute || typeof item.substitute !== 'object') item.substitute = { enabled: false };
-        const next = !item.substitute.enabled;
-        if (next) {
-            const baseItem = student?.mealBlocks?.[mealIdx]?.items?.[itemIdx] || {};
-            item.substitute = {
-                enabled: true,
-                name: '',
-                qty: item.qty || baseItem.qtd || '',
-                kcal: baseItem.kcal || '',
-                prot: baseItem.prot || '',
-                carb: baseItem.carb || '',
-                gord: baseItem.gord || ''
-            };
-        } else {
-            item.substitute = { enabled: false };
-        }
+function getDietBaseItemForContext(context, mealIdx, itemIdx) {
+    if (context === 'trainer-replace') {
+        return mealBlocks?.[mealIdx]?.items?.[itemIdx] || {};
+    }
+    const { student } = getStudentData();
+    return student?.mealBlocks?.[mealIdx]?.items?.[itemIdx] || {};
+}
+
+function getDietFoodPickerTitle() {
+    return dietFoodPickerState.context === 'trainer-replace'
+        ? 'Substituir Alimento da Refeição'
+        : 'Substituir Alimento Consumido';
+}
+
+function ensureDietFoodPickerModal() {
+    if (document.getElementById('diet-food-picker-overlay')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'diet-food-picker-overlay';
+    overlay.className = 'diet-food-picker-overlay';
+
+    const modal = document.createElement('div');
+    modal.id = 'diet-food-picker-modal';
+    modal.className = 'diet-food-picker-modal';
+    modal.innerHTML = `
+        <div class="diet-food-picker-header">
+            <h3 id="diet-food-picker-title">Substituir alimento</h3>
+            <button type="button" class="diet-food-picker-close" onclick="closeDietFoodPicker()"><i class="ph-bold ph-x"></i></button>
+        </div>
+        <div class="diet-food-picker-body">
+            <input id="diet-food-picker-search" type="text" class="diet-modern-input" placeholder="Buscar alimento (ex: arroz, frango, banana)">
+            <div id="diet-food-picker-filters" class="diet-food-picker-filters">
+                <button type="button" class="diet-food-picker-filter-chip active" data-group="macro" data-value="all">Todos</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="macro" data-value="high-protein">Alto em proteína</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="macro" data-value="high-carb">Alto em carbo</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="macro" data-value="high-fat">Alto em gordura</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="kcal" data-value="low">Baixo kcal</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="kcal" data-value="medium">Médio kcal</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="kcal" data-value="high">Alto kcal</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="type" data-value="animal">Animal</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="type" data-value="vegetal">Vegetal</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="meal" data-value="cafe">Café</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="meal" data-value="almoco">Almoço</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="meal" data-value="jantar">Jantar</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="meal" data-value="lanche">Lanche</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="meal" data-value="ceia">Ceia</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="flags" data-value="favorites">Favoritos</button>
+                <button type="button" class="diet-food-picker-filter-chip" data-group="flags" data-value="recent">Recentes</button>
+                <button type="button" class="diet-food-picker-filter-chip ghost" data-group="clear" data-value="all">Limpar</button>
+            </div>
+            <div id="diet-food-picker-results" class="diet-food-picker-results"></div>
+            <input id="diet-food-picker-qty" type="text" class="diet-modern-input" placeholder="Quantidade (ex: 120g)">
+            <div id="diet-food-picker-preview" class="diet-food-picker-preview"></div>
+        </div>
+        <div class="diet-food-picker-footer">
+            <button type="button" class="diet-modern-cancel-btn" onclick="closeDietFoodPicker()">Cancelar</button>
+            <button type="button" class="diet-modern-save-btn" onclick="confirmDietFoodPickerSelection()">Confirmar</button>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(modal);
+
+    const searchInput = modal.querySelector('#diet-food-picker-search');
+    const qtyInput = modal.querySelector('#diet-food-picker-qty');
+    if (searchInput) {
+        searchInput.addEventListener('input', (event) => {
+            dietFoodPickerState.query = String(event.target.value || '');
+            scheduleDietFoodPickerSearch(dietFoodPickerState.query);
+        });
+        searchInput.addEventListener('keydown', handleDietFoodPickerKeydown);
+    }
+    if (qtyInput) {
+        qtyInput.addEventListener('input', (event) => {
+            dietFoodPickerState.qty = String(event.target.value || '');
+            renderDietFoodPickerPreview();
+        });
+        qtyInput.addEventListener('keydown', handleDietFoodPickerKeydown);
+    }
+    modal.querySelectorAll('#diet-food-picker-filters .diet-food-picker-filter-chip').forEach((chip) => {
+        chip.addEventListener('click', () => {
+            const group = chip.getAttribute('data-group') || '';
+            const value = chip.getAttribute('data-value') || 'all';
+            if (group === 'clear') {
+                clearDietFoodPickerFilters();
+                return;
+            }
+            if (group === 'flags') {
+                toggleDietFoodPickerFlag(value);
+                return;
+            }
+            setDietFoodPickerFilter(group, value);
+        });
     });
 }
 
-function updateDietItemSubField(mealIdx, itemIdx, field, value) {
+function handleDietFoodPickerKeydown(event) {
+    if (!dietFoodPickerState.open) return;
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        closeDietFoodPicker();
+        return;
+    }
+    if (event.key === 'Enter' && event.target?.id === 'diet-food-picker-qty') {
+        event.preventDefault();
+        confirmDietFoodPickerSelection();
+        return;
+    }
+    if (!Array.isArray(dietFoodPickerState.results) || !dietFoodPickerState.results.length) return;
+    if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        dietFoodPickerState.highlightIndex = Math.min(dietFoodPickerState.results.length - 1, (dietFoodPickerState.highlightIndex < 0 ? 0 : dietFoodPickerState.highlightIndex + 1));
+        renderDietFoodPickerResults();
+        return;
+    }
+    if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        dietFoodPickerState.highlightIndex = Math.max(0, (dietFoodPickerState.highlightIndex < 0 ? 0 : dietFoodPickerState.highlightIndex - 1));
+        renderDietFoodPickerResults();
+        return;
+    }
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const idx = dietFoodPickerState.highlightIndex >= 0 ? dietFoodPickerState.highlightIndex : 0;
+        selectDietFoodPickerResult(idx);
+    }
+}
+
+function renderDietFoodPickerModal() {
+    ensureDietFoodPickerModal();
+    const overlay = document.getElementById('diet-food-picker-overlay');
+    const modal = document.getElementById('diet-food-picker-modal');
+    if (!overlay || !modal) return;
+
+    overlay.classList.toggle('active', !!dietFoodPickerState.open);
+    modal.classList.toggle('active', !!dietFoodPickerState.open);
+    if (!dietFoodPickerState.open) return;
+
+    const title = document.getElementById('diet-food-picker-title');
+    const search = document.getElementById('diet-food-picker-search');
+    const qty = document.getElementById('diet-food-picker-qty');
+    if (title) title.textContent = getDietFoodPickerTitle();
+    if (search) search.value = dietFoodPickerState.query || '';
+    if (qty) qty.value = dietFoodPickerState.qty || '';
+    updateDietFoodPickerFilterUI();
+
+    renderDietFoodPickerResults();
+    renderDietFoodPickerPreview();
+
+    if (search) {
+        setTimeout(() => search.focus(), 10);
+    }
+}
+
+function closeDietFoodPicker() {
+    dietFoodPickerState = {
+        open: false,
+        context: '',
+        mealIdx: null,
+        itemIdx: null,
+        query: '',
+        loading: false,
+        allResults: [],
+        results: [],
+        selected: null,
+        qty: '',
+        highlightIndex: -1,
+        filters: {
+            macro: 'all',
+            kcal: 'all',
+            type: 'all',
+            meal: 'all',
+            favoritesOnly: false,
+            recentOnly: false
+        }
+    };
+    if (dietFoodPickerTimer) clearTimeout(dietFoodPickerTimer);
+    renderDietFoodPickerModal();
+}
+
+function openDietFoodPicker(context, mealIdx, itemIdx) {
+    const baseItem = getDietBaseItemForContext(context, mealIdx, itemIdx);
+    const defaultQty = String(baseItem?.qtd || '100g');
+    const defaultName = String(baseItem?.nome || '');
+    dietFoodPickerState = {
+        open: true,
+        context,
+        mealIdx,
+        itemIdx,
+        query: defaultName,
+        loading: false,
+        allResults: [],
+        results: [],
+        selected: null,
+        qty: defaultQty,
+        highlightIndex: -1,
+        filters: {
+            macro: 'all',
+            kcal: 'all',
+            type: 'all',
+            meal: 'all',
+            favoritesOnly: false,
+            recentOnly: false
+        }
+    };
+    renderDietFoodPickerModal();
+    scheduleDietFoodPickerSearch(defaultName);
+}
+
+function openDietItemSubstitutePicker(mealIdx, itemIdx) {
+    openDietFoodPicker('student-substitute', mealIdx, itemIdx);
+}
+
+function openTrainerFoodReplacePicker(mealIdx, itemIdx) {
+    openDietFoodPicker('trainer-replace', mealIdx, itemIdx);
+}
+
+function updateDietFoodPickerFilterUI() {
+    document.querySelectorAll('#diet-food-picker-filters .diet-food-picker-filter-chip').forEach((chip) => {
+        const group = chip.getAttribute('data-group') || '';
+        const value = chip.getAttribute('data-value') || '';
+        let active = false;
+        if (group === 'macro') active = dietFoodPickerState.filters?.macro === value;
+        if (group === 'kcal') active = dietFoodPickerState.filters?.kcal === value;
+        if (group === 'type') active = dietFoodPickerState.filters?.type === value;
+        if (group === 'meal') active = dietFoodPickerState.filters?.meal === value;
+        if (group === 'flags' && value === 'favorites') active = !!dietFoodPickerState.filters?.favoritesOnly;
+        if (group === 'flags' && value === 'recent') active = !!dietFoodPickerState.filters?.recentOnly;
+        chip.classList.toggle('active', active);
+        chip.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+}
+
+function applyDietFoodPickerFiltersAndRender() {
+    dietFoodPickerState.results = applyFoodFilters(
+        dietFoodPickerState.allResults,
+        dietFoodPickerState.filters
+    );
+    dietFoodPickerState.highlightIndex = dietFoodPickerState.results.length ? 0 : -1;
+    renderDietFoodPickerResults();
+}
+
+function setDietFoodPickerFilter(group, value) {
+    if (!dietFoodPickerState.filters) return;
+    if (group === 'macro') dietFoodPickerState.filters.macro = value;
+    if (group === 'kcal') dietFoodPickerState.filters.kcal = value;
+    if (group === 'type') dietFoodPickerState.filters.type = value;
+    if (group === 'meal') dietFoodPickerState.filters.meal = value;
+    updateDietFoodPickerFilterUI();
+    applyDietFoodPickerFiltersAndRender();
+}
+
+function toggleDietFoodPickerFlag(flag) {
+    if (!dietFoodPickerState.filters) return;
+    if (flag === 'favorites') dietFoodPickerState.filters.favoritesOnly = !dietFoodPickerState.filters.favoritesOnly;
+    if (flag === 'recent') dietFoodPickerState.filters.recentOnly = !dietFoodPickerState.filters.recentOnly;
+    updateDietFoodPickerFilterUI();
+    applyDietFoodPickerFiltersAndRender();
+}
+
+function clearDietFoodPickerFilters() {
+    dietFoodPickerState.filters = {
+        macro: 'all',
+        kcal: 'all',
+        type: 'all',
+        meal: 'all',
+        favoritesOnly: false,
+        recentOnly: false
+    };
+    updateDietFoodPickerFilterUI();
+    applyDietFoodPickerFiltersAndRender();
+}
+
+async function searchFoodsWithFallback(query, limit = 12) {
+    const term = String(query || '').trim();
+    if (term.length < 2) return [];
+    const catalogResults = await searchFoodsCatalog(term, limit);
+    if (catalogResults.length > 0) return catalogResults;
+
+    try {
+        const url = `https://br.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&search_simple=1&action=process&json=1&page_size=${Math.min(limit, 12)}`;
+        const resp = await fetch(url, { headers: { 'User-Agent': 'AplicativoConsultoria - Browser - v1.0' } });
+        const data = await resp.json();
+        return (data.products || []).map((item) => normalizeFoodCatalogRow({
+            id: '',
+            name: item.product_name || item.generic_name || '',
+            brand: item.brands || '',
+            base_qty: 100,
+            base_unit: 'g',
+            kcal: parseDecimalSafe(item.nutriments?.['energy-kcal_100g']),
+            protein: parseDecimalSafe(item.nutriments?.proteins_100g),
+            carb: parseDecimalSafe(item.nutriments?.carbohydrates_100g),
+            fat: parseDecimalSafe(item.nutriments?.fat_100g),
+            source: 'openfoodfacts'
+        })).filter(Boolean);
+    } catch (error) {
+        console.warn('OpenFoodFacts search failed', error);
+        return [];
+    }
+}
+
+function scheduleDietFoodPickerSearch(query) {
+    if (dietFoodPickerTimer) clearTimeout(dietFoodPickerTimer);
+    const term = String(query || '').trim();
+    if (term.length < 2) {
+        dietFoodPickerState.loading = false;
+        dietFoodPickerState.allResults = (foodCatalogCache || []).slice(0, 12);
+        applyDietFoodPickerFiltersAndRender();
+        return;
+    }
+    dietFoodPickerState.loading = true;
+    renderDietFoodPickerResults();
+    dietFoodPickerTimer = setTimeout(async () => {
+        const results = await searchFoodsWithFallback(term, 12);
+        if (dietFoodPickerState.query.trim() !== term) return;
+        dietFoodPickerState.loading = false;
+        dietFoodPickerState.allResults = results;
+        applyDietFoodPickerFiltersAndRender();
+    }, 240);
+}
+
+function selectDietFoodPickerResult(index) {
+    const selected = dietFoodPickerState.results[index];
+    if (!selected) return;
+    dietFoodPickerState.selected = selected;
+    dietFoodPickerState.highlightIndex = index;
+    if (!dietFoodPickerState.qty) {
+        dietFoodPickerState.qty = `${selected.base_qty}${selected.base_unit}`;
+    }
+    renderDietFoodPickerModal();
+}
+
+function toggleDietFoodPickerFavorite(index) {
+    const item = dietFoodPickerState.results[index];
+    if (!item) return;
+    const key = getFoodItemKey(item);
+    const prefs = readFoodModalPrefs();
+    const current = new Set(prefs.favorites || []);
+    if (current.has(key)) current.delete(key);
+    else current.add(key);
+    saveFoodModalPrefs({ ...prefs, favorites: Array.from(current) });
+    renderDietFoodPickerResults();
+}
+
+function renderDietFoodPickerResults() {
+    const container = document.getElementById('diet-food-picker-results');
+    if (!container) return;
+    if (dietFoodPickerState.loading) {
+        container.innerHTML = '<div class="diet-food-picker-empty">Buscando alimentos...</div>';
+        return;
+    }
+    if (!Array.isArray(dietFoodPickerState.results) || !dietFoodPickerState.results.length) {
+        container.innerHTML = '<div class="diet-food-picker-empty">Sem resultados. Digite outro termo.</div>';
+        return;
+    }
+    const prefs = readFoodModalPrefs();
+    const favoritesSet = new Set(prefs.favorites || []);
+    container.innerHTML = dietFoodPickerState.results.map((item, index) => {
+        const selected = dietFoodPickerState.selected && String(dietFoodPickerState.selected.id || '') === String(item.id || '')
+            && normalizeText(dietFoodPickerState.selected.name) === normalizeText(item.name);
+        const highlighted = dietFoodPickerState.highlightIndex === index;
+        const fav = favoritesSet.has(getFoodItemKey(item));
+        return `
+            <div class="diet-food-picker-item-wrap ${selected ? 'active' : ''} ${highlighted ? 'is-highlight' : ''}" onclick="selectDietFoodPickerResult(${index})">
+                <button type="button" class="diet-food-picker-fav ${fav ? 'active' : ''}" onclick="event.stopPropagation(); toggleDietFoodPickerFavorite(${index})">
+                    <i class="ph-${fav ? 'fill' : 'bold'} ph-star"></i>
+                </button>
+                <div>
+                    <strong>${escHtml(item.name)}</strong>
+                    <span>${Math.round(item.kcal)} kcal · P ${item.protein}g · C ${item.carb}g · G ${item.fat}g (por ${item.base_qty}${item.base_unit})</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderDietFoodPickerPreview() {
+    const preview = document.getElementById('diet-food-picker-preview');
+    if (!preview) return;
+    if (!dietFoodPickerState.selected) {
+        preview.innerHTML = '<span>Selecione um alimento para visualizar os macros.</span>';
+        return;
+    }
+    const food = dietFoodPickerState.selected;
+    const parsed = parseAmountAndUnit(dietFoodPickerState.qty || `${food.base_qty}${food.base_unit}`, food.base_unit || 'g');
+    const safeAmount = parsed.amount > 0 ? parsed.amount : (food.base_qty || 100);
+    const calc = computeMacrosByAmount(food, safeAmount, parsed.unit || food.base_unit || 'g');
+    const qtyLabel = `${safeAmount}${parsed.unit || food.base_unit || 'g'}`;
+    preview.innerHTML = `
+        <div class="diet-food-picker-preview-title">${escHtml(food.name)} · ${qtyLabel}</div>
+        <div class="diet-modern-macro-chips">
+            <span class="diet-modern-chip kcal">${calc.kcal} kcal</span>
+            <span class="diet-modern-chip protein">${uiSvgIcon('protein')} ${calc.protein}g P</span>
+            <span class="diet-modern-chip carb">${uiSvgIcon('carb')} ${calc.carb}g C</span>
+            <span class="diet-modern-chip fat">${uiSvgIcon('fat')} ${calc.fat}g G</span>
+        </div>
+    `;
+}
+
+async function ensurePickerFoodSaved(food) {
+    if (!food) return null;
+    if (food.id) return food;
+    const inserted = await insertFoodIntoCatalog({
+        name: food.name,
+        brand: food.brand || '',
+        base_qty: food.base_qty || 100,
+        base_unit: food.base_unit || 'g',
+        kcal: food.kcal || 0,
+        protein: food.protein || 0,
+        carb: food.carb || 0,
+        fat: food.fat || 0,
+        source: food.source || 'manual',
+        created_by: getCurrentFoodCreatorId()
+    });
+    return inserted || food;
+}
+
+async function confirmDietFoodPickerSelection() {
+    const selected = dietFoodPickerState.selected;
+    if (!selected) return;
+
+    const persistedFood = await ensurePickerFoodSaved(selected);
+    registerRecentFood({
+        id: persistedFood?.id || selected?.id || '',
+        name: persistedFood?.name || selected?.name || ''
+    });
+    const parsed = parseAmountAndUnit(
+        dietFoodPickerState.qty || `${persistedFood.base_qty}${persistedFood.base_unit}`,
+        persistedFood.base_unit || 'g'
+    );
+    const safeAmount = parsed.amount > 0 ? parsed.amount : (persistedFood.base_qty || 100);
+    const unit = parsed.unit || persistedFood.base_unit || 'g';
+    const calc = computeMacrosByAmount(persistedFood, safeAmount, unit);
+    const qtyText = `${safeAmount}${unit}`;
+
+    if (dietFoodPickerState.context === 'trainer-replace') {
+        const meal = mealBlocks?.[dietFoodPickerState.mealIdx];
+        const item = meal?.items?.[dietFoodPickerState.itemIdx];
+        if (item) {
+            item.nome = persistedFood.name;
+            item.qtd = qtyText;
+            item.kcal = calc.kcal;
+            item.prot = calc.protein;
+            item.carb = calc.carb;
+            item.gord = calc.fat;
+            item.foodId = persistedFood.id || '';
+            item.baseQty = persistedFood.base_qty || 100;
+            item.baseUnit = persistedFood.base_unit || unit;
+            item.source = persistedFood.source || 'catalog';
+        }
+        renderMeals();
+        updateDietPlannerSummary();
+    } else {
+        persistStudentDietLog((dayLog) => {
+            const logItem = ensureDietLogItem(dayLog, dietFoodPickerState.mealIdx, dietFoodPickerState.itemIdx);
+            logItem.substitute = {
+                enabled: true,
+                name: persistedFood.name,
+                qty: qtyText,
+                kcal: calc.kcal,
+                prot: calc.protein,
+                carb: calc.carb,
+                gord: calc.fat,
+                foodId: persistedFood.id || '',
+                baseQty: persistedFood.base_qty || 100,
+                baseUnit: persistedFood.base_unit || unit,
+                source: persistedFood.source || 'catalog'
+            };
+        });
+    }
+    closeDietFoodPicker();
+}
+
+function toggleDietItemSubstitute(mealIdx, itemIdx) {
     persistStudentDietLog((dayLog) => {
         const item = ensureDietLogItem(dayLog, mealIdx, itemIdx);
-        if (!item.substitute || typeof item.substitute !== 'object') item.substitute = { enabled: true };
-        item.substitute.enabled = true;
-        item.substitute[field] = value;
+        item.substitute = { enabled: false };
     });
 }
 
@@ -4505,6 +5526,12 @@ async function handleUnifiedLogin() {
     if (codeInput) codeInput.value = code;
     if (code.length !== 5) {
         alert('Digite o código de 5 dígitos.');
+        return;
+    }
+
+    if (!ENABLE_DEMO_ACCESS) {
+        alert('No lançamento, use e-mail e senha para entrar. O código é usado para conectar aluno ao treinador.');
+        goToStudentArea();
         return;
     }
 
@@ -4571,6 +5598,19 @@ async function handleUnifiedLogin() {
 let pendingTrainerCode = '';
 
 async function connectStudent() {
+    const activeUser = await getSupabaseSessionUser();
+    if (!activeUser) {
+        alert('Faça login com e-mail e senha antes de conectar ao treinador.');
+        goToGlobalLogin();
+        return;
+    }
+    const profile = await getProfileByUserId(activeUser.id);
+    const role = normalizeAppRole(profile?.role || activeUser?.user_metadata?.role);
+    if (role !== 'student') {
+        alert('Apenas contas de aluno podem usar esta opção.');
+        return;
+    }
+
     const code = sanitizeCodeInput(document.getElementById('trainer-code')?.value, 5);
     const codeInput = document.getElementById('trainer-code');
     if (codeInput) codeInput.value = code;
@@ -4579,8 +5619,8 @@ async function connectStudent() {
         return;
     }
 
-    // Demo Beta login direto do aluno pelo botao "Conectar"
-    if (code === ADMIN_STUDENT_CODE) {
+    // Demo local: login direto por código fixo
+    if (ENABLE_DEMO_ACCESS && code === ADMIN_STUDENT_CODE) {
         ensureAdminStudent();
         const students = readStorageJSON('trainerStudents', []);
         const adminStudent = students.find(s => s.id === ADMIN_STUDENT_CODE);
@@ -4592,7 +5632,7 @@ async function connectStudent() {
         return;
     }
 
-    if (code === SELF_TRAINING_STUDENT_CODE) {
+    if (ENABLE_DEMO_ACCESS && code === SELF_TRAINING_STUDENT_CODE) {
         ensureSelfTrainingStudent();
         const students = readStorageJSON('trainerStudents', []);
         const selfStudent = students.find(s => s.id === SELF_TRAINING_STUDENT_CODE);
@@ -4608,7 +5648,7 @@ async function connectStudent() {
     let coachName = '';
     let consultoriaName = '';
 
-    if (code === '00001') {
+    if (ENABLE_DEMO_ACCESS && code === '00001') {
         coachName = 'Administrador Teste';
         consultoriaName = 'Admin Consultoria';
     } else {
@@ -4751,6 +5791,7 @@ async function submitQuestionnaire() {
     }
     const newStudent = {
         id: id,
+        userId: String((await getSupabaseSessionUser())?.id || ''),
         name: nome,
         age: age,
         gender: gender,
@@ -4804,6 +5845,7 @@ async function submitQuestionnaire() {
 // ? Student Dashboard (Real Data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function initStudentDashboard() {
+    migrateStoredStudentsDietSchema();
     pullAppStateIfNewer();
     startSyncPolling();
     const trainerCode = memoryGetItem('connectedTrainerCode');
@@ -5063,8 +6105,9 @@ function getStudentData() {
 }
 
 function saveStudentData(students) {
-    memorySetItem('trainerStudents', JSON.stringify(students || []));
-    queueSupabaseStudentsSync(students);
+    const normalized = normalizeStudentsDietSchema(students || []);
+    memorySetItem('trainerStudents', JSON.stringify(normalized));
+    queueSupabaseStudentsSync(normalized);
 }
 
 function updateStudentRecord(studentId, updater) {
@@ -5722,20 +6765,40 @@ async function connectTrainer() {
         return;
     }
 
-    if (code === '00001') {
-        memorySetItem('trainerName', 'Admin');
-        memorySetItem('currentTrainerCode', '00001');
-    } else {
-        const t = await resolveTrainerByCode(code);
-        if (t) {
-            const resolvedName = sanitizeUserInput((t.name || 'Treinador').split(' ')[0], { maxLen: 30 }) || 'Coach';
-            memorySetItem('trainerName', resolvedName);
-            memorySetItem('currentTrainerCode', t.code);
-        } else {
-            alert('Código não cadastrado.');
-            return;
-        }
+    const activeUser = await getSupabaseSessionUser();
+    if (!activeUser) {
+        alert('Faça login com e-mail e senha antes de acessar o painel do treinador.');
+        window.location.href = 'index.html';
+        return;
     }
+
+    const profile = await getProfileByUserId(activeUser.id);
+    const role = normalizeAppRole(profile?.role || activeUser?.user_metadata?.role);
+    if (role !== 'trainer') {
+        alert('Seu usuário não tem permissão de treinador.');
+        window.location.href = 'index.html';
+        return;
+    }
+
+    let trainerCode = sanitizeCodeInput(profile?.trainer_code || '', 5);
+    if (trainerCode && trainerCode !== code) {
+        alert('Esse código não pertence ao treinador logado.');
+        return;
+    }
+    if (!trainerCode) trainerCode = code;
+
+    const trainerName = sanitizeUserInput(profile?.name || activeUser?.user_metadata?.name || activeUser?.email || 'Treinador', { maxLen: 90 }) || 'Treinador';
+    memorySetItem('trainerName', trainerName.split(' ')[0]);
+    memorySetItem('currentTrainerCode', trainerCode);
+    await window.supabase
+        .from('profiles')
+        .update({ trainer_code: trainerCode, role: 'trainer' })
+        .eq('id', activeUser.id);
+    await ensureTrainerExistsRemote(
+        trainerCode,
+        trainerName,
+        `Consultoria de ${trainerName.split(' ')[0]} `
+    );
 
     // Go to dashboard
     hideAllScreens();
@@ -5745,6 +6808,19 @@ async function connectTrainer() {
 }
 
 async function createConsultoria() {
+    const activeUser = await getSupabaseSessionUser();
+    if (!activeUser) {
+        alert('Faça login antes de criar sua consultoria.');
+        window.location.href = 'index.html';
+        return;
+    }
+    const profile = await getProfileByUserId(activeUser.id);
+    const role = normalizeAppRole(profile?.role || activeUser?.user_metadata?.role);
+    if (role !== 'trainer') {
+        alert('Apenas treinadores podem criar consultoria.');
+        return;
+    }
+
     const name = sanitizeUserInput(document.getElementById('trainer-name')?.value, { maxLen: 90 });
     const nameInput = document.getElementById('trainer-name');
     if (nameInput) nameInput.value = name;
@@ -5790,7 +6866,25 @@ async function createConsultoria() {
 }
 
 // TRAINER DASHBOARD LOGIC (Runs on trainer.html)
-function initTrainerDashboard() {
+async function initTrainerDashboard() {
+    migrateStoredStudentsDietSchema();
+
+    const sessionUser = await getSupabaseSessionUser();
+    if (!sessionUser) {
+        hideAllScreens();
+        const trainerLoginScreen = document.getElementById('trainer-login-screen');
+        if (trainerLoginScreen) trainerLoginScreen.classList.add('active');
+        return;
+    }
+
+    const profile = await getProfileByUserId(sessionUser.id);
+    const sessionRole = normalizeAppRole(profile?.role || sessionUser?.user_metadata?.role);
+    if (sessionRole !== 'trainer') {
+        alert('Acesso restrito ao treinador.');
+        window.location.href = 'index.html';
+        return;
+    }
+
     // If we have a trainerSessionCode from index.html unified login
     const sessionCode = memoryGetItem('trainerSessionCode');
     if (sessionCode) {
@@ -5826,8 +6920,25 @@ function initTrainerDashboard() {
         memoryRemoveItem('trainerSessionCode'); // Consume it
     }
 
+    const trainerNameResolved = sanitizeUserInput(profile?.name || sessionUser?.user_metadata?.name || memoryGetItem('trainerName') || 'Treinador', { maxLen: 90 }) || 'Treinador';
+    let trainerCodeResolved = sanitizeCodeInput(profile?.trainer_code || memoryGetItem('currentTrainerCode') || '', 5);
+    if (!trainerCodeResolved) {
+        trainerCodeResolved = await generateUniqueTrainerCode();
+        await window.supabase
+            .from('profiles')
+            .update({ trainer_code: trainerCodeResolved, role: 'trainer' })
+            .eq('id', sessionUser.id);
+    }
+    memorySetItem('trainerName', trainerNameResolved.split(' ')[0]);
+    memorySetItem('currentTrainerCode', trainerCodeResolved);
+    await ensureTrainerExistsRemote(
+        trainerCodeResolved,
+        trainerNameResolved,
+        `Consultoria de ${trainerNameResolved.split(' ')[0]} `
+    );
+
     const trainerName = memoryGetItem('trainerName') || 'Treinador';
-    const trainerCode = memoryGetItem('currentTrainerCode') || '00000';
+    const trainerCode = memoryGetItem('currentTrainerCode') || trainerCodeResolved || '00000';
     const canAutoEnterDashboard = !!sessionCode || (!!trainerCode && trainerCode !== '00000');
     if (!memoryGetItem('trainerCodeDefault') && trainerCode && trainerCode !== '00000') {
         memorySetItem('trainerCodeDefault', trainerCode);
@@ -5856,9 +6967,13 @@ function initTrainerDashboard() {
 
     const elDashName = document.getElementById('dash-trainer-name');
     if (elDashName) elDashName.innerText = trainerName;
+    const elSidebarName = document.getElementById('sidebar-trainer-name');
+    if (elSidebarName) elSidebarName.innerText = 'Modo Admin';
 
     const elDashCode = document.getElementById('dash-trainer-code');
     if (elDashCode) elDashCode.innerText = trainerCode;
+    const elSidebarCode = document.getElementById('sidebar-trainer-code');
+    if (elSidebarCode) elSidebarCode.innerText = trainerCode;
 
     // Update trainer services in menu
     const trainers = readStorageJSON('allTrainers', []);
@@ -6065,11 +7180,18 @@ function loadTrainerSettings() {
         notifyPush: true,
         studentLimit: '',
         profilePhoto: '',
-        brandLogo: ''
+        brandLogo: '',
+        billingStartDate: '',
+        billingMonthlyAmount: '',
+        billingCurrentStatus: 'pendente',
+        billingCurrentPaidAt: '',
+        billingNotes: '',
+        billingHistory: []
     };
     const stored = readStorageJSON(TRAINER_SETTINGS_KEY, {});
     const specialties = Array.isArray(stored.specialties) ? stored.specialties : [];
-    return { ...defaults, ...stored, specialties };
+    const billingHistory = Array.isArray(stored.billingHistory) ? stored.billingHistory : [];
+    return { ...defaults, ...stored, specialties, billingHistory };
 }
 
 function updateTrainerSettings(partial) {
@@ -6077,6 +7199,504 @@ function updateTrainerSettings(partial) {
     const next = { ...current, ...partial };
     memorySetItem(TRAINER_SETTINGS_KEY, JSON.stringify(next));
     return next;
+}
+
+async function getLoggedTrainerUserRecord() {
+    const sessionUser = await getSupabaseSessionUser();
+    if (!sessionUser) return null;
+    const profile = await getProfileByUserId(sessionUser.id);
+    const role = normalizeAppRole(profile?.role || sessionUser?.user_metadata?.role);
+    if (role !== 'trainer') return null;
+    return { sessionUser, profile };
+}
+
+function setTrainerPasswordFeedback(message, type = '') {
+    const feedback = document.getElementById('trainer-password-feedback');
+    if (!feedback) return;
+    feedback.textContent = message || '';
+    feedback.classList.remove('success', 'error');
+    if (type) feedback.classList.add(type);
+}
+
+async function changeTrainerPassword() {
+    const currentPass = document.getElementById('trainer-current-password')?.value || '';
+    const nextPass = document.getElementById('trainer-new-password')?.value || '';
+    const confirmPass = document.getElementById('trainer-confirm-password')?.value || '';
+
+    const loginRecord = await getLoggedTrainerUserRecord();
+    if (!loginRecord) {
+        setTrainerPasswordFeedback('Nao foi possivel identificar a conta do treinador logado.', 'error');
+        return;
+    }
+    if (!currentPass || !nextPass || !confirmPass) {
+        setTrainerPasswordFeedback('Preencha senha atual, nova senha e confirmacao.', 'error');
+        return;
+    }
+    const hasLetter = /[A-Za-z]/.test(nextPass);
+    const hasNumber = /\d/.test(nextPass);
+    if (nextPass.length < 8 || !hasLetter || !hasNumber) {
+        setTrainerPasswordFeedback('A nova senha precisa ter no minimo 8 caracteres com letras e numeros.', 'error');
+        return;
+    }
+    if (nextPass !== confirmPass) {
+        setTrainerPasswordFeedback('A confirmacao da nova senha nao confere.', 'error');
+        return;
+    }
+
+    if (typeof window.supabase?.auth?.signInWithPassword !== 'function') {
+        setTrainerPasswordFeedback('Supabase Auth indisponivel.', 'error');
+        return;
+    }
+
+    const email = sanitizeEmailInput(loginRecord.sessionUser?.email || '');
+    const reauth = await window.supabase.auth.signInWithPassword({
+        email,
+        password: currentPass
+    });
+    if (reauth?.error) {
+        setTrainerPasswordFeedback('A senha atual esta incorreta.', 'error');
+        return;
+    }
+
+    const { error: updateError } = await window.supabase.auth.updateUser({
+        password: nextPass
+    });
+    if (updateError) {
+        setTrainerPasswordFeedback(updateError.message || 'Nao foi possivel alterar a senha.', 'error');
+        return;
+    }
+
+    setTrainerPasswordFeedback('Senha alterada com sucesso.', 'success');
+
+    const currentInput = document.getElementById('trainer-current-password');
+    const newInput = document.getElementById('trainer-new-password');
+    const confirmInput = document.getElementById('trainer-confirm-password');
+    if (currentInput) currentInput.value = '';
+    if (newInput) newInput.value = '';
+    if (confirmInput) confirmInput.value = '';
+    handleTrainerPasswordInputFeedback();
+}
+
+function parseISODateSafe(value) {
+    if (!value) return null;
+    const date = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return null;
+    return date;
+}
+
+function formatCompetence(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+}
+
+function getConsultoriaMonthIndex(startDate, refDate = new Date()) {
+    if (!startDate) return 0;
+    const months = (refDate.getFullYear() - startDate.getFullYear()) * 12 + (refDate.getMonth() - startDate.getMonth());
+    return months >= 0 ? months + 1 : 0;
+}
+
+function getNextBillingDueDate(startDate, monthIndex) {
+    if (!startDate || monthIndex <= 0) return null;
+    const due = new Date(startDate);
+    due.setMonth(due.getMonth() + monthIndex);
+    return due;
+}
+
+function formatPtDate(date) {
+    if (!date) return '-';
+    return date.toLocaleDateString('pt-BR');
+}
+
+function normalizeBillingStatus(status) {
+    if (status === 'pago' || status === 'atrasado' || status === 'pendente') return status;
+    return 'pendente';
+}
+
+function setSettingsSavebarState(state = 'clean', customMessage = '') {
+    studentConfigSaveState = state;
+    const bar = document.getElementById('settings-sticky-savebar');
+    const label = document.getElementById('settings-savebar-status');
+    const btn = document.getElementById('settings-savebar-btn');
+    if (!bar || !label || !btn) return;
+
+    const map = {
+        clean: 'Sem alterações pendentes',
+        dirty: 'Alterações pendentes nesta configuração',
+        saving: 'Salvando alterações...',
+        saved: 'Tudo salvo com sucesso',
+        error: 'Erro ao salvar. Tente novamente'
+    };
+    bar.dataset.state = state;
+    label.textContent = customMessage || map[state] || map.clean;
+
+    if (state === 'saving') {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ph-bold ph-spinner-gap"></i> Salvando...';
+    } else if (state === 'saved') {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ph-bold ph-check"></i> Salvo';
+    } else if (state === 'error') {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ph-bold ph-warning-circle"></i> Tentar novamente';
+    } else {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ph-bold ph-floppy-disk"></i> Salvar Alterações';
+    }
+    setTopSaveButtonState(state);
+}
+
+function setTopSaveButtonState(state = 'clean') {
+    document.querySelectorAll('.btn-save-plan').forEach((btn) => {
+        btn.classList.remove('is-dirty', 'is-saving', 'is-saved', 'is-error');
+        if (state === 'dirty') {
+            btn.classList.add('is-dirty');
+            btn.innerHTML = '<i class="ph-bold ph-floppy-disk"></i> Salvar Alterações';
+            return;
+        }
+        if (state === 'saving') {
+            btn.classList.add('is-saving');
+            btn.innerHTML = '<i class="ph-bold ph-spinner-gap"></i> Salvando...';
+            return;
+        }
+        if (state === 'saved') {
+            btn.classList.add('is-saved');
+            btn.innerHTML = '<i class="ph-bold ph-check"></i> Salvo';
+            return;
+        }
+        if (state === 'error') {
+            btn.classList.add('is-error');
+            btn.innerHTML = '<i class="ph-bold ph-warning-circle"></i> Tentar novamente';
+            return;
+        }
+        btn.innerHTML = '<i class="ph-bold ph-floppy-disk"></i> Salvar Alterações';
+    });
+}
+
+function markStudentConfigDirty() {
+    studentConfigDirty = true;
+    setSettingsSavebarState('dirty');
+}
+
+function signalStudentPlanDirty() {
+    markStudentConfigDirty();
+}
+
+function clearStudentConfigDirty() {
+    studentConfigDirty = false;
+    setSettingsSavebarState('clean');
+}
+
+function setStudentBillingInlineFeedback(message, type = '') {
+    const el = document.getElementById('student-billing-inline-feedback');
+    if (!el) return;
+    el.classList.remove('success', 'error', 'info');
+    if (type) el.classList.add(type);
+    el.textContent = message || '';
+}
+
+function togglePasswordVisibility(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input || !btn) return;
+    const isPassword = input.type === 'password';
+    input.type = isPassword ? 'text' : 'password';
+    btn.innerHTML = isPassword ? '<i class="ph-bold ph-eye-slash"></i>' : '<i class="ph-bold ph-eye"></i>';
+}
+
+function handleTrainerPasswordInputFeedback() {
+    const nextPass = document.getElementById('trainer-new-password')?.value || '';
+    const confirmPass = document.getElementById('trainer-confirm-password')?.value || '';
+    const hint = document.getElementById('trainer-password-hint');
+    if (!hint) return;
+    const hasLetter = /[A-Za-z]/.test(nextPass);
+    const hasNumber = /\d/.test(nextPass);
+    if (!nextPass) {
+        hint.textContent = 'Use pelo menos 8 caracteres com letras e números.';
+        return;
+    }
+    if (nextPass.length < 8 || !hasLetter || !hasNumber) {
+        hint.textContent = 'Senha fraca: inclua letras, números e mínimo de 8 caracteres.';
+        return;
+    }
+    if (confirmPass && nextPass !== confirmPass) {
+        hint.textContent = 'A confirmação ainda não corresponde à nova senha.';
+        return;
+    }
+    hint.textContent = 'Senha forte. Você pode confirmar a alteração.';
+}
+
+function initStudentConfigUXBindings() {
+    if (document.documentElement.dataset.studentConfigUxBound === '1') return;
+    const fields = [
+        'student-billing-start-date',
+        'student-billing-current-status',
+        'student-billing-monthly-amount',
+        'student-billing-current-paid-at',
+        'student-billing-notes'
+    ];
+    fields.forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const evt = el.tagName === 'SELECT' ? 'change' : 'input';
+        el.addEventListener(evt, () => {
+            markStudentConfigDirty();
+            if (id === 'student-billing-current-status' || id === 'student-billing-start-date') refreshStudentBillingSummaryUI();
+        });
+    });
+    document.documentElement.dataset.studentConfigUxBound = '1';
+}
+
+function getStudentBillingData(student = {}) {
+    return {
+        billingStartDate: sanitizeUserInput(student?.billingStartDate || '', { maxLen: 10 }),
+        billingMonthlyAmount: sanitizeUserInput(student?.billingMonthlyAmount || '', { maxLen: 14 }),
+        billingCurrentStatus: normalizeBillingStatus(student?.billingCurrentStatus || 'pendente'),
+        billingCurrentPaidAt: sanitizeUserInput(student?.billingCurrentPaidAt || '', { maxLen: 10 }),
+        billingNotes: sanitizeUserInput(student?.billingNotes || '', { allowNewlines: true, maxLen: 400 }),
+        billingHistory: Array.isArray(student?.billingHistory) ? student.billingHistory : []
+    };
+}
+
+function getLegacyTrainerBillingFallback() {
+    const settings = loadTrainerSettings();
+    if (!settings) return null;
+    const hasAnyLegacyField = !!(settings.billingStartDate || settings.billingMonthlyAmount || settings.billingCurrentPaidAt || settings.billingNotes
+        || (Array.isArray(settings.billingHistory) && settings.billingHistory.length));
+    if (!hasAnyLegacyField) return null;
+    return {
+        billingStartDate: settings.billingStartDate || '',
+        billingMonthlyAmount: settings.billingMonthlyAmount || '',
+        billingCurrentStatus: normalizeBillingStatus(settings.billingCurrentStatus || 'pendente'),
+        billingCurrentPaidAt: settings.billingCurrentPaidAt || '',
+        billingNotes: settings.billingNotes || '',
+        billingHistory: Array.isArray(settings.billingHistory) ? settings.billingHistory : []
+    };
+}
+
+function normalizeBillingHistoryItem(item = {}) {
+    return {
+        competence: sanitizeUserInput(item.competence || '', { maxLen: 7 }),
+        status: normalizeBillingStatus(item.status || 'pendente'),
+        paidAt: item.paidAt || '',
+        updatedAt: item.updatedAt || ''
+    };
+}
+
+function getStudentBillingSnapshot(student, refDate = new Date()) {
+    const billing = getStudentBillingData(student);
+    const startDate = parseISODateSafe(billing.billingStartDate);
+    const monthIndex = getConsultoriaMonthIndex(startDate, refDate);
+    const nextDue = getNextBillingDueDate(startDate, monthIndex);
+    const status = normalizeBillingStatus(billing.billingCurrentStatus || 'pendente');
+    const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+    return {
+        ...billing,
+        startDate,
+        monthIndex,
+        monthLabel: monthIndex > 0 ? `${monthIndex}º mês` : 'Não iniciado',
+        nextDue,
+        nextDueLabel: nextDue ? formatPtDate(nextDue) : '-',
+        status,
+        statusLabel
+    };
+}
+
+function getBillingBadgeClass(status) {
+    if (status === 'pago') return 'success';
+    if (status === 'atrasado') return 'danger';
+    return 'warning';
+}
+
+function getBillingSummaryBadge(snapshot) {
+    const month = snapshot?.monthIndex > 0 ? `${snapshot.monthIndex}º mês` : 'Sem início';
+    const status = snapshot?.statusLabel || 'Pendente';
+    return `${month} · ${status}`;
+}
+
+function renderBillingHistory(history) {
+    const list = document.getElementById('student-billing-history-list');
+    if (!list) return;
+    const safeHistory = Array.isArray(history) ? history : [];
+    if (safeHistory.length === 0) {
+        list.innerHTML = '<div class="settings-history-row empty"><span>Nenhum evento de pagamento registrado.</span></div>';
+        return;
+    }
+    const monthFilter = document.getElementById('student-billing-history-month')?.value || '';
+    const yearFilter = document.getElementById('student-billing-history-year')?.value || '';
+    const sorted = [...safeHistory]
+        .map(normalizeBillingHistoryItem)
+        .filter((item) => {
+            const [year = '', month = ''] = String(item.competence || '').split('-');
+            if (yearFilter && year !== yearFilter) return false;
+            if (monthFilter && month !== monthFilter) return false;
+            return true;
+        })
+        .sort((a, b) => String(b?.competence || '').localeCompare(String(a?.competence || '')));
+    if (sorted.length === 0) {
+        list.innerHTML = '<div class="settings-history-row empty"><span>Nenhum registro encontrado com os filtros atuais.</span></div>';
+        return;
+    }
+    list.innerHTML = sorted.slice(0, 12).map((item) => {
+        const status = normalizeBillingStatus(item?.status);
+        const paidAt = item?.paidAt ? formatPtDate(new Date(item.paidAt)) : '-';
+        return `
+            <div class="settings-history-row">
+                <span>${escapeHTML(item?.competence || '-')}</span>
+                <span>${paidAt}</span>
+                <span class="status ${status}">${status}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+function refreshBillingSummaryUI() {
+    refreshStudentBillingSummaryUI();
+}
+
+function refreshStudentBillingSummaryUI() {
+    const startValue = document.getElementById('student-billing-start-date')?.value || '';
+    const statusValue = normalizeBillingStatus(document.getElementById('student-billing-current-status')?.value || 'pendente');
+    const monthLabel = document.getElementById('student-billing-month-label');
+    const statusLabel = document.getElementById('student-billing-status-label');
+    const dueLabel = document.getElementById('student-billing-next-due-label');
+    const summaryCard = document.getElementById('student-billing-summary-card');
+    const startDate = parseISODateSafe(startValue);
+    const monthIndex = getConsultoriaMonthIndex(startDate);
+    if (monthLabel) monthLabel.textContent = monthIndex > 0 ? `${monthIndex}º mês` : 'Não iniciado';
+    if (statusLabel) statusLabel.textContent = statusValue.charAt(0).toUpperCase() + statusValue.slice(1);
+    if (summaryCard) summaryCard.dataset.state = statusValue;
+
+    const nextDue = getNextBillingDueDate(startDate, monthIndex);
+    if (dueLabel) dueLabel.textContent = nextDue ? formatPtDate(nextDue) : '-';
+}
+
+function markCurrentBillingCyclePaid() {
+    markCurrentStudentBillingCyclePaid();
+}
+
+function markCurrentStudentBillingCyclePaid() {
+    if (currentStudentIdx === null) return;
+    const payBtn = document.getElementById('student-billing-pay-btn');
+    if (payBtn) {
+        payBtn.disabled = true;
+        payBtn.innerHTML = '<i class="ph-bold ph-spinner-gap"></i> Marcando...';
+    }
+    setStudentBillingInlineFeedback('Atualizando status do ciclo...', 'info');
+    try {
+        const startValue = document.getElementById('student-billing-start-date')?.value || '';
+        const startDate = parseISODateSafe(startValue);
+        if (!startDate) {
+            setStudentBillingInlineFeedback('Defina a data de início da consultoria para continuar.', 'error');
+            return;
+        }
+        const monthIndex = getConsultoriaMonthIndex(startDate);
+        if (monthIndex <= 0) {
+            setStudentBillingInlineFeedback('A data de início ainda não permite registrar o ciclo atual.', 'error');
+            return;
+        }
+
+        const today = new Date();
+        const competenceDate = new Date(startDate);
+        competenceDate.setMonth(competenceDate.getMonth() + (monthIndex - 1));
+        const competence = formatCompetence(competenceDate);
+
+        const students = readStorageJSON('trainerStudents', []);
+        const student = students[currentStudentIdx];
+        if (!student) return;
+        const current = getStudentBillingData(student);
+        const history = Array.isArray(current.billingHistory) ? [...current.billingHistory] : [];
+        const existingIdx = history.findIndex((item) => item?.competence === competence);
+        const entry = {
+            competence,
+            status: 'pago',
+            paidAt: today.toISOString(),
+            updatedAt: today.toISOString()
+        };
+        if (existingIdx >= 0) {
+            history[existingIdx] = { ...history[existingIdx], ...entry };
+        } else {
+            history.push(entry);
+        }
+
+        const paidDateInput = document.getElementById('student-billing-current-paid-at');
+        if (paidDateInput && !paidDateInput.value) {
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            paidDateInput.value = `${yyyy}-${mm}-${dd}`;
+        }
+
+        student.billingCurrentStatus = 'pago';
+        student.billingCurrentPaidAt = paidDateInput?.value || '';
+        student.billingHistory = history;
+        students[currentStudentIdx] = student;
+        saveStudentData(students);
+        loadStudentBillingConfigTab(student);
+        setStudentBillingInlineFeedback('Ciclo atualizado como pago com sucesso.', 'success');
+        updateTrainerStats(document.getElementById('alunos-search')?.value || document.getElementById('global-search')?.value || '');
+    } catch (error) {
+        console.error('Failed to mark billing cycle paid', error);
+        setStudentBillingInlineFeedback('Erro ao atualizar ciclo. Tente novamente.', 'error');
+    } finally {
+        if (payBtn) {
+            payBtn.disabled = false;
+            payBtn.textContent = 'Marcar ciclo como pago';
+        }
+    }
+}
+
+function populateStudentBillingYearFilter(history = []) {
+    const select = document.getElementById('student-billing-history-year');
+    if (!select) return;
+    const currentValue = select.value || '';
+    const years = Array.from(new Set((history || [])
+        .map((item) => String(item?.competence || '').split('-')[0])
+        .filter((year) => /^\d{4}$/.test(year))))
+        .sort((a, b) => Number(b) - Number(a));
+    select.innerHTML = `<option value="">Todos os anos</option>${years.map((year) => `<option value="${year}">${year}</option>`).join('')}`;
+    if (currentValue && years.includes(currentValue)) select.value = currentValue;
+}
+
+function clearStudentBillingHistoryFilters() {
+    const month = document.getElementById('student-billing-history-month');
+    const year = document.getElementById('student-billing-history-year');
+    if (month) month.value = '';
+    if (year) year.value = '';
+    applyStudentBillingHistoryFilters();
+}
+
+function applyStudentBillingHistoryFilters() {
+    if (currentStudentIdx === null) return;
+    const students = readStorageJSON('trainerStudents', []);
+    const student = students[currentStudentIdx];
+    if (!student) return;
+    const billing = getStudentBillingData(student);
+    renderBillingHistory(billing.billingHistory);
+}
+
+function loadStudentBillingConfigTab(student = {}) {
+    let billing = getStudentBillingData(student);
+    const hasStudentBilling = !!(billing.billingStartDate || billing.billingMonthlyAmount || billing.billingCurrentPaidAt || billing.billingNotes || (billing.billingHistory || []).length);
+    if (!hasStudentBilling) {
+        const legacy = getLegacyTrainerBillingFallback();
+        if (legacy) billing = { ...billing, ...legacy };
+    }
+    const start = document.getElementById('student-billing-start-date');
+    if (start) start.value = billing.billingStartDate || '';
+    const status = document.getElementById('student-billing-current-status');
+    if (status) status.value = normalizeBillingStatus(billing.billingCurrentStatus);
+    const amount = document.getElementById('student-billing-monthly-amount');
+    if (amount) amount.value = billing.billingMonthlyAmount || '';
+    const paidAt = document.getElementById('student-billing-current-paid-at');
+    if (paidAt) paidAt.value = billing.billingCurrentPaidAt || '';
+    const notes = document.getElementById('student-billing-notes');
+    if (notes) notes.value = billing.billingNotes || '';
+    populateStudentBillingYearFilter(billing.billingHistory);
+    renderBillingHistory(billing.billingHistory);
+    refreshStudentBillingSummaryUI();
+    setStudentBillingInlineFeedback('');
+    clearStudentConfigDirty();
+    initStudentConfigUXBindings();
 }
 
 function renderTrainerSpecialties(tags) {
@@ -6236,6 +7856,7 @@ function loadTrainerSettingsToUI() {
     const pushToggle = document.getElementById('notif-push');
     if (pushToggle) pushToggle.checked = !!settings.notifyPush;
     renderTrainerSpecialties(settings.specialties);
+    setTrainerPasswordFeedback('');
     syncTrainerInviteCodeUI(memoryGetItem('currentTrainerCode') || '00000');
     applyTrainerBranding(settings);
 }
@@ -6256,7 +7877,9 @@ function saveTrainerSettings() {
         notifyEmail: !!emailToggle?.checked,
         notifyPush: !!pushToggle?.checked
     });
+
     applyTrainerBranding(next);
+    loadTrainerSettingsToUI();
 }
 
 function resetTrainerSettings() {
@@ -6360,6 +7983,17 @@ function closeExerciseDrawer(options = {}) {
     if (!options.skipRoute && lastMainTrainerView) setTrainerRoute(lastMainTrainerView);
 }
 
+function openMobileDashboardSearch() {
+    const query = prompt('Buscar aluno, objetivo ou treino:');
+    if (!query || !query.trim()) return;
+    switchDashView('alunos');
+    const searchInput = document.getElementById('alunos-search');
+    if (searchInput) {
+        searchInput.value = query.trim();
+    }
+    filterStudents(query.trim());
+}
+
 function switchDashView(view, options = {}) {
     const fromHash = options.fromHash;
     const viewDash = document.getElementById('view-dashboard');
@@ -6371,6 +8005,23 @@ function switchDashView(view, options = {}) {
     const navDuvidas = document.getElementById('nav-duvidas');
     const navConfig = document.getElementById('nav-config');
     const pageTitle = document.getElementById('main-page-title');
+    const mobileNav = {
+        dashboard: document.getElementById('m-nav-dashboard'),
+        alunos: document.getElementById('m-nav-alunos'),
+        duvidas: document.getElementById('m-nav-duvidas'),
+        profile: document.getElementById('m-nav-profile')
+    };
+    const dashboardPrimaryAction = document.getElementById('dashboard-primary-action');
+    const dashboardHeaderSub = document.querySelector('.dashboard-header-sub');
+    const animateIn = (target, direction = 'right') => {
+        if (!target) return;
+        target.classList.remove('dashboard-view-enter-left', 'dashboard-view-enter-right', 'dashboard-view-enter-active');
+        target.classList.add(direction === 'left' ? 'dashboard-view-enter-left' : 'dashboard-view-enter-right');
+        requestAnimationFrame(() => target.classList.add('dashboard-view-enter-active'));
+        setTimeout(() => {
+            target.classList.remove('dashboard-view-enter-left', 'dashboard-view-enter-right', 'dashboard-view-enter-active');
+        }, 260);
+    };
 
     if (view === 'exercicios') {
         openExerciseDrawer();
@@ -6403,11 +8054,17 @@ function switchDashView(view, options = {}) {
                 </button>
                 Gerenciar Alunos`;
         }
+        if (dashboardPrimaryAction) dashboardPrimaryAction.style.display = 'none';
+        if (dashboardHeaderSub) dashboardHeaderSub.textContent = 'Gerencie solicitações e acompanhe a evolução individual.';
+        animateIn(viewAlunos, 'right');
     } else if (view === 'duvidas') {
         lastMainTrainerView = 'duvidas';
         if (viewDuvidas) viewDuvidas.style.display = '';
         if (navDuvidas) navDuvidas.classList.add('active');
         if (pageTitle) pageTitle.textContent = 'Duvidas dos Alunos';
+        if (dashboardPrimaryAction) dashboardPrimaryAction.style.display = 'none';
+        if (dashboardHeaderSub) dashboardHeaderSub.textContent = 'Central de mensagens para responder rapidamente.';
+        animateIn(viewDuvidas, 'right');
 
         const globalSearch = document.getElementById('global-search');
         if (globalSearch) {
@@ -6421,12 +8078,18 @@ function switchDashView(view, options = {}) {
         if (viewConfig) viewConfig.style.display = '';
         if (navConfig) navConfig.classList.add('active');
         if (pageTitle) pageTitle.textContent = 'Configuracoes';
+        if (dashboardPrimaryAction) dashboardPrimaryAction.style.display = 'none';
+        if (dashboardHeaderSub) dashboardHeaderSub.textContent = 'Ajustes operacionais e preferências da consultoria.';
         loadTrainerSettingsToUI();
+        animateIn(viewConfig, 'right');
     } else {
         lastMainTrainerView = 'dashboard';
         if (viewDash) viewDash.style.display = '';
         if (navDash) navDash.classList.add('active');
         if (pageTitle) pageTitle.textContent = 'Painel de Controle';
+        if (dashboardPrimaryAction) dashboardPrimaryAction.style.display = 'inline-flex';
+        if (dashboardHeaderSub) dashboardHeaderSub.textContent = 'Visão rápida do engajamento e progresso dos alunos.';
+        animateIn(viewDash, 'left');
 
         const globalSearch = document.getElementById('global-search');
         if (globalSearch) {
@@ -6435,6 +8098,12 @@ function switchDashView(view, options = {}) {
             globalSearch.value = "";
         }
     }
+
+    Object.values(mobileNav).forEach((btn) => btn && btn.classList.remove('active'));
+    if (lastMainTrainerView === 'alunos' && mobileNav.alunos) mobileNav.alunos.classList.add('active');
+    else if (lastMainTrainerView === 'duvidas' && mobileNav.duvidas) mobileNav.duvidas.classList.add('active');
+    else if (lastMainTrainerView === 'config' && mobileNav.profile) mobileNav.profile.classList.add('active');
+    else if (mobileNav.dashboard) mobileNav.dashboard.classList.add('active');
 
     if (!fromHash) setTrainerRoute(lastMainTrainerView);
 }
@@ -6450,6 +8119,9 @@ function buildStudentRow(s, idx, options = {}) {
     const statusClass = activity.badgeClass;
     const statusText = activity.statusText;
     const lastWorkoutText = activity.lastWorkoutText;
+    const billingSnapshot = getStudentBillingSnapshot(s);
+    const billingClass = getBillingBadgeClass(billingSnapshot.status);
+    const billingText = getBillingSummaryBadge(billingSnapshot);
     const w = parseFloat(s?.weight) || 70;
     const h = parseFloat(s?.height) || 175;
     const a = parseInt(s?.age) || 25;
@@ -6464,10 +8136,8 @@ function buildStudentRow(s, idx, options = {}) {
 
     if (recentCompact) {
         return `
-        <div class="student-list-item recent-student-card" 
-             style="padding: 1.25rem; transition: background 0.2s ease;"
-             onmouseover="this.style.background='rgba(255,255,255,0.05)'"
-             onmouseout="this.style.background='transparent'"
+        <div class="student-list-item recent-student-card student-entry-card"
+             style="padding: 1.25rem;"
              onclick="openStudentProfile(${idx})">
             <div class="recent-student-top">
                 <h4>${safeName}</h4>
@@ -6479,9 +8149,13 @@ function buildStudentRow(s, idx, options = {}) {
                     <p><strong>Peso:</strong> ${safeWeight} kg</p>
                 </div>
                 <p><strong>Consumo:</strong> ${kcal} kcal/dia</p>
+                <p><strong>Financeiro:</strong> <span class="billing-pill ${billingClass}">${billingText}</span></p>
                 <p class="recent-last-workout">${lastWorkoutText}</p>
             </div>
             <div class="student-quick-actions compact">
+                <button class="btn-primary btn-sm student-enter-btn" title="Entrar no aluno" onclick="openStudentTrainingEditor(${idx}, event)">
+                    Entrar no Aluno
+                </button>
                 <button class="quick-action-btn" title="Enviar mensagem" onclick="openWhatsAppForStudent(${idx}, event)">
                     <i class="ph-fill ph-chat-circle-dots"></i>
                 </button>
@@ -6496,10 +8170,8 @@ function buildStudentRow(s, idx, options = {}) {
     }
 
     return `
-        <div class="student-list-item grid-layout" 
-             style="padding: 1.25rem; transition: background 0.2s ease;"
-             onmouseover="this.style.background='rgba(255,255,255,0.05)'"
-             onmouseout="this.style.background='transparent'"
+        <div class="student-list-item grid-layout student-entry-card"
+             style="padding: 1.25rem;"
              onclick="openStudentProfile(${idx})">
         <div class="sli-col" data-label="Status">
             <span class="badge ${statusClass}"><div class="dot"></div> ${statusText}</span>
@@ -6515,8 +8187,12 @@ function buildStudentRow(s, idx, options = {}) {
         <div class="sli-col font-bold" data-label="Objetivo">${safeGoalText}</div>
         <div class="sli-col font-medium" data-label="Peso">${safeWeight} kg</div>
         <div class="sli-col text-primary" data-label="Consumo">${kcal} kcal/dia</div>
+        <div class="sli-col" data-label="Financeiro"><span class="billing-pill ${billingClass}">${billingText}</span></div>
         <div class="sli-col actions" data-label="Acoes">
             <div class="student-quick-actions">
+                <button class="btn-primary btn-sm student-enter-btn" title="Entrar no aluno" onclick="openStudentTrainingEditor(${idx}, event)">
+                    Entrar no Aluno
+                </button>
                 <button class="quick-action-btn" title="Enviar mensagem" onclick="openWhatsAppForStudent(${idx}, event)">
                     <i class="ph-fill ph-chat-circle-dots"></i>
                 </button>
@@ -6610,6 +8286,8 @@ function updateTrainerStats(filterText) {
         avaliacoes: activeStudents.filter((s) => s.assessmentPending || s.pendingEvaluation).length,
         duvidas: activeStudents.filter((s) => pendingDuvidasSet.has(String(s.id))).length
     };
+    const financialPendingCount = activeStudents.filter((s) => getStudentBillingSnapshot(s).status === 'pendente').length;
+    const financialLateCount = activeStudents.filter((s) => getStudentBillingSnapshot(s).status === 'atrasado').length;
     updateDashboardFilterUI(filterCounts);
 
     const filteredActive = applyDashboardFilterList(activeStudents, activeDashboardFilter, pendingDuvidasSet);
@@ -6622,6 +8300,10 @@ function updateTrainerStats(filterText) {
     if (elAtivos) elAtivos.innerText = engagedCount;
     const elPendentes = document.getElementById('stat-pendentes');
     if (elPendentes) elPendentes.innerText = pendingCount;
+    const elFinancePending = document.getElementById('stat-fin-pendente');
+    if (elFinancePending) elFinancePending.innerText = financialPendingCount;
+    const elFinanceLate = document.getElementById('stat-fin-atrasado');
+    if (elFinanceLate) elFinanceLate.innerText = financialLateCount;
 
     // â”€â”€ Pending nav badge â”€â”€
     const navBadge = document.getElementById('pending-nav-badge');
@@ -6708,6 +8390,7 @@ function updateTrainerStats(filterText) {
         chatTotalBadge.textContent = unreadDuvidas;
     }
 
+    syncTrainerDashboardTutorialVisibility();
     renderEngagementChart();
 }
 
@@ -7399,6 +9082,8 @@ let currentStudentIdx = null; // tracks which student is being edited
 let currentTrainerStudentId = null; // tracks current student id for trainer history
 let workoutBlocks = [];        // local state for workout blocks
 let mealBlocks = [];           // local state for meal blocks
+let studentConfigDirty = false;
+let studentConfigSaveState = 'clean';
 let pendingBlockIdx = null;    // which block an exercise is being added to
 let pendingMealIdx = null;    // which meal an item is being added to
 let workoutPlanAutosaveTimer = null;
@@ -7407,6 +9092,10 @@ let activeExerciseFilter = 'todos';
 let activeEquipmentFilter = 'todos';
 let selectedExerciseCatalogItem = null;
 let activeFilterPicker = null;
+let exerciseSearchMatches = [];
+let exerciseSearchActiveIndex = -1;
+let workoutBlockDragState = null;
+let workoutExerciseDragState = null;
 
 function normalizeText(value) {
     return (value || '')
@@ -7479,6 +9168,8 @@ function openStudentProfile(studentIndex) {
     // Render workout and open Treino tab
     renderWorkoutBlocks();
     renderMeals();
+    loadStudentBillingConfigTab(s);
+    clearStudentConfigDirty();
     switchProfileTab('treino');
     renderTrainerWorkoutHistory(currentTrainerStudentId);
 }
@@ -7491,6 +9182,11 @@ function openStudentProfileTab(studentIndex, tabName, event) {
     }, 0);
 }
 
+function openStudentTrainingEditor(studentIndex, event) {
+    if (event) event.stopPropagation();
+    openStudentProfileTab(studentIndex, 'treino');
+}
+
 function closeStudentProfile() {
     document.getElementById('trainer-student-profile-screen').classList.remove('active');
     document.getElementById('trainer-dashboard-screen').classList.add('active');
@@ -7501,8 +9197,16 @@ function closeStudentProfile() {
 function switchProfileTab(tabName) {
     document.querySelectorAll('.p-tab-content').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.prof-tab').forEach(b => b.classList.remove('active'));
-    document.getElementById(`p-tab-${tabName}`).classList.add('active');
-    document.getElementById(`p-nav-${tabName}`).classList.add('active');
+    const tab = document.getElementById(`p-tab-${tabName}`);
+    const nav = document.getElementById(`p-nav-${tabName}`);
+    if (!tab || !nav) return;
+    tab.classList.add('active');
+    nav.classList.add('active');
+    if (tabName === 'config' && currentStudentIdx !== null) {
+        const students = readStorageJSON('trainerStudents', []);
+        const student = students[currentStudentIdx];
+        if (student && !studentConfigDirty) loadStudentBillingConfigTab(student);
+    }
 }
 
 // â”€â”€â”€ Workout Blocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -7511,16 +9215,22 @@ function renderWorkoutBlocks() {
     const container = document.getElementById('workout-blocks-container');
     if (!container) return;
     if (!container.dataset.autosaveBound) {
-        const autoSaveHandler = () => queueWorkoutPlanAutosave();
+        const autoSaveHandler = () => {
+            queueWorkoutPlanAutosave();
+            signalStudentPlanDirty();
+        };
         container.addEventListener('input', autoSaveHandler);
         container.addEventListener('change', autoSaveHandler);
         container.dataset.autosaveBound = '1';
     }
 
     workoutBlocks.forEach(block => {
-        block.exercises.forEach(ex => {
+        block.exercises.forEach((ex, exIdx) => {
             if (!Array.isArray(ex.substitutes)) ex.substitutes = ['', ''];
             if (typeof ex.supersetWithNext !== 'boolean') ex.supersetWithNext = false;
+            if (exIdx === block.exercises.length - 1 && ex.supersetWithNext) {
+                ex.supersetWithNext = false;
+            }
         });
     });
 
@@ -7536,14 +9246,27 @@ function renderWorkoutBlocks() {
     }
 
     container.innerHTML = workoutBlocks.map((block, bIdx) => `
-    <div class="workout-block" id="wb-${bIdx}">
+    <div class="workout-block" id="wb-${bIdx}" draggable="true"
+        ondragstart="handleBlockDragStart(event, ${bIdx})"
+        ondragover="handleBlockDragOver(event, ${bIdx})"
+        ondrop="handleBlockDrop(event, ${bIdx})"
+        ondragend="handleBlockDragEnd(event)">
         <div class="wb-header">
             <div class="wb-header-left">
+                <span class="wb-grab" title="Arraste para reordenar blocos">
+                    <i class="ph-bold ph-dots-six-vertical"></i>
+                </span>
                 <i class="ph-fill ph-calendar-blank" style="color:var(--primary-color)"></i>
                 <input class="wb-name-input" value="${escHtml(block.name)}" placeholder="Ex: Treino A: Peito e Tríceps"
                     oninput="workoutBlocks[${bIdx}].name = this.value">
             </div>
             <div class="wb-header-right">
+                <button class="btn-block-order" ${bIdx === 0 ? 'disabled' : ''} onclick="moveWorkoutBlock(${bIdx}, -1)" title="Mover bloco para cima">
+                    <i class="ph-bold ph-arrow-up"></i>
+                </button>
+                <button class="btn-block-order" ${bIdx === workoutBlocks.length - 1 ? 'disabled' : ''} onclick="moveWorkoutBlock(${bIdx}, 1)" title="Mover bloco para baixo">
+                    <i class="ph-bold ph-arrow-down"></i>
+                </button>
                 <button class="btn-add-ex" onclick="openExModal(${bIdx})">
                     <i class="ph-bold ph-plus"></i> Adicionar Exercício
                 </button>
@@ -7552,11 +9275,27 @@ function renderWorkoutBlocks() {
                 </button>
             </div>
         </div>
+        ${block.exercises.length ? `
+        <div class="ex-table-head">
+            <span class="col-ex-name">Exercício</span>
+            <span>Séries</span>
+            <span>Reps</span>
+            <span>Carga</span>
+            <span>Descanso</span>
+            <span class="col-ex-actions">Ações</span>
+        </div>` : ''}
 
         ${block.exercises.length === 0
             ? `<div class="ex-empty-block">Nenhum exercício ainda. Clique em "Adicionar Exercício".</div>`
             : block.exercises.map((ex, eIdx) => `
-        <div class="ex-row" id="ex-${bIdx}-${eIdx}">
+        <div class="ex-row ${ex.supersetWithNext ? 'is-superset' : ''}" id="ex-${bIdx}-${eIdx}" draggable="true"
+            ondragstart="handleExerciseDragStart(event, ${bIdx}, ${eIdx})"
+            ondragover="handleExerciseDragOver(event, ${bIdx}, ${eIdx})"
+            ondrop="handleExerciseDrop(event, ${bIdx}, ${eIdx})"
+            ondragend="handleExerciseDragEnd(event)">
+            <span class="ex-grab" title="Arraste para reordenar exercício">
+                <i class="ph-bold ph-dots-six-vertical"></i>
+            </span>
             <div class="ex-info">
                 <strong>${escHtml(ex.nome)}</strong>
                 ${ex.obs ? `<span class="ex-obs">${escHtml(ex.obs)}</span>` : ''}
@@ -7581,20 +9320,28 @@ function renderWorkoutBlocks() {
                 <div class="ex-stat">
                     <span class="ex-stat-label">REPS</span>
                     <input type="text" class="ex-stat-input" value="${escHtml(ex.reps || '')}"
-                        oninput="workoutBlocks[${bIdx}].exercises[${eIdx}].reps=this.value" placeholder="10-12">
+                        oninput="workoutBlocks[${bIdx}].exercises[${eIdx}].reps=this.value;updateSummaryBar()" placeholder="10-12">
                 </div>
                 <div class="ex-stat">
                     <span class="ex-stat-label">CARGA</span>
                     <input type="text" class="ex-stat-input" value="${escHtml(ex.carga || '')}"
-                        oninput="workoutBlocks[${bIdx}].exercises[${eIdx}].carga=this.value" placeholder="30kg">
+                        oninput="workoutBlocks[${bIdx}].exercises[${eIdx}].carga=this.value;updateSummaryBar()" placeholder="30kg">
                 </div>
                 <div class="ex-stat">
                     <span class="ex-stat-label">DESCANSO</span>
                     <input type="text" class="ex-stat-input" value="${escHtml(ex.descanso || '')}"
-                        oninput="workoutBlocks[${bIdx}].exercises[${eIdx}].descanso=this.value" placeholder="60s">
+                        oninput="workoutBlocks[${bIdx}].exercises[${eIdx}].descanso=this.value;updateSummaryBar()" placeholder="60s">
                 </div>
             </div>
             <div class="ex-actions">
+                <div class="ex-move-buttons">
+                    <button class="btn-icon-minimal" ${eIdx === 0 ? 'disabled' : ''} onclick="moveExercise(${bIdx},${eIdx},-1)" title="Mover para cima">
+                        <i class="ph-bold ph-arrow-up"></i>
+                    </button>
+                    <button class="btn-icon-minimal" ${eIdx === block.exercises.length - 1 ? 'disabled' : ''} onclick="moveExercise(${bIdx},${eIdx},1)" title="Mover para baixo">
+                        <i class="ph-bold ph-arrow-down"></i>
+                    </button>
+                </div>
                 <button class="btn-icon-minimal" onclick="deleteExercise(${bIdx},${eIdx})" title="Remover">
                     <i class="ph-bold ph-trash" style="color:#ef4444;font-size:1rem;"></i>
                 </button>
@@ -7623,20 +9370,40 @@ function addWorkoutBlock() {
     const letter = String.fromCharCode(65 + workoutBlocks.length); // A, B, C ...
     workoutBlocks.push({ name: `Treino ${letter}`, exercises: [] });
     renderWorkoutBlocks();
-    queueWorkoutPlanAutosave();
+    signalStudentPlanDirty();
 }
 
 function deleteWorkoutBlock(bIdx) {
     if (!confirm('Remover este bloco de treino?')) return;
-    workoutBlocks.splice(bIdx, 1);
-    renderWorkoutBlocks();
-    queueWorkoutPlanAutosave();
+    const blockEl = document.getElementById(`wb-${bIdx}`);
+    const removeBlock = () => {
+        workoutBlocks.splice(bIdx, 1);
+        renderWorkoutBlocks();
+        signalStudentPlanDirty();
+        queueWorkoutPlanAutosave();
+    };
+    if (!blockEl) {
+        removeBlock();
+        return;
+    }
+    blockEl.classList.add('is-removing');
+    setTimeout(removeBlock, 180);
 }
 
 function deleteExercise(bIdx, eIdx) {
-    workoutBlocks[bIdx].exercises.splice(eIdx, 1);
-    renderWorkoutBlocks();
-    queueWorkoutPlanAutosave();
+    const rowEl = document.getElementById(`ex-${bIdx}-${eIdx}`);
+    const removeExercise = () => {
+        workoutBlocks[bIdx].exercises.splice(eIdx, 1);
+        renderWorkoutBlocks();
+        signalStudentPlanDirty();
+        queueWorkoutPlanAutosave();
+    };
+    if (!rowEl) {
+        removeExercise();
+        return;
+    }
+    rowEl.classList.add('is-removing');
+    setTimeout(removeExercise, 180);
 }
 
 function updateExerciseSubstitute(bIdx, eIdx, subIdx, value) {
@@ -7652,25 +9419,52 @@ function toggleSupersetWithNext(bIdx, eIdx, checked) {
     if (!ex) return;
     ex.supersetWithNext = !!checked;
     renderWorkoutBlocks();
+    signalStudentPlanDirty();
     queueWorkoutPlanAutosave();
 }
 
 function updateSummaryBar() {
     let totalSeries = 0;
-    workoutBlocks.forEach(b => b.exercises.forEach(e => { totalSeries += parseInt(e.series) || 0; }));
-    const minutes = Math.round(totalSeries * 2.5); // ~2.5 min per series
-    const kcalBurned = Math.round(totalSeries * 8);
+    let totalExercises = 0;
+    let totalReps = 0;
+    let totalWorkSeconds = 0;
+    let totalRestSeconds = 0;
+    let totalVolumeKg = 0;
+    workoutBlocks.forEach((block) => {
+        block.exercises.forEach((exercise) => {
+            const series = Math.max(0, parseInt(exercise.series, 10) || 0);
+            const restPerSet = parseRestToSeconds(exercise.descanso);
+            const avgReps = parseRepsAverage(exercise.reps);
+            const cargaKg = parseCargaToKg(exercise.carga);
+            totalSeries += series;
+            totalExercises += 1;
+            totalReps += series * avgReps;
+            totalWorkSeconds += series * 40;
+            totalRestSeconds += series * restPerSet;
+            totalVolumeKg += series * avgReps * cargaKg;
+        });
+    });
+    const transitionSeconds = totalExercises * 20 + workoutBlocks.length * 90;
+    const totalSeconds = totalWorkSeconds + totalRestSeconds + transitionSeconds;
+    const minutes = Math.max(0, Math.round(totalSeconds / 60));
+    const kcalBurned = Math.max(0, Math.round(totalSeries * 6.5 + (totalSeconds / 60) * 2.8 + (totalVolumeKg / 260)));
+    const avgRest = totalSeries > 0 ? (totalRestSeconds / totalSeries) : 0;
     let intensity = '--';
     if (totalSeries > 0) {
-        if (totalSeries <= 10) intensity = 'Leve';
-        else if (totalSeries <= 20) intensity = 'Moderado';
-        else if (totalSeries <= 30) intensity = 'Moderado-Alto';
+        if (totalSeries <= 10 || avgRest >= 100) intensity = 'Leve';
+        else if (totalSeries <= 20 || totalVolumeKg <= 2500) intensity = 'Moderado';
+        else if (totalSeries <= 30 || avgRest >= 70 || totalVolumeKg <= 5200) intensity = 'Moderado-Alto';
         else intensity = 'Alto';
     }
     const el = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-    el('summary-tempo', `${minutes} min`);
+    el('summary-tempo', formatDurationLabel(minutes));
     el('summary-kcal', `~${kcalBurned} kcal`);
     el('summary-intensidade', intensity);
+    const intensityEl = document.getElementById('summary-intensidade');
+    if (intensityEl) {
+        intensityEl.dataset.intensity = normalizeText(intensity || '');
+        intensityEl.title = `Volume estimado: ${Math.round(totalVolumeKg)}kg · Repetições estimadas: ${Math.round(totalReps)}`;
+    }
     queueWorkoutPlanAutosave();
 }
 
@@ -7694,18 +9488,75 @@ function openExModal(blockIdx) {
     document.getElementById('ex-nome').focus();
 }
 
+function parseRestToSeconds(restValue) {
+    const raw = String(restValue || '').trim().toLowerCase();
+    if (!raw) return 60;
+    const normalized = raw.replace(',', '.');
+    if (/^\d{1,2}:\d{1,2}$/.test(normalized)) {
+        const [mm, ss] = normalized.split(':').map((part) => parseInt(part, 10) || 0);
+        return Math.max(5, (mm * 60) + ss);
+    }
+    const minMatch = normalized.match(/(\d+(?:\.\d+)?)\s*(min|m)\b/);
+    const secMatch = normalized.match(/(\d+(?:\.\d+)?)\s*(seg|s)\b/);
+    if (minMatch || secMatch) {
+        const minutes = minMatch ? parseFloat(minMatch[1]) : 0;
+        const seconds = secMatch ? parseFloat(secMatch[1]) : 0;
+        const total = (Number.isFinite(minutes) ? minutes * 60 : 0) + (Number.isFinite(seconds) ? seconds : 0);
+        return Math.max(5, Math.round(total || 60));
+    }
+    const value = parseFloat(normalized);
+    if (!Number.isFinite(value) || value <= 0) return 60;
+    if (normalized.includes('min') || normalized.endsWith('m')) return Math.max(5, Math.round(value * 60));
+    return Math.max(5, Math.round(value));
+}
+
+function parseRepsAverage(repsValue) {
+    const raw = String(repsValue || '').trim().toLowerCase();
+    if (!raw) return 10;
+    const nums = raw.match(/\d+(?:[.,]\d+)?/g);
+    if (!nums || !nums.length) return 10;
+    const values = nums.map((n) => parseFloat(n.replace(',', '.'))).filter((n) => Number.isFinite(n) && n > 0);
+    if (!values.length) return 10;
+    if (values.length === 1) return values[0];
+    return (Math.min(...values) + Math.max(...values)) / 2;
+}
+
+function parseCargaToKg(cargaValue) {
+    const raw = String(cargaValue || '').trim().toLowerCase();
+    if (!raw) return 0;
+    const match = raw.match(/(\d+(?:[.,]\d+)?)/);
+    if (!match) return 0;
+    const value = parseFloat(match[1].replace(',', '.'));
+    return Number.isFinite(value) ? value : 0;
+}
+
+function formatDurationLabel(totalMinutes) {
+    const safeMinutes = Math.max(0, Math.round(totalMinutes || 0));
+    if (safeMinutes < 60) return `${safeMinutes} min`;
+    const hours = Math.floor(safeMinutes / 60);
+    const minutes = safeMinutes % 60;
+    if (!minutes) return `${hours}h`;
+    return `${hours}h ${minutes}min`;
+}
+
 function searchExerciseLibrary(query) {
     const searchInput = document.getElementById('ex-nome');
     const results = document.getElementById('ex-library-results');
     if (!searchInput || !results) return;
 
     const q = normalizeText(query);
+    const typedValue = String(query || '').trim();
+    if (selectedExerciseCatalogItem && typedValue && normalizeText(typedValue) !== normalizeText(selectedExerciseCatalogItem)) {
+        selectedExerciseCatalogItem = null;
+    }
     const filtered = getExerciseCatalogData().filter(ex => {
         const passMuscle = activeExerciseFilter === 'todos' || ex.group === activeExerciseFilter;
         const passEquipment = activeEquipmentFilter === 'todos' || ex.equipment === activeEquipmentFilter;
         const passSearch = !q || normalizeText(ex.name).includes(q) || normalizeText(GROUP_DISPLAY[ex.group] || ex.group).includes(q);
         return passMuscle && passEquipment && passSearch;
     });
+    exerciseSearchMatches = filtered.map((item) => item.name);
+    if (exerciseSearchActiveIndex >= exerciseSearchMatches.length) exerciseSearchActiveIndex = -1;
 
     if (filtered.length === 0) {
         results.innerHTML = `
@@ -7718,8 +9569,9 @@ function searchExerciseLibrary(query) {
 
     results.innerHTML = filtered.map(ex => {
         const active = selectedExerciseCatalogItem === ex.name ? 'active' : '';
+        const safeNameArg = JSON.stringify(String(ex.name || ''));
         return `
-        <button type="button" class="ex-hevy-item ${active}" onclick="selectExerciseFromLibrary('${ex.name.replace(/'/g, "\'")}')">
+        <button type="button" class="ex-hevy-item ${active}" onclick='selectExerciseFromLibrary(${safeNameArg})'>
             <div class="ex-hevy-thumb"><i class="ph-bold ${ex.icon || 'ph-barbell'}"></i></div>
             <div class="ex-hevy-info">
                 <strong>${escapeHTML(ex.name)}</strong>
@@ -7732,9 +9584,174 @@ function searchExerciseLibrary(query) {
 
 function selectExerciseFromLibrary(name) {
     selectedExerciseCatalogItem = name;
+    exerciseSearchActiveIndex = exerciseSearchMatches.indexOf(name);
     const nameInput = document.getElementById('ex-nome');
     if (nameInput) nameInput.value = name;
     searchExerciseLibrary(name);
+}
+
+function handleExerciseSearchKeydown(event) {
+    if (!Array.isArray(exerciseSearchMatches) || !exerciseSearchMatches.length) return;
+    if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        exerciseSearchActiveIndex = Math.min(exerciseSearchMatches.length - 1, exerciseSearchActiveIndex + 1);
+        selectedExerciseCatalogItem = exerciseSearchMatches[exerciseSearchActiveIndex];
+        if (event.currentTarget) event.currentTarget.value = selectedExerciseCatalogItem || '';
+        searchExerciseLibrary(event.currentTarget?.value || '');
+        return;
+    }
+    if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        exerciseSearchActiveIndex = Math.max(0, exerciseSearchActiveIndex - 1);
+        selectedExerciseCatalogItem = exerciseSearchMatches[exerciseSearchActiveIndex];
+        if (event.currentTarget) event.currentTarget.value = selectedExerciseCatalogItem || '';
+        searchExerciseLibrary(event.currentTarget?.value || '');
+        return;
+    }
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const preferred = selectedExerciseCatalogItem || exerciseSearchMatches[Math.max(0, exerciseSearchActiveIndex)];
+        if (preferred) selectExerciseFromLibrary(preferred);
+    }
+}
+
+function moveWorkoutBlock(blockIdx, direction) {
+    const targetIdx = blockIdx + direction;
+    if (targetIdx < 0 || targetIdx >= workoutBlocks.length) return;
+    const [moved] = workoutBlocks.splice(blockIdx, 1);
+    workoutBlocks.splice(targetIdx, 0, moved);
+    renderWorkoutBlocks();
+    signalStudentPlanDirty();
+    queueWorkoutPlanAutosave();
+}
+
+function moveExercise(blockIdx, exerciseIdx, direction) {
+    const exercises = workoutBlocks?.[blockIdx]?.exercises;
+    if (!Array.isArray(exercises)) return;
+    const targetIdx = exerciseIdx + direction;
+    if (targetIdx < 0 || targetIdx >= exercises.length) return;
+    const [moved] = exercises.splice(exerciseIdx, 1);
+    exercises.splice(targetIdx, 0, moved);
+    renderWorkoutBlocks();
+    signalStudentPlanDirty();
+    queueWorkoutPlanAutosave();
+}
+
+function clearDragVisuals() {
+    document.querySelectorAll('.workout-block.is-dragging, .workout-block.is-drop-target, .workout-block.is-drop-before, .workout-block.is-drop-after, .ex-row.is-dragging, .ex-row.is-drop-target, .ex-row.is-drop-before, .ex-row.is-drop-after')
+        .forEach((node) => {
+            node.classList.remove('is-dragging', 'is-drop-target', 'is-drop-before', 'is-drop-after');
+            if (node.dataset) delete node.dataset.dropPosition;
+        });
+}
+
+function handleBlockDragStart(event, blockIdx) {
+    if (!event.target.closest('.wb-grab')) {
+        event.preventDefault();
+        return;
+    }
+    workoutBlockDragState = { fromIdx: blockIdx };
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', `block:${blockIdx}`);
+    event.currentTarget.classList.add('is-dragging');
+}
+
+function handleBlockDragOver(event, blockIdx) {
+    if (!workoutBlockDragState || workoutBlockDragState.fromIdx === blockIdx) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    document.querySelectorAll('.workout-block.is-drop-target, .workout-block.is-drop-before, .workout-block.is-drop-after')
+        .forEach((node) => {
+            node.classList.remove('is-drop-target', 'is-drop-before', 'is-drop-after');
+            if (node.dataset) delete node.dataset.dropPosition;
+        });
+    const rect = event.currentTarget.getBoundingClientRect();
+    const before = event.clientY < rect.top + (rect.height / 2);
+    event.currentTarget.dataset.dropPosition = before ? 'before' : 'after';
+    event.currentTarget.classList.add('is-drop-target', before ? 'is-drop-before' : 'is-drop-after');
+}
+
+function handleBlockDrop(event, blockIdx) {
+    if (!workoutBlockDragState) return;
+    event.preventDefault();
+    const fromIdx = workoutBlockDragState.fromIdx;
+    if (fromIdx === blockIdx) {
+        clearDragVisuals();
+        workoutBlockDragState = null;
+        return;
+    }
+    const dropPosition = event.currentTarget?.dataset?.dropPosition === 'before' ? 'before' : 'after';
+    const [movedBlock] = workoutBlocks.splice(fromIdx, 1);
+    const adjustedTarget = fromIdx < blockIdx ? blockIdx - 1 : blockIdx;
+    const insertIdxRaw = dropPosition === 'before' ? adjustedTarget : adjustedTarget + 1;
+    const insertIdx = Math.max(0, Math.min(workoutBlocks.length, insertIdxRaw));
+    workoutBlocks.splice(insertIdx, 0, movedBlock);
+    workoutBlockDragState = null;
+    clearDragVisuals();
+    renderWorkoutBlocks();
+    signalStudentPlanDirty();
+    queueWorkoutPlanAutosave();
+}
+
+function handleBlockDragEnd() {
+    workoutBlockDragState = null;
+    clearDragVisuals();
+}
+
+function handleExerciseDragStart(event, blockIdx, exerciseIdx) {
+    if (!event.target.closest('.ex-grab')) {
+        event.preventDefault();
+        return;
+    }
+    event.stopPropagation();
+    workoutExerciseDragState = { blockIdx, fromIdx: exerciseIdx };
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', `exercise:${blockIdx}:${exerciseIdx}`);
+    event.currentTarget.classList.add('is-dragging');
+}
+
+function handleExerciseDragOver(event, blockIdx, exerciseIdx) {
+    if (!workoutExerciseDragState) return;
+    if (workoutExerciseDragState.blockIdx !== blockIdx || workoutExerciseDragState.fromIdx === exerciseIdx) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    document.querySelectorAll('.ex-row.is-drop-target, .ex-row.is-drop-before, .ex-row.is-drop-after')
+        .forEach((node) => {
+            node.classList.remove('is-drop-target', 'is-drop-before', 'is-drop-after');
+            if (node.dataset) delete node.dataset.dropPosition;
+        });
+    const rect = event.currentTarget.getBoundingClientRect();
+    const before = event.clientY < rect.top + (rect.height / 2);
+    event.currentTarget.dataset.dropPosition = before ? 'before' : 'after';
+    event.currentTarget.classList.add('is-drop-target', before ? 'is-drop-before' : 'is-drop-after');
+}
+
+function handleExerciseDrop(event, blockIdx, exerciseIdx) {
+    if (!workoutExerciseDragState) return;
+    event.preventDefault();
+    const { blockIdx: originBlockIdx, fromIdx } = workoutExerciseDragState;
+    if (originBlockIdx !== blockIdx || fromIdx === exerciseIdx) {
+        workoutExerciseDragState = null;
+        clearDragVisuals();
+        return;
+    }
+    const dropPosition = event.currentTarget?.dataset?.dropPosition === 'before' ? 'before' : 'after';
+    const exercises = workoutBlocks[blockIdx]?.exercises || [];
+    const [movedExercise] = exercises.splice(fromIdx, 1);
+    const adjustedTarget = fromIdx < exerciseIdx ? exerciseIdx - 1 : exerciseIdx;
+    const insertIdxRaw = dropPosition === 'before' ? adjustedTarget : adjustedTarget + 1;
+    const insertIdx = Math.max(0, Math.min(exercises.length, insertIdxRaw));
+    exercises.splice(insertIdx, 0, movedExercise);
+    workoutExerciseDragState = null;
+    clearDragVisuals();
+    renderWorkoutBlocks();
+    signalStudentPlanDirty();
+    queueWorkoutPlanAutosave();
+}
+
+function handleExerciseDragEnd() {
+    workoutExerciseDragState = null;
+    clearDragVisuals();
 }
 
 function updateExerciseFilterButtons() {
@@ -7789,7 +9806,8 @@ function closeExModal() {
 }
 
 function confirmAddExercise() {
-    const nome = (selectedExerciseCatalogItem || document.getElementById('ex-nome').value || '').trim();
+    const typedName = (document.getElementById('ex-nome').value || '').trim();
+    const nome = (typedName || selectedExerciseCatalogItem || '').trim();
     if (!nome) { document.getElementById('ex-nome').focus(); return; }
     const ex = {
         nome,
@@ -7806,6 +9824,8 @@ function confirmAddExercise() {
     }
     closeExModal();
     renderWorkoutBlocks();
+    signalStudentPlanDirty();
+    queueWorkoutPlanAutosave();
 }
 
 // â”€â”€â”€ Diet / Meals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -7819,17 +9839,29 @@ function renderMeals() {
     const currentStudent = currentStudentIdx !== null ? students[currentStudentIdx] : null;
     const completion = currentStudent ? getDietDailyCompletion(currentStudent, getTodayDateKey()) : null;
     const summaryHtml = `
-        <div class="diet-planner-overview">
+        <div class="diet-planner-overview" id="diet-planner-overview">
             <div class="diet-planner-kcal">
-                <span>Consumido</span>
-                <strong>${summary.dayKcal} kcal</strong>
-                <small>Meta ${summary.targetKcal} kcal · Restante ${summary.remainingDayKcal} kcal</small>
-                ${completion ? `<small>Aderência do aluno hoje: ${completion.done}/${completion.total} (${completion.percent}%)</small>` : ''}
+                <span>Resumo do dia</span>
+                <strong id="diet-kcal-main">${summary.dayKcal} kcal</strong>
+                <div class="diet-progress-track">
+                    <div class="diet-progress-fill" id="diet-kcal-progress-fill" style="width:${Math.min(100, Math.max(0, (summary.dayKcal / Math.max(1, summary.targetKcal)) * 100)).toFixed(1)}%"></div>
+                </div>
+                <small id="diet-kcal-meta-text">Meta ${summary.targetKcal} kcal · Restante ${summary.remainingDayKcal} kcal</small>
+                ${completion ? `<small id="diet-adherence-text">Aderência do aluno hoje: ${completion.done}/${completion.total} (${completion.percent}%)</small>` : '<small id="diet-adherence-text">Sem dados de aderência para hoje.</small>'}
             </div>
-            <div class="diet-planner-macros">
-                <div class="diet-macro-pill protein">P ${summary.dayProt}g / ${summary.targetProtein}g</div>
-                <div class="diet-macro-pill carb">C ${summary.dayCarb}g / ${summary.targetCarb}g</div>
-                <div class="diet-macro-pill fat">G ${summary.dayFat}g / ${summary.targetFat}g</div>
+            <div class="diet-planner-macros diet-planner-meters">
+                <div class="diet-macro-meter protein">
+                    <div class="diet-macro-meter-head"><span>Proteína</span><strong id="diet-protein-text">${summary.dayProt}g / ${summary.targetProtein}g</strong></div>
+                    <div class="diet-macro-track"><div class="diet-macro-fill" id="diet-protein-fill" style="width:${Math.min(100, Math.max(0, (summary.dayProt / Math.max(1, summary.targetProtein)) * 100)).toFixed(1)}%"></div></div>
+                </div>
+                <div class="diet-macro-meter carb">
+                    <div class="diet-macro-meter-head"><span>Carboidrato</span><strong id="diet-carb-text">${summary.dayCarb}g / ${summary.targetCarb}g</strong></div>
+                    <div class="diet-macro-track"><div class="diet-macro-fill" id="diet-carb-fill" style="width:${Math.min(100, Math.max(0, (summary.dayCarb / Math.max(1, summary.targetCarb)) * 100)).toFixed(1)}%"></div></div>
+                </div>
+                <div class="diet-macro-meter fat">
+                    <div class="diet-macro-meter-head"><span>Gordura</span><strong id="diet-fat-text">${summary.dayFat}g / ${summary.targetFat}g</strong></div>
+                    <div class="diet-macro-track"><div class="diet-macro-fill" id="diet-fat-fill" style="width:${Math.min(100, Math.max(0, (summary.dayFat / Math.max(1, summary.targetFat)) * 100)).toFixed(1)}%"></div></div>
+                </div>
             </div>
         </div>
     `;
@@ -7847,7 +9879,12 @@ function renderMeals() {
                 <div class="wb-meal-title-wrap">
                     <input class="wb-name-input" value="${escHtml(meal.name)}" placeholder="Ex: Café da manhã"
                         oninput="mealBlocks[${mIdx}].name = this.value; updateDietPlannerSummary()">
-                    <span class="wb-meal-target">Meta ${summary.mealTargets[mIdx] || 0} kcal · Atual ${summary.mealKcals[mIdx] || 0} kcal</span>
+                    <span class="wb-meal-target tone-${getKcalBalanceMeta(summary.mealKcals[mIdx] || 0, summary.mealTargets[mIdx] || 0).tone}" data-meal-idx="${mIdx}">Meta ${summary.mealTargets[mIdx] || 0} kcal · Atual ${summary.mealKcals[mIdx] || 0} kcal · ${getKcalBalanceMeta(summary.mealKcals[mIdx] || 0, summary.mealTargets[mIdx] || 0).text}</span>
+                    <div class="wb-meal-progress">
+                        <div class="wb-meal-progress-track">
+                            <div class="wb-meal-progress-fill" data-meal-progress-idx="${mIdx}" style="width:${Math.min(100, Math.max(0, ((summary.mealKcals[mIdx] || 0) / Math.max(1, (summary.mealTargets[mIdx] || 1))) * 100)).toFixed(1)}%"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="wb-header-right">
@@ -7877,9 +9914,14 @@ function renderMeals() {
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'carb', this.value)">
                     <input type="number" class="food-input" value="${item.gord ?? ''}" placeholder="0"
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'gord', this.value)">
-                    <button class="btn-icon-minimal" onclick="deleteFoodItem(${mIdx},${iIdx})">
-                        <i class="ph-bold ph-trash" style="color:#ef4444;font-size:0.85rem;"></i>
-                    </button>
+                    <span class="food-row-actions">
+                        <button class="btn-icon-minimal" onclick="openTrainerFoodReplacePicker(${mIdx},${iIdx})" title="Substituir no catálogo">
+                            <i class="ph-bold ph-arrows-clockwise" style="color:var(--primary-color);font-size:0.85rem;"></i>
+                        </button>
+                        <button class="btn-icon-minimal" onclick="deleteFoodItem(${mIdx},${iIdx})" title="Remover">
+                            <i class="ph-bold ph-trash" style="color:#ef4444;font-size:0.85rem;"></i>
+                        </button>
+                    </span>
                 </div>`).join('')}
             </div>`
         }
@@ -7893,6 +9935,7 @@ function addMeal() {
     const finalName = existingCount > 0 ? `${desiredName} ${existingCount + 1}` : desiredName;
     mealBlocks.push({ name: finalName, items: [] });
     renderMeals();
+    signalStudentPlanDirty();
     switchProfileTab('nutricao');
 }
 
@@ -7901,12 +9944,14 @@ function deleteMeal(mIdx) {
     mealBlocks.splice(mIdx, 1);
     renderMeals();
     updateDietPlannerSummary();
+    signalStudentPlanDirty();
 }
 
 function deleteFoodItem(mIdx, iIdx) {
     mealBlocks[mIdx].items.splice(iIdx, 1);
     renderMeals();
     updateDietPlannerSummary();
+    signalStudentPlanDirty();
 }
 
 function updateMealItemField(mIdx, iIdx, field, value) {
@@ -7925,6 +9970,7 @@ function updateMealItemField(mIdx, iIdx, field, value) {
 
     item[field] = normalized;
     updateDietPlannerSummary();
+    signalStudentPlanDirty();
 }
 
 function getDietTargetsFromInputs() {
@@ -7984,18 +10030,45 @@ function updateDietPlannerSummary() {
     const card = document.querySelector('.diet-planner-overview');
     if (!card) return;
     const summary = getDietPlannerSummary();
-    card.innerHTML = `
-        <div class="diet-planner-kcal">
-            <span>Consumido</span>
-            <strong>${summary.dayKcal} kcal</strong>
-            <small>Meta ${summary.targetKcal} kcal · Restante ${summary.remainingDayKcal} kcal</small>
-        </div>
-        <div class="diet-planner-macros">
-            <div class="diet-macro-pill protein">P ${summary.dayProt}g / ${summary.targetProtein}g</div>
-            <div class="diet-macro-pill carb">C ${summary.dayCarb}g / ${summary.targetCarb}g</div>
-            <div class="diet-macro-pill fat">G ${summary.dayFat}g / ${summary.targetFat}g</div>
-        </div>
-    `;
+    const clampPercent = (value, target) => Math.min(100, Math.max(0, ((value || 0) / Math.max(1, target || 1)) * 100)).toFixed(1);
+    const kcalMain = document.getElementById('diet-kcal-main');
+    if (kcalMain) kcalMain.textContent = `${summary.dayKcal} kcal`;
+    const kcalMeta = document.getElementById('diet-kcal-meta-text');
+    const dayMeta = getKcalBalanceMeta(summary.dayKcal, summary.targetKcal);
+    if (kcalMeta) kcalMeta.textContent = `Meta ${summary.targetKcal} kcal · ${dayMeta.text}`;
+    const kcalFill = document.getElementById('diet-kcal-progress-fill');
+    if (kcalFill) kcalFill.style.width = `${clampPercent(summary.dayKcal, summary.targetKcal)}%`;
+    card.classList.remove('tone-over', 'tone-under', 'tone-ontrack');
+    card.classList.add(`tone-${dayMeta.tone}`);
+
+    const proteinText = document.getElementById('diet-protein-text');
+    if (proteinText) proteinText.textContent = `${summary.dayProt}g / ${summary.targetProtein}g`;
+    const carbText = document.getElementById('diet-carb-text');
+    if (carbText) carbText.textContent = `${summary.dayCarb}g / ${summary.targetCarb}g`;
+    const fatText = document.getElementById('diet-fat-text');
+    if (fatText) fatText.textContent = `${summary.dayFat}g / ${summary.targetFat}g`;
+
+    const proteinFill = document.getElementById('diet-protein-fill');
+    if (proteinFill) proteinFill.style.width = `${clampPercent(summary.dayProt, summary.targetProtein)}%`;
+    const carbFill = document.getElementById('diet-carb-fill');
+    if (carbFill) carbFill.style.width = `${clampPercent(summary.dayCarb, summary.targetCarb)}%`;
+    const fatFill = document.getElementById('diet-fat-fill');
+    if (fatFill) fatFill.style.width = `${clampPercent(summary.dayFat, summary.targetFat)}%`;
+
+    document.querySelectorAll('.wb-meal-target[data-meal-idx]').forEach((el) => {
+        const idx = Number(el.getAttribute('data-meal-idx'));
+        if (!Number.isFinite(idx)) return;
+        const mealMeta = getKcalBalanceMeta(summary.mealKcals[idx] || 0, summary.mealTargets[idx] || 0);
+        el.textContent = `Meta ${summary.mealTargets[idx] || 0} kcal · Atual ${summary.mealKcals[idx] || 0} kcal · ${mealMeta.text}`;
+        el.classList.remove('tone-over', 'tone-under', 'tone-ontrack');
+        el.classList.add(`tone-${mealMeta.tone}`);
+    });
+    document.querySelectorAll('.wb-meal-progress-fill[data-meal-progress-idx]').forEach((el) => {
+        const idx = Number(el.getAttribute('data-meal-progress-idx'));
+        if (!Number.isFinite(idx)) return;
+        const pct = clampPercent(summary.mealKcals[idx] || 0, summary.mealTargets[idx] || 1);
+        el.style.width = `${pct}%`;
+    });
 }
 
 function openFoodModal(mealIdx) {
@@ -8004,6 +10077,8 @@ function openFoodModal(mealIdx) {
         const el = document.getElementById(id); if (el) el.value = '';
     });
     selectedFoodReference = null;
+    currentFoodQuantityAmount = 150;
+    currentFoodQuantityUnit = 'g';
     updateFoodTargetHint();
 
     // Clear search results
@@ -8012,6 +10087,26 @@ function openFoodModal(mealIdx) {
         results.innerHTML = '';
         results.classList.remove('active');
     }
+    foodModalSearchResults = [];
+    foodModalSearchBaseResults = [];
+    foodModalSearchActiveIndex = -1;
+    foodModalFilters = {
+        macro: 'all',
+        kcal: 'all',
+        type: 'all',
+        meal: 'all',
+        favoritesOnly: false,
+        recentOnly: false
+    };
+    foodManualMacrosOpen = false;
+    const manualPanel = document.getElementById('food-manual-macros');
+    if (manualPanel) manualPanel.classList.remove('open');
+    const toggleBtn = document.getElementById('food-toggle-manual-btn');
+    if (toggleBtn) toggleBtn.innerHTML = '<i class="ph-bold ph-sliders-horizontal"></i> Editar macros manualmente';
+    updateFoodMacroFilterUI();
+    setFoodQuantityControls(150, 'g');
+    updateFoodModalProgressiveState();
+    updateFoodSelectionPreview();
 
     document.getElementById('food-modal-overlay').classList.add('active');
     document.getElementById('food-modal').classList.add('active');
@@ -8024,46 +10119,381 @@ function openFoodModal(mealIdx) {
 
 let foodSearchTimeout = null;
 let selectedFoodReference = null;
+let foodModalSearchResults = [];
+let foodModalSearchBaseResults = [];
+let foodModalSearchLabel = 'Banco de Alimentos';
+let foodModalSearchActiveIndex = -1;
+let foodManualMacrosOpen = false;
+let foodModalFilters = {
+    macro: 'all',
+    kcal: 'all',
+    type: 'all',
+    meal: 'all',
+    favoritesOnly: false,
+    recentOnly: false
+};
 const FOOD_LIBRARY_FALLBACK = [
     { id: '', name: 'Arroz cozido', brand: '', base_qty: 100, base_unit: 'g', kcal: 130, protein: 2.7, carb: 28, fat: 0.3, source: 'manual' },
     { id: '', name: 'Feijao cozido', brand: '', base_qty: 100, base_unit: 'g', kcal: 76, protein: 4.8, carb: 13.6, fat: 0.5, source: 'manual' },
     { id: '', name: 'Frango grelhado', brand: '', base_qty: 100, base_unit: 'g', kcal: 165, protein: 31, carb: 0, fat: 3.6, source: 'manual' },
     { id: '', name: 'Ovo cozido', brand: '', base_qty: 100, base_unit: 'g', kcal: 155, protein: 13, carb: 1.1, fat: 11, source: 'manual' }
 ];
-function renderSimpleFoodLibrary(query = '') {
+
+let currentFoodQuantityAmount = 150;
+let currentFoodQuantityUnit = 'g';
+
+function syncFoodQuantityInputText() {
+    const qtd = document.getElementById('food-qtd');
+    if (qtd) qtd.value = `${Math.max(1, Math.round(currentFoodQuantityAmount || 1))}${currentFoodQuantityUnit || 'g'}`;
+}
+
+function setFoodQuantityControls(amount = 150, unit = 'g') {
+    currentFoodQuantityAmount = Math.max(1, Math.round(parseDecimalSafe(amount) || 1));
+    currentFoodQuantityUnit = ['g', 'ml', 'un'].includes(String(unit || '').toLowerCase()) ? String(unit).toLowerCase() : 'g';
+    const slider = document.getElementById('food-qty-slider');
+    const number = document.getElementById('food-qty-number');
+    const unitEl = document.getElementById('food-qty-unit');
+    if (slider) slider.value = String(currentFoodQuantityAmount);
+    if (number) number.value = String(currentFoodQuantityAmount);
+    if (unitEl) unitEl.textContent = currentFoodQuantityUnit;
+    syncFoodQuantityInputText();
+}
+
+function syncFoodQuantityFromSlider(value) {
+    setFoodQuantityControls(value, currentFoodQuantityUnit);
+    recalculateFoodFromQuantity();
+}
+
+function syncFoodQuantityFromNumber(value) {
+    setFoodQuantityControls(value, currentFoodQuantityUnit);
+    recalculateFoodFromQuantity();
+}
+
+function updateFoodModalProgressiveState() {
+    const hasSelected = !!selectedFoodReference;
+    const configZone = document.getElementById('food-config-zone');
+    if (configZone) configZone.classList.toggle('is-disabled', !hasSelected);
+    const toDisable = [
+        'food-qty-slider',
+        'food-qty-number',
+        'food-toggle-manual-btn',
+        'food-apply-remaining-btn',
+        'food-confirm-btn'
+    ];
+    toDisable.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !hasSelected;
+    });
+    const magicBtn = document.getElementById('food-apply-remaining-btn');
+    if (magicBtn) magicBtn.style.display = hasSelected ? 'inline-flex' : 'none';
+    if (!hasSelected) {
+        foodManualMacrosOpen = false;
+        const manualPanel = document.getElementById('food-manual-macros');
+        if (manualPanel) manualPanel.classList.remove('open');
+    }
+}
+
+function copyFoodPreviewValue(metricLabel, value) {
+    const text = `${metricLabel}: ${value}`;
+    const success = () => showDietRuntimeMessage(`${metricLabel} copiado.`, 'success');
+    const fallbackCopy = () => {
+        const temp = document.createElement('textarea');
+        temp.value = text;
+        temp.setAttribute('readonly', '');
+        temp.style.position = 'fixed';
+        temp.style.opacity = '0';
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+        success();
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(success).catch(fallbackCopy);
+    } else {
+        fallbackCopy();
+    }
+}
+
+function foodTypeIconMarkup(type = 'vegetal') {
+    if (type === 'animal') {
+        return '<span class="food-type-icon animal"><i class="ph-bold ph-drumstick"></i></span>';
+    }
+    return '<span class="food-type-icon vegetal"><i class="ph-bold ph-leaf"></i></span>';
+}
+
+function updateFoodSelectionPreview() {
+    const preview = document.getElementById('food-selection-preview');
+    if (!preview) return;
+    if (!selectedFoodReference) {
+        preview.textContent = 'Selecione um alimento para ver a prévia de macros.';
+        return;
+    }
+    const qtyText = document.getElementById('food-qtd')?.value || `${selectedFoodReference.base_qty}${selectedFoodReference.base_unit}`;
+    const parsed = parseAmountAndUnit(qtyText, selectedFoodReference.base_unit || 'g');
+    const safeAmount = parsed.amount > 0 ? parsed.amount : (selectedFoodReference.base_qty || 100);
+    const unit = parsed.unit || selectedFoodReference.base_unit || 'g';
+    const calc = computeMacrosByAmount({
+        name: selectedFoodReference.nome,
+        base_qty: selectedFoodReference.base_qty,
+        base_unit: selectedFoodReference.base_unit,
+        kcal: selectedFoodReference.kcalBase,
+        protein: selectedFoodReference.protBase,
+        carb: selectedFoodReference.carbBase,
+        fat: selectedFoodReference.fatBase
+    }, safeAmount, unit);
+    preview.innerHTML = `
+        <div class="food-quick-preview-title">${escHtml(selectedFoodReference.nome)} · ${safeAmount}${unit}</div>
+        <div class="food-quick-preview-kcal" onclick="copyFoodPreviewValue('Kcal', '${Math.round(calc.kcal)} kcal')">${Math.round(calc.kcal)} <small>kcal</small></div>
+        <div class="food-quick-preview-macros">
+            <button type="button" onclick="copyFoodPreviewValue('Proteína', 'P ${calc.protein}g')">P ${calc.protein}g</button>
+            <button type="button" onclick="copyFoodPreviewValue('Carbo', 'C ${calc.carb}g')">C ${calc.carb}g</button>
+            <button type="button" onclick="copyFoodPreviewValue('Gordura', 'G ${calc.fat}g')">G ${calc.fat}g</button>
+        </div>
+    `;
+}
+
+function getFoodPrefsStorageKey() {
+    const code = memoryGetItem('currentTrainerCode') || memoryGetItem('connectedTrainerCode') || '00001';
+    return `food_modal_prefs_${String(code)}`;
+}
+
+function readFoodModalPrefs() {
+    return readStorageJSON(getFoodPrefsStorageKey(), { favorites: [], recents: [] });
+}
+
+function saveFoodModalPrefs(prefs) {
+    memorySetItem(getFoodPrefsStorageKey(), JSON.stringify({
+        favorites: Array.isArray(prefs?.favorites) ? prefs.favorites.slice(0, 200) : [],
+        recents: Array.isArray(prefs?.recents) ? prefs.recents.slice(0, 60) : []
+    }));
+}
+
+function getFoodItemKey(item) {
+    const id = String(item?.foodId || item?.id || '').trim();
+    if (id) return `id:${id}`;
+    const name = normalizeText(item?.nome || item?.name || '');
+    return `name:${name}`;
+}
+
+function inferFoodType(item) {
+    const text = normalizeText(`${item?.nome || item?.name || ''} ${item?.brand || ''}`);
+    const animalTerms = ['frango', 'carne', 'peixe', 'tilapia', 'atum', 'sardinha', 'salmao', 'ovo', 'leite', 'queijo', 'iogurte', 'whey', 'peru', 'bacalhau', 'camarao', 'porco'];
+    if (animalTerms.some((term) => text.includes(term))) return 'animal';
+    return 'vegetal';
+}
+
+function inferFoodMeal(item) {
+    const text = normalizeText(item?.nome || item?.name || '');
+    if (text.includes('cafe') || text.includes('banana') || text.includes('aveia') || text.includes('pao') || text.includes('ovo') || text.includes('iogurte')) return 'cafe';
+    if (text.includes('almoco') || text.includes('arroz') || text.includes('feij') || text.includes('frango') || text.includes('carne')) return 'almoco';
+    if (text.includes('jantar') || text.includes('sopa') || text.includes('salada') || text.includes('peixe')) return 'jantar';
+    if (text.includes('lanche') || text.includes('barra') || text.includes('castanha') || text.includes('fruta')) return 'lanche';
+    if (text.includes('ceia') || text.includes('caseina') || text.includes('cottage')) return 'ceia';
+    return 'all';
+}
+
+function applyFoodFilters(items, filters, prefs = null) {
+    const list = Array.isArray(items) ? items : [];
+    const activeFilters = filters || foodModalFilters;
+    const currentPrefs = prefs || readFoodModalPrefs();
+    const favoritesSet = new Set(currentPrefs.favorites || []);
+    const recentsSet = new Set(currentPrefs.recents || []);
+    return list.filter((item) => {
+        const prot = parseDecimalSafe(item.prot ?? item.protein);
+        const carb = parseDecimalSafe(item.carb);
+        const fat = parseDecimalSafe(item.fat ?? item.gord);
+        const kcal = parseDecimalSafe(item.kcal);
+        const key = getFoodItemKey(item);
+        const type = inferFoodType(item);
+        const meal = inferFoodMeal(item);
+
+        if (activeFilters.macro === 'high-protein' && prot < 10) return false;
+        if (activeFilters.macro === 'high-carb' && carb < 15) return false;
+        if (activeFilters.macro === 'high-fat' && fat < 8) return false;
+        if (activeFilters.kcal === 'low' && !(kcal < 120)) return false;
+        if (activeFilters.kcal === 'medium' && !(kcal >= 120 && kcal <= 240)) return false;
+        if (activeFilters.kcal === 'high' && !(kcal > 240)) return false;
+        if (activeFilters.type !== 'all' && type !== activeFilters.type) return false;
+        if (activeFilters.meal !== 'all' && meal !== activeFilters.meal) return false;
+        if (activeFilters.favoritesOnly && !favoritesSet.has(key)) return false;
+        if (activeFilters.recentOnly && !recentsSet.has(key)) return false;
+        return true;
+    });
+}
+
+function updateFoodMacroFilterUI() {
+    document.querySelectorAll('#food-macro-filters .food-macro-chip').forEach((chip) => {
+        const group = chip.getAttribute('data-group') || '';
+        const value = chip.getAttribute('data-value') || '';
+        let active = false;
+        if (group === 'macro') active = foodModalFilters.macro === value;
+        if (group === 'kcal') active = foodModalFilters.kcal === value;
+        if (group === 'type') active = foodModalFilters.type === value;
+        if (group === 'meal') active = foodModalFilters.meal === value;
+        if (group === 'flags' && value === 'favorites') active = !!foodModalFilters.favoritesOnly;
+        if (group === 'flags' && value === 'recent') active = !!foodModalFilters.recentOnly;
+        if (!group && chip.classList.contains('ghost')) active = false;
+        chip.classList.toggle('active', active);
+        chip.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+}
+
+function applyFoodModalFiltersAndRender() {
+    foodModalSearchResults = applyFoodFilters(foodModalSearchBaseResults, foodModalFilters);
+    foodModalSearchActiveIndex = foodModalSearchResults.length ? 0 : -1;
+    renderFoodSearchResults();
+}
+
+function setFoodModalFilter(group, value) {
+    if (group === 'macro') foodModalFilters.macro = value;
+    if (group === 'kcal') foodModalFilters.kcal = value;
+    if (group === 'type') foodModalFilters.type = value;
+    if (group === 'meal') foodModalFilters.meal = value;
+    updateFoodMacroFilterUI();
+    applyFoodModalFiltersAndRender();
+}
+
+function toggleFoodModalFlagFilter(flag) {
+    if (flag === 'favorites') foodModalFilters.favoritesOnly = !foodModalFilters.favoritesOnly;
+    if (flag === 'recent') foodModalFilters.recentOnly = !foodModalFilters.recentOnly;
+    updateFoodMacroFilterUI();
+    applyFoodModalFiltersAndRender();
+}
+
+function clearFoodModalFilters() {
+    foodModalFilters = {
+        macro: 'all',
+        kcal: 'all',
+        type: 'all',
+        meal: 'all',
+        favoritesOnly: false,
+        recentOnly: false
+    };
+    updateFoodMacroFilterUI();
+    applyFoodModalFiltersAndRender();
+}
+
+function renderFoodSearchResults() {
     const results = document.getElementById('food-library-results');
     if (!results) return;
-    const q = normalizeText(query);
-    const sourceList = (foodCatalogCache && foodCatalogCache.length > 0) ? foodCatalogCache : FOOD_LIBRARY_FALLBACK;
-    const baseList = sourceList.filter((item) => !q || normalizeText(item.name).includes(q)).slice(0, 12);
-    if (!baseList.length) {
-        results.innerHTML = '<div class="ex-empty-block" style="padding:1rem;">Nenhum alimento no banco encontrado.</div>';
+    if (!Array.isArray(foodModalSearchResults) || !foodModalSearchResults.length) {
+        results.innerHTML = '<div class="food-quick-empty">Nenhum alimento encontrado.</div>';
         results.classList.add('active');
         return;
     }
+    const prefs = readFoodModalPrefs();
+    const favoritesSet = new Set(prefs.favorites || []);
     results.innerHTML = `
-        <div class="lib-category">Resultados (Banco de Alimentos)</div>
-        ${baseList.map((item) => `
-            <div class="lib-item" onclick='selectFoodFromAPI(${JSON.stringify({
-                nome: item.name,
-                brand: item.brand || '',
-                kcal: item.kcal,
-                prot: item.protein,
-                carb: item.carb,
-                fat: item.fat,
-                base_qty: item.base_qty,
-                base_unit: item.base_unit,
-                foodId: item.id,
-                source: item.source || 'catalog'
-            }).replace(/'/g, "&apos;")})'>
-                <div style="display:flex; flex-direction:column;">
-                    <span>${escHtml(item.name)}${item.brand ? ` - ${escHtml(item.brand)}` : ''}</span>
-                    <small style="font-size:0.7rem; opacity:0.6;">${Math.round(item.kcal)}kcal | P:${item.protein}g C:${item.carb}g G:${item.fat}g (por ${item.base_qty}${item.base_unit})</small>
+        <div class="lib-category">Resultados (${escHtml(foodModalSearchLabel)})</div>
+        ${foodModalSearchResults.map((item, idx) => {
+            const key = getFoodItemKey(item);
+            const isFav = favoritesSet.has(key);
+            return `
+            <div class="food-quick-item-wrap ${foodModalSearchActiveIndex === idx ? 'active' : ''}" onclick="selectFoodFromSearchIndex(${idx})">
+                <button type="button" class="food-quick-fav-btn ${isFav ? 'active' : ''}" onclick="event.stopPropagation(); toggleFoodFavoriteFromSearch(${idx})" aria-label="Favoritar alimento">
+                    <i class="ph-${isFav ? 'fill' : 'bold'} ph-star"></i>
+                </button>
+                <div class="food-quick-item-content">
+                    <div class="food-quick-item-head">${foodTypeIconMarkup(inferFoodType(item))}${escHtml(item.nome)}${item.brand ? ` - ${escHtml(item.brand)}` : ''}</div>
+                    <small>${Math.round(item.kcal)}kcal · P ${item.prot}g · C ${item.carb}g · G ${item.fat}g · ${item.base_qty}${item.base_unit}</small>
                 </div>
-            </div>
-        `).join('')}
+            </div>`;
+        }).join('')}
     `;
     results.classList.add('active');
+}
+
+function renderSimpleFoodLibrary(query = '') {
+    const q = normalizeText(query);
+    const sourceList = (foodCatalogCache && foodCatalogCache.length > 0) ? foodCatalogCache : FOOD_LIBRARY_FALLBACK;
+    const prefs = readFoodModalPrefs();
+    const recentKeys = Array.isArray(prefs.recents) ? prefs.recents : [];
+    const recentItems = q
+        ? []
+        : recentKeys
+            .map((key) => sourceList.find((item) => getFoodItemKey({ name: item.name, id: item.id }) === key))
+            .filter(Boolean);
+    const filteredItems = sourceList.filter((item) => !q || normalizeText(item.name).includes(q));
+    const dedupe = new Set();
+    const merged = [...recentItems, ...filteredItems].filter((item) => {
+        const key = getFoodItemKey({ name: item.name, id: item.id });
+        if (dedupe.has(key)) return false;
+        dedupe.add(key);
+        return true;
+    });
+    const baseList = merged.slice(0, 24);
+    foodModalSearchLabel = 'Banco de Alimentos';
+    foodModalSearchBaseResults = baseList.map((item) => ({
+        nome: item.name,
+        brand: item.brand || '',
+        kcal: item.kcal,
+        prot: item.protein,
+        carb: item.carb,
+        fat: item.fat,
+        base_qty: item.base_qty,
+        base_unit: item.base_unit,
+        foodId: item.id,
+        source: item.source || 'catalog'
+    }));
+    applyFoodModalFiltersAndRender();
+}
+
+function selectFoodFromSearchIndex(index) {
+    const data = foodModalSearchResults[index];
+    if (!data) return;
+    foodModalSearchActiveIndex = index;
+    renderFoodSearchResults();
+    selectFoodFromAPI(data);
+}
+
+function toggleFoodFavoriteFromSearch(index) {
+    const item = foodModalSearchResults[index];
+    if (!item) return;
+    const key = getFoodItemKey(item);
+    const prefs = readFoodModalPrefs();
+    const current = new Set(prefs.favorites || []);
+    if (current.has(key)) current.delete(key);
+    else current.add(key);
+    saveFoodModalPrefs({ ...prefs, favorites: Array.from(current) });
+    renderFoodSearchResults();
+}
+
+function registerRecentFood(item) {
+    if (!item) return;
+    const key = getFoodItemKey(item);
+    const prefs = readFoodModalPrefs();
+    const old = Array.isArray(prefs.recents) ? prefs.recents : [];
+    const next = [key, ...old.filter((x) => x !== key)].slice(0, 40);
+    saveFoodModalPrefs({ ...prefs, recents: next });
+}
+
+function handleFoodModalSearchKeydown(event) {
+    const modal = document.getElementById('food-modal');
+    if (!modal || !modal.classList.contains('active')) return;
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        closeFoodModal();
+        return;
+    }
+    if (!Array.isArray(foodModalSearchResults) || !foodModalSearchResults.length) return;
+    if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        foodModalSearchActiveIndex = Math.min(foodModalSearchResults.length - 1, foodModalSearchActiveIndex + 1);
+        renderFoodSearchResults();
+        return;
+    }
+    if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        foodModalSearchActiveIndex = Math.max(0, foodModalSearchActiveIndex - 1);
+        renderFoodSearchResults();
+        return;
+    }
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const targetIndex = foodModalSearchActiveIndex >= 0 ? foodModalSearchActiveIndex : 0;
+        selectFoodFromSearchIndex(targetIndex);
+    }
 }
 
 function searchFoodAPI(query) {
@@ -8077,34 +10507,27 @@ function searchFoodAPI(query) {
 
     clearTimeout(foodSearchTimeout);
     foodSearchTimeout = setTimeout(async () => {
-        results.innerHTML = '<div class="lib-item"><i class="ph-bold ph-spinner-gap"></i> Buscando...</div>';
+        results.innerHTML = '<div class="food-quick-empty">Buscando alimentos...</div>';
         results.classList.add('active');
 
         try {
-            let html = '';
             const catalogResults = await searchFoodsCatalog(query, 12);
             if (catalogResults.length > 0) {
-                html += `<div class="lib-category">Resultados (Banco de Alimentos)</div>`;
-                catalogResults.forEach((item) => {
-                    const dataItem = {
-                        nome: item.name,
-                        brand: item.brand || '',
-                        kcal: item.kcal,
-                        prot: item.protein,
-                        carb: item.carb,
-                        fat: item.fat,
-                        base_qty: item.base_qty,
-                        base_unit: item.base_unit,
-                        foodId: item.id,
-                        source: item.source || 'catalog'
-                    };
-                    html += `<div class="lib-item" onclick='selectFoodFromAPI(${JSON.stringify(dataItem).replace(/'/g, "&apos;")})'>
-                        <div style="display:flex; flex-direction:column;">
-                            <span>${escHtml(item.name)}${item.brand ? ` - ${escHtml(item.brand)}` : ''}</span>
-                            <small style="font-size:0.7rem; opacity:0.6;">${Math.round(item.kcal)}kcal | P:${item.protein}g C:${item.carb}g G:${item.fat}g (por ${item.base_qty}${item.base_unit})</small>
-                        </div>
-                    </div>`;
-                });
+                foodModalSearchLabel = 'Banco de Alimentos';
+                foodModalSearchBaseResults = catalogResults.map((item) => ({
+                    nome: item.name,
+                    brand: item.brand || '',
+                    kcal: item.kcal,
+                    prot: item.protein,
+                    carb: item.carb,
+                    fat: item.fat,
+                    base_qty: item.base_qty,
+                    base_unit: item.base_unit,
+                    foodId: item.id,
+                    source: item.source || 'catalog'
+                }));
+                applyFoodModalFiltersAndRender();
+                return;
             }
 
             if (catalogResults.length === 0) {
@@ -8112,13 +10535,11 @@ function searchFoodAPI(query) {
                 const resp = await fetch(url, { headers: { 'User-Agent': 'AplicativoConsultoria - Browser - v1.0' } });
                 const data = await resp.json();
                 if (data.products && data.products.length > 0) {
-                    html += `<div class="lib-category">Resultados (Open Food Facts)</div>`;
-                    data.products.forEach(p => {
+                    foodModalSearchLabel = 'Open Food Facts';
+                    foodModalSearchBaseResults = data.products.map((p) => {
                         const name = p.product_name || 'Desconhecido';
-                        const brand = p.brands ? ` - ${p.brands}` : '';
-                        const display = `${name}${brand}`;
-                        const pData = {
-                            nome: display,
+                        return {
+                            nome: name,
                             brand: p.brands || '',
                             kcal: Math.round(p.nutriments?.['energy-kcal_100g'] || 0),
                             prot: p.nutriments?.proteins_100g || 0,
@@ -8128,24 +10549,19 @@ function searchFoodAPI(query) {
                             base_unit: 'g',
                             source: 'openfoodfacts'
                         };
-                        html += `<div class="lib-item" onclick='selectFoodFromAPI(${JSON.stringify(pData).replace(/'/g, "&apos;")})'>
-                            <div style="display:flex; flex-direction:column;">
-                                <span>${display}</span>
-                                <small style="font-size:0.7rem; opacity:0.6;">${pData.kcal}kcal | P:${pData.prot}g C:${pData.carb}g (por 100g)</small>
-                            </div>
-                        </div>`;
                     });
+                    applyFoodModalFiltersAndRender();
+                    return;
                 }
             }
 
-            if (!html) {
-                html = '<div class="ex-empty-block" style="padding:1rem;">Nenhum alimento encontrado.</div>';
-            }
-
-            results.innerHTML = html;
+            foodModalSearchBaseResults = [];
+            foodModalSearchResults = [];
+            foodModalSearchActiveIndex = -1;
+            renderFoodSearchResults();
         } catch (err) {
             console.error(err);
-            results.innerHTML = '<div class="ex-empty-block" style="padding:1rem; color:#ef4444;">Erro na busca.</div>';
+            results.innerHTML = '<div class="food-quick-empty" style="color:#ef4444;">Erro ao buscar alimentos.</div>';
         }
     }, 500);
 }
@@ -8175,15 +10591,15 @@ function selectFoodFromAPI(data) {
         : selectedFoodReference.base_qty;
 
     document.getElementById('food-nome').value = data.nome;
-    document.getElementById('food-qtd').value = `${suggestionAmount}${selectedFoodReference.base_unit}`;
+    setFoodQuantityControls(suggestionAmount, selectedFoodReference.base_unit);
     recalculateFoodFromQuantity();
     updateFoodTargetHint();
-
-    const results = document.getElementById('food-library-results');
-    if (results) {
-        results.innerHTML = '';
-        results.classList.remove('active');
-    }
+    updateFoodModalProgressiveState();
+    updateFoodSelectionPreview();
+    registerRecentFood({
+        id: data.foodId || '',
+        name: data.nome
+    });
 }
 
 function recalculateFoodFromQuantity() {
@@ -8204,10 +10620,13 @@ function recalculateFoodFromQuantity() {
     const prot = calc.protein;
     const carb = calc.carb;
     const fat = calc.fat;
+    const parsedRoundedAmount = parsed.amount > 0 ? parsed.amount : amount;
+    setFoodQuantityControls(parsedRoundedAmount, parsed.unit || selectedFoodReference.base_unit);
     document.getElementById('food-kcal').value = String(kcal);
     document.getElementById('food-prot').value = String(prot);
     document.getElementById('food-carb').value = String(carb);
     document.getElementById('food-gord').value = String(fat);
+    updateFoodSelectionPreview();
 }
 
 async function saveCurrentFoodToCatalog() {
@@ -8243,6 +10662,7 @@ async function saveCurrentFoodToCatalog() {
         const hintEl = document.getElementById('food-target-hint');
         if (hintEl) hintEl.textContent = `${inserted.name} salvo no banco global.`;
         scheduleFoodsCatalogSync(30);
+        updateFoodSelectionPreview();
     }
 }
 
@@ -8280,6 +10700,7 @@ function applyRemainingCaloriesToCurrentFood() {
     if (!document.getElementById('food-qtd').value) {
         document.getElementById('food-qtd').value = 'Porção ajustada';
     }
+    updateFoodSelectionPreview();
 }
 
 function closeFoodModal() {
@@ -8287,9 +10708,13 @@ function closeFoodModal() {
     document.getElementById('food-modal').classList.remove('active');
     selectedFoodReference = null;
     pendingMealIdx = null;
+    foodModalSearchBaseResults = [];
+    foodModalSearchResults = [];
+    foodModalSearchActiveIndex = -1;
+    updateFoodModalProgressiveState();
 }
 
-function confirmAddFood() {
+function buildFoodModalItemPayload() {
     const nome = document.getElementById('food-nome').value;
     const qtd = document.getElementById('food-qtd').value;
     const kcalInput = parseDecimalSafe(document.getElementById('food-kcal').value);
@@ -8298,9 +10723,8 @@ function confirmAddFood() {
     const gord = parseFloat(document.getElementById('food-gord').value) || 0;
     const kcal = kcalInput > 0 ? kcalInput : Math.round((prot * 4) + (carb * 4) + (gord * 9));
 
-    if (!nome.trim()) return;
-
-    mealBlocks[pendingMealIdx].items.push({
+    if (!nome.trim()) return null;
+    return {
         nome: nome.trim(),
         qtd: qtd || '100g',
         kcal,
@@ -8311,43 +10735,146 @@ function confirmAddFood() {
         baseQty: selectedFoodReference?.base_qty || parseAmountAndUnit(qtd || '100g', 'g').amount || 100,
         baseUnit: selectedFoodReference?.base_unit || parseAmountAndUnit(qtd || '100g', 'g').unit || 'g',
         source: selectedFoodReference?.source || 'manual'
-    });
+    };
+}
+
+function getKcalBalanceMeta(current, target) {
+    const diff = Math.round((target || 0) - (current || 0));
+    if (diff < -80) return { tone: 'over', text: `Excesso ${Math.abs(diff)} kcal` };
+    if (diff > 80) return { tone: 'under', text: `Faltam ${diff} kcal` };
+    return { tone: 'ontrack', text: 'No alvo' };
+}
+
+function addCurrentFoodToMeal(options = {}) {
+    const keepOpen = !!options.keepOpen;
+    const payload = buildFoodModalItemPayload();
+    if (!payload || pendingMealIdx === null || !mealBlocks[pendingMealIdx]) return false;
+    mealBlocks[pendingMealIdx].items.push(payload);
     renderMeals();
     updateDietPlannerSummary();
+    signalStudentPlanDirty();
+    registerRecentFood({ id: payload.foodId || '', name: payload.nome });
+    if (keepOpen) {
+        updateFoodTargetHint();
+        return true;
+    }
     closeFoodModal();
+    return true;
+}
+
+function confirmAddFood() {
+    addCurrentFoodToMeal({ keepOpen: false });
+}
+
+function confirmAddFoodAndContinue() {
+    const added = addCurrentFoodToMeal({ keepOpen: true });
+    if (!added) return;
+    const qtyField = document.getElementById('food-qtd');
+    if (qtyField) qtyField.focus();
+}
+
+function adjustFoodQuantityBy(delta = 0) {
+    const qtyField = document.getElementById('food-qtd');
+    if (!qtyField) return;
+    const parsed = parseAmountAndUnit(qtyField.value || `${selectedFoodReference?.base_qty || 100}g`, selectedFoodReference?.base_unit || 'g');
+    const nextAmount = Math.max(1, Math.round((parsed.amount || 0) + Number(delta || 0)));
+    const unit = parsed.unit || selectedFoodReference?.base_unit || 'g';
+    qtyField.value = `${nextAmount}${unit}`;
+    recalculateFoodFromQuantity();
+}
+
+function duplicateLastMealFood() {
+    if (pendingMealIdx === null || !mealBlocks?.[pendingMealIdx]?.items?.length) return;
+    const last = mealBlocks[pendingMealIdx].items[mealBlocks[pendingMealIdx].items.length - 1];
+    if (!last) return;
+    mealBlocks[pendingMealIdx].items.push({ ...last });
+    renderMeals();
+    updateDietPlannerSummary();
+    signalStudentPlanDirty();
+    updateFoodTargetHint();
 }
 
 function updateDietSummary() {
     updateDietPlannerSummary();
     updateFoodTargetHint();
+    signalStudentPlanDirty();
+}
+
+function toggleFoodManualMacros() {
+    foodManualMacrosOpen = !foodManualMacrosOpen;
+    const panel = document.getElementById('food-manual-macros');
+    const btn = document.getElementById('food-toggle-manual-btn');
+    if (panel) panel.classList.toggle('open', foodManualMacrosOpen);
+    if (btn) {
+        btn.innerHTML = foodManualMacrosOpen
+            ? '<i class="ph-bold ph-eye-slash"></i> Ocultar edição manual'
+            : '<i class="ph-bold ph-sliders-horizontal"></i> Editar macros manualmente';
+    }
 }
 
 // â”€â”€â”€ Save plan â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function saveStudentPlan() {
     if (currentStudentIdx === null) return;
-    let students = readStorageJSON('trainerStudents', []);
-    const diet = students[currentStudentIdx].dietMeta || {};
-    diet.kcal = document.getElementById('diet-kcal-meta')?.value || '';
-    diet.protein = document.getElementById('diet-protein-meta')?.value || '';
-    diet.carb = document.getElementById('diet-carb-meta')?.value || '';
-    diet.fat = document.getElementById('diet-fat-meta')?.value || '';
+    const activeDietTab = document.getElementById('p-tab-nutricao')?.classList.contains('active')
+        || document.getElementById('p-tab-config')?.classList.contains('active');
+    if (activeDietTab && !ensureDietWriteAllowed('planner')) return;
+    setSettingsSavebarState('saving');
+    try {
+        let students = readStorageJSON('trainerStudents', []);
+        const diet = students[currentStudentIdx].dietMeta || {};
+        diet.kcal = document.getElementById('diet-kcal-meta')?.value || '';
+        diet.protein = document.getElementById('diet-protein-meta')?.value || '';
+        diet.carb = document.getElementById('diet-carb-meta')?.value || '';
+        diet.fat = document.getElementById('diet-fat-meta')?.value || '';
+        const currentStudent = students[currentStudentIdx] || {};
+        const currentBilling = getStudentBillingData(currentStudent);
+        const billingStartDate = sanitizeUserInput(document.getElementById('student-billing-start-date')?.value || '', { maxLen: 10 });
+        const billingCurrentStatus = normalizeBillingStatus(document.getElementById('student-billing-current-status')?.value || 'pendente');
+        const billingMonthlyAmount = sanitizeUserInput(document.getElementById('student-billing-monthly-amount')?.value || '', { maxLen: 14 });
+        const billingCurrentPaidAt = sanitizeUserInput(document.getElementById('student-billing-current-paid-at')?.value || '', { maxLen: 10 });
+        const billingNotes = sanitizeUserInput(document.getElementById('student-billing-notes')?.value || '', { allowNewlines: true, maxLen: 400 });
+        const billingHistory = Array.isArray(currentBilling.billingHistory) ? [...currentBilling.billingHistory] : [];
 
-    students[currentStudentIdx].workoutBlocks = workoutBlocks;
-    students[currentStudentIdx].mealBlocks = mealBlocks;
-    students[currentStudentIdx].dietMeta = diet;
-    students[currentStudentIdx].active = true; // Mark protocol as active when saved
-    saveStudentData(students);
+        const parsedStart = parseISODateSafe(billingStartDate);
+        const monthIndex = getConsultoriaMonthIndex(parsedStart);
+        if (monthIndex > 0 && billingCurrentStatus === 'pago') {
+            const competenceDate = new Date(parsedStart);
+            competenceDate.setMonth(competenceDate.getMonth() + (monthIndex - 1));
+            const competence = formatCompetence(competenceDate);
+            const paidAt = parseISODateSafe(billingCurrentPaidAt) || new Date();
+            const entry = normalizeBillingHistoryItem({
+                competence,
+                status: 'pago',
+                paidAt: paidAt.toISOString(),
+                updatedAt: new Date().toISOString()
+            });
+            const existingIdx = billingHistory.findIndex((item) => item?.competence === competence);
+            if (existingIdx >= 0) billingHistory[existingIdx] = { ...billingHistory[existingIdx], ...entry };
+            else billingHistory.push(entry);
+        }
 
-    // Visual feedback
-    const btn = document.querySelector('.btn-save-plan');
-    if (btn) {
-        btn.innerHTML = '<i class="ph-bold ph-check"></i> Salvo!';
-        btn.style.background = '#22c55e';
+        students[currentStudentIdx].workoutBlocks = workoutBlocks;
+        students[currentStudentIdx].mealBlocks = mealBlocks;
+        students[currentStudentIdx].dietMeta = diet;
+        students[currentStudentIdx].billingStartDate = billingStartDate;
+        students[currentStudentIdx].billingCurrentStatus = billingCurrentStatus;
+        students[currentStudentIdx].billingMonthlyAmount = billingMonthlyAmount;
+        students[currentStudentIdx].billingCurrentPaidAt = billingCurrentPaidAt;
+        students[currentStudentIdx].billingNotes = billingNotes;
+        students[currentStudentIdx].billingHistory = billingHistory;
+        students[currentStudentIdx].active = true; // Mark protocol as active when saved
+        saveStudentData(students);
+        loadStudentBillingConfigTab(students[currentStudentIdx]);
+        updateTrainerStats(document.getElementById('alunos-search')?.value || document.getElementById('global-search')?.value || '');
+        clearStudentConfigDirty();
+        setSettingsSavebarState('saved');
         setTimeout(() => {
-            btn.innerHTML = '<i class="ph-bold ph-floppy-disk"></i> Salvar Alterações';
-            btn.style.background = '';
-        }, 2000);
+            if (!studentConfigDirty) setSettingsSavebarState('clean');
+        }, 1800);
+    } catch (error) {
+        console.error('Failed to save student plan', error);
+        setSettingsSavebarState('error');
     }
 }
 

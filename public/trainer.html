@@ -124,59 +124,125 @@
         <div id="trainer-dashboard-screen" class="screen">
             <div class="dashboard-layout">
                 <!-- Sidebar -->
-                <aside class="sidebar">
-                    <div class="sidebar-logo">
-                        <div class="logo-icon glow" style="width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                            <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="a"><stop offset="0%" stop-color="#A3E635"/><stop offset="100%" stop-color="#84CC16"/></linearGradient><filter id="b"><feGaussianBlur stdDeviation="1"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect x="6" y="15" width="20" height="2" rx="1" fill="url(#a)"/><rect x="2" y="12" width="5" height="8" rx="1.5" fill="url(#a)"/><circle cx="4.5" cy="11" r="1" fill="url(#a)"/><circle cx="4.5" cy="21" r="1" fill="url(#a)"/><rect x="25" y="12" width="5" height="8" rx="1.5" fill="url(#a)"/><circle cx="27.5" cy="11" r="1" fill="url(#a)"/><circle cx="27.5" cy="21" r="1" fill="url(#a)"/><rect x="13" y="14" width="6" height="4" rx="1" fill="#121214"/><circle cx="16" cy="16" r="1.2" fill="url(#a)"/></svg>
+                <aside class="sidebar sidebar-refined">
+                    <div class="sidebar-top">
+                        <button class="workspace-switcher" type="button" aria-label="Selecionar workspace">
+                            <span class="workspace-switcher-left">
+                                <span class="workspace-logo">
+                                    <i class="ph-thin ph-moon"></i>
+                                </span>
+                                <span class="workspace-name-wrap">
+                                    <span class="workspace-name" id="sidebar-trainer-name">Modo Admin</span>
+                                    <button class="workspace-code-badge" id="sidebar-trainer-code-badge" type="button" onclick="copySidebarAdminCode(event)" aria-label="Copiar código do admin">
+                                        <span id="sidebar-trainer-code">00001</span>
+                                        <i class="ph-thin ph-copy"></i>
+                                    </button>
+                                </span>
+                            </span>
+                            <span class="workspace-chevron"><i class="ph-thin ph-caret-down"></i></span>
+                        </button>
+
+                        <button class="sidebar-search-trigger" type="button" aria-label="Buscar" onclick="openMobileDashboardSearch()">
+                            <span class="search-left"><i class="ph-thin ph-magnifying-glass"></i> Search</span>
+                            <span class="search-shortcut">/</span>
+                        </button>
+                    </div>
+
+                    <div class="sidebar-scroll-area">
+                        <div class="sidebar-group">
+                            <a href="#/dashboard" class="nav-item active" id="nav-dashboard" onclick="switchDashView('dashboard')">
+                                <i class="ph-thin ph-squares-four"></i> Dashboard
+                            </a>
                         </div>
-                        <div>
-                            <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-main);">Adicionar nome
-                            </h2>
-                            <p style="font-size: 0.75rem; color: var(--primary-color);">Trainer Admin</p>
+
+                        <div class="sidebar-group">
+                            <a href="#/dashboard" class="nav-item" id="nav-analytics" onclick="switchDashView('dashboard')">
+                                <i class="ph-thin ph-chart-line-up"></i> Analytics
+                            </a>
+                            <a href="#/alunos" class="nav-item" id="nav-alunos" onclick="switchDashView('alunos')">
+                                <i class="ph-thin ph-users"></i> Clientes
+                                <span class="nav-badge" id="pending-nav-badge" style="display:none">0</span>
+                            </a>
+                            <a href="#/duvidas" class="nav-item" id="nav-duvidas" onclick="switchDashView('duvidas')">
+                                <i class="ph-thin ph-chat-circle-dots"></i> Dúvidas
+                                <span class="nav-badge" id="duvidas-nav-badge" style="display:none">0</span>
+                            </a>
+                            <a href="#/configuracoes" class="nav-item" id="nav-config" onclick="switchDashView('config')">
+                                <i class="ph-thin ph-gear-six"></i> Configurações
+                            </a>
                         </div>
                     </div>
 
-                    <nav class="sidebar-nav">
-                        <a href="#/dashboard" class="nav-item active" id="nav-dashboard" onclick="switchDashView('dashboard')">
-                            <i class="ph-bold ph-squares-four"></i> Dashboard
-                        </a>
-                        <a href="#/alunos" class="nav-item" id="nav-alunos" onclick="switchDashView('alunos')">
-                            <i class="ph-bold ph-users"></i> Alunos
-                            <span class="nav-badge" id="pending-nav-badge" style="display:none">0</span>
-                        </a>
-                        <a href="#/duvidas" class="nav-item" id="nav-duvidas" onclick="switchDashView('duvidas')">
-                            <i class="ph-bold ph-chat-circle-dots"></i> Dúvidas
-                            <span class="nav-badge" id="duvidas-nav-badge" style="display:none">0</span>
-                        </a>
-                        <a href="#/configuracoes" class="nav-item" id="nav-config" onclick="switchDashView('config')">
-                            <i class="ph-bold ph-gear"></i> Configurações
-                        </a>
-                        <a href="#" class="nav-item">
-                            <i class="ph-bold ph-file-text"></i> Avaliações
-                        </a>
-                    </nav>
-
                     <div class="sidebar-footer">
                         <button class="nav-item btn-logout" onclick="window.location.href='index.html'">
-                            <i class="ph-bold ph-sign-out"></i> Sair
+                            <i class="ph-thin ph-sign-out"></i> Sair
                         </button>
                     </div>
                 </aside>
 
                 <!-- Main Content -->
                 <main class="main-content">
-                    <header class="top-header">
-                        <h1 class="page-title" id="main-page-title">Painel de Controle</h1>
-
-                        <div class="header-profile">
-                            <button class="profile-avatar profile-menu-trigger" onclick="toggleTrainerProfileMenu(event)" title="Abrir perfil">
-                                <i class="ph-fill ph-user"></i>
+                    <div class="mobile-topbar">
+                        <div class="mobile-topbar-brand">
+                            <span class="workspace-logo"><i class="ph-thin ph-moon"></i></span>
+                            <span>Nicolas Finance</span>
+                        </div>
+                        <button class="mobile-topbar-search" type="button" onclick="openMobileDashboardSearch()">
+                            <i class="ph-thin ph-magnifying-glass"></i>
+                        </button>
+                    </div>
+                    <header class="top-header dashboard-header">
+                        <div class="dashboard-header-main">
+                            <h1 class="page-title" id="main-page-title">Painel de Controle</h1>
+                            <p class="dashboard-header-sub">Visão rápida do engajamento e progresso dos alunos.</p>
+                        </div>
+                        <div class="dashboard-header-actions">
+                            <button class="btn-primary btn-sm" id="dashboard-primary-action" onclick="switchDashView('alunos')">
+                                <i class="ph-bold ph-user-plus"></i>
+                                Gerenciar alunos
                             </button>
                         </div>
                     </header>
 
                     <!-- VIEW: DASHBOARD (stats overview) -->
                     <div id="view-dashboard">
+                        <section id="dashboard-onboarding" class="dashboard-onboarding" style="display:none">
+                            <div class="tutorial-chip">Tutorial rápido</div>
+                            <h3>Comece por aqui e monte o treino em menos de 1 minuto</h3>
+                            <div class="dashboard-tutorial-steps">
+                                <div class="tutorial-step">
+                                    <span class="tutorial-index">1</span>
+                                    <div>
+                                        <strong>Entre no aluno</strong>
+                                        <p>Clique em <em>Entrar no aluno</em> na lista para abrir o editor.</p>
+                                    </div>
+                                </div>
+                                <div class="tutorial-step">
+                                    <span class="tutorial-index">2</span>
+                                    <div>
+                                        <strong>Monte o treino base</strong>
+                                        <p>Adicione blocos e exercícios na aba <em>Treino</em>.</p>
+                                    </div>
+                                </div>
+                                <div class="tutorial-step">
+                                    <span class="tutorial-index">3</span>
+                                    <div>
+                                        <strong>Salve e acompanhe engajamento</strong>
+                                        <p>Use os indicadores e o gráfico para validar a evolução semanal.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="dashboard-onboarding-actions">
+                                <button class="btn-outline" onclick="dismissTrainerDashboardTutorial()">Entendi</button>
+                                <button class="btn-link" onclick="dismissTrainerDashboardTutorial(true)">Não mostrar novamente</button>
+                            </div>
+                        </section>
+                        <div class="dashboard-tutorial-reopen">
+                            <button class="btn-link" id="dashboard-tutorial-reopen" onclick="showTrainerDashboardTutorial()">
+                                Ver tutorial novamente
+                            </button>
+                        </div>
+
                         <div class="trainer-stats-row status-bar">
                             <div class="t-stat-card status-total">
                                 <h3 id="stat-total">0</h3>
@@ -190,6 +256,14 @@
                                 <h3 id="stat-pendentes" class="text-warning">0</h3>
                                 <p>Pendentes</p>
                             </div>
+                            <div class="t-stat-card status-pending">
+                                <h3 id="stat-fin-pendente" class="text-warning">0</h3>
+                                <p>Financeiro Pendente</p>
+                            </div>
+                            <div class="t-stat-card status-inactive">
+                                <h3 id="stat-fin-atrasado" style="color:#ff6b6b;">0</h3>
+                                <p>Financeiro Atrasado</p>
+                            </div>
                         </div>
 
                         <div class="dashboard-insights">
@@ -199,13 +273,23 @@
                                         <h3>Engajamento semanal</h3>
                                         <p class="subtitle">Treinos concluidos nos ultimos 7 dias</p>
                                     </div>
+                                    <div class="engagement-actions" role="group" aria-label="Período do gráfico">
+                                        <button type="button" class="engagement-range-btn active" data-range="7" onclick="setEngagementRange(7, event)">7d</button>
+                                        <button type="button" class="engagement-range-btn" data-range="14" onclick="setEngagementRange(14, event)">14d</button>
+                                        <button type="button" class="engagement-range-btn" data-range="30" onclick="setEngagementRange(30, event)">30d</button>
+                                    </div>
                                     <div class="engagement-total">
                                         <span>Total</span>
                                         <strong id="engagement-total">0</strong>
                                     </div>
                                 </div>
+                                <div class="engagement-summary">
+                                    <span>Média diária <strong id="engagement-avg">0</strong></span>
+                                    <span>Melhor dia <strong id="engagement-peak">-</strong></span>
+                                </div>
                                 <div class="engagement-chart">
                                     <svg id="engagement-chart" viewBox="0 0 300 120" aria-hidden="true"></svg>
+                                    <div id="engagement-tooltip" class="engagement-tooltip" role="status" aria-live="polite"></div>
                                     <div class="engagement-labels" id="engagement-labels"></div>
                                 </div>
                             </div>
@@ -249,6 +333,7 @@
                                 <span>OBJETIVO</span>
                                 <span>PESO</span>
                                 <span>CONSUMO DIÁRIO</span>
+                                <span>FINANCEIRO</span>
                                 <span style="text-align: right;">AÇÕES</span>
                             </div>
                             <div class="student-list-container" id="trainer-student-list">
@@ -428,6 +513,24 @@
                                 </div>
                             </div>
                         </main>
+                        <nav class="mobile-bottom-nav" aria-label="Navegação mobile">
+                            <button type="button" class="mobile-nav-item active" id="m-nav-dashboard" onclick="switchDashView('dashboard')">
+                                <i class="ph-thin ph-squares-four"></i>
+                                <span>Dashboard</span>
+                            </button>
+                            <button type="button" class="mobile-nav-item" id="m-nav-alunos" onclick="switchDashView('alunos')">
+                                <i class="ph-thin ph-users"></i>
+                                <span>Clientes</span>
+                            </button>
+                            <button type="button" class="mobile-nav-item" id="m-nav-duvidas" onclick="switchDashView('duvidas')">
+                                <i class="ph-thin ph-chat-circle-dots"></i>
+                                <span>Dúvidas</span>
+                            </button>
+                            <button type="button" class="mobile-nav-item" id="m-nav-profile" onclick="toggleTrainerProfileMenu(event)">
+                                <i class="ph-thin ph-user-circle"></i>
+                                <span>Perfil</span>
+                            </button>
+                        </nav>
                     </div>
                 </div>
             </div>
@@ -600,6 +703,9 @@
                 <button class="prof-tab" id="p-nav-anamnese" onclick="switchProfileTab('anamnese')">
                     <i class="ph-bold ph-clipboard-text"></i> Anamnese
                 </button>
+                <button class="prof-tab" id="p-nav-config" onclick="switchProfileTab('config')">
+                    <i class="ph-bold ph-gear"></i> Configurações
+                </button>
             </div>
 
             <!-- ── TAB: TREINO ─────────────────────────────────────── -->
@@ -760,6 +866,119 @@
                 </div>
             </div>
 
+            <!-- ── TAB: CONFIGURAÇÕES ─────────────────────────────── -->
+            <div id="p-tab-config" class="p-tab-content">
+                <div class="settings-grid settings-grid-config">
+                    <section class="settings-card settings-card-security">
+                        <div class="settings-card-header">
+                            <h2>Segurança da Conta</h2>
+                            <p class="subtitle">Senha global do treinador com validação em tempo real.</p>
+                        </div>
+                        <div class="settings-field">
+                            <label>Senha atual</label>
+                            <div class="settings-password-wrap">
+                                <input type="password" id="trainer-current-password" class="q-input" placeholder="Digite a senha atual">
+                                <button type="button" class="settings-eye-btn" onclick="togglePasswordVisibility('trainer-current-password', this)" aria-label="Mostrar senha"><i class="ph-bold ph-eye"></i></button>
+                            </div>
+                        </div>
+                        <div class="settings-field">
+                            <label>Nova senha</label>
+                            <div class="settings-password-wrap">
+                                <input type="password" id="trainer-new-password" class="q-input" placeholder="Mínimo 8 caracteres com letras e números" oninput="handleTrainerPasswordInputFeedback()">
+                                <button type="button" class="settings-eye-btn" onclick="togglePasswordVisibility('trainer-new-password', this)" aria-label="Mostrar senha"><i class="ph-bold ph-eye"></i></button>
+                            </div>
+                            <small id="trainer-password-hint" class="settings-field-hint">Use pelo menos 8 caracteres com letras e números.</small>
+                        </div>
+                        <div class="settings-field">
+                            <label>Confirmar nova senha</label>
+                            <div class="settings-password-wrap">
+                                <input type="password" id="trainer-confirm-password" class="q-input" placeholder="Repita a nova senha" oninput="handleTrainerPasswordInputFeedback()">
+                                <button type="button" class="settings-eye-btn" onclick="togglePasswordVisibility('trainer-confirm-password', this)" aria-label="Mostrar senha"><i class="ph-bold ph-eye"></i></button>
+                            </div>
+                        </div>
+                        <div class="settings-actions-row">
+                            <button class="btn-secondary btn-sm settings-local-btn" onclick="changeTrainerPassword()">Alterar senha</button>
+                        </div>
+                        <p id="trainer-password-feedback" class="settings-feedback" aria-live="polite"></p>
+                    </section>
+
+                    <section class="settings-card settings-card-billing">
+                        <div class="settings-card-header">
+                            <h2>Pagamento Mensal do Aluno</h2>
+                            <p class="subtitle">Atualize status, valor e histórico com visão rápida do ciclo atual.</p>
+                        </div>
+                        <div class="settings-field">
+                            <label>Data de início da consultoria</label>
+                            <input type="date" id="student-billing-start-date" class="q-input" onchange="refreshStudentBillingSummaryUI()">
+                        </div>
+                        <div class="settings-field">
+                            <label>Status do ciclo atual</label>
+                            <select id="student-billing-current-status" class="q-input" onchange="refreshStudentBillingSummaryUI()">
+                                <option value="pendente">Pendente</option>
+                                <option value="pago">Pago</option>
+                                <option value="atrasado">Atrasado</option>
+                            </select>
+                        </div>
+                        <div class="settings-field">
+                            <label>Valor mensal (R$)</label>
+                            <input type="number" id="student-billing-monthly-amount" class="q-input" min="0" step="0.01" placeholder="Ex: 297,00">
+                        </div>
+                        <div class="settings-field">
+                            <label>Data do pagamento atual (opcional)</label>
+                            <input type="date" id="student-billing-current-paid-at" class="q-input">
+                        </div>
+                        <div class="settings-field">
+                            <label>Observações (opcional)</label>
+                            <textarea id="student-billing-notes" class="q-input" rows="2" placeholder="Ex: pagamento via PIX no dia 10"></textarea>
+                        </div>
+                        <div class="settings-billing-summary" id="student-billing-summary-card">
+                            <p><strong>Mês atual da consultoria:</strong> <span id="student-billing-month-label">Não iniciado</span></p>
+                            <p><strong>Situação:</strong> <span id="student-billing-status-label">Pendente</span></p>
+                            <p><strong>Próximo vencimento:</strong> <span id="student-billing-next-due-label">-</span></p>
+                        </div>
+                        <div class="settings-actions-row">
+                            <button id="student-billing-pay-btn" class="btn-secondary btn-sm settings-local-btn" onclick="markCurrentStudentBillingCyclePaid()">Marcar ciclo como pago</button>
+                            <span id="student-billing-inline-feedback" class="settings-inline-feedback" aria-live="polite"></span>
+                        </div>
+                        <div class="settings-field">
+                            <label>Filtrar histórico</label>
+                            <div class="settings-inline">
+                                <select id="student-billing-history-month" class="q-input" onchange="applyStudentBillingHistoryFilters()">
+                                    <option value="">Todos os meses</option>
+                                    <option value="01">Janeiro</option>
+                                    <option value="02">Fevereiro</option>
+                                    <option value="03">Março</option>
+                                    <option value="04">Abril</option>
+                                    <option value="05">Maio</option>
+                                    <option value="06">Junho</option>
+                                    <option value="07">Julho</option>
+                                    <option value="08">Agosto</option>
+                                    <option value="09">Setembro</option>
+                                    <option value="10">Outubro</option>
+                                    <option value="11">Novembro</option>
+                                    <option value="12">Dezembro</option>
+                                </select>
+                                <select id="student-billing-history-year" class="q-input" onchange="applyStudentBillingHistoryFilters()">
+                                    <option value="">Todos os anos</option>
+                                </select>
+                                <button class="btn-secondary btn-sm settings-local-btn" type="button" onclick="clearStudentBillingHistoryFilters()">Limpar</button>
+                            </div>
+                        </div>
+                        <div class="settings-field">
+                            <label>Histórico mensal</label>
+                            <div id="student-billing-history-list" class="settings-history-list"></div>
+                        </div>
+                    </section>
+                </div>
+                <div class="settings-sticky-savebar" id="settings-sticky-savebar">
+                    <div class="settings-savebar-left">
+                        <span id="settings-savebar-dot" class="save-dot"></span>
+                        <span id="settings-savebar-status">Sem alterações pendentes</span>
+                    </div>
+                    <button id="settings-savebar-btn" class="btn-primary" onclick="saveStudentPlan()">Salvar Alterações</button>
+                </div>
+            </div>
+
         </div><!-- end prof-editor-layout -->
 
         <!-- ── Modal: Add Exercise ─────────────────────────────────── -->
@@ -774,7 +993,7 @@
                 <div class="ex-hevy-search-wrap">
                     <i class="ph-bold ph-magnifying-glass"></i>
                     <input type="text" id="ex-nome" class="q-input" placeholder="Procurar exercício"
-                        autocomplete="off" oninput="searchExerciseLibrary(this.value)">
+                        autocomplete="off" oninput="searchExerciseLibrary(this.value)" onkeydown="handleExerciseSearchKeydown(event)">
                 </div>
 
                 <div class="ex-hevy-filter-buttons">
@@ -827,25 +1046,67 @@
 
 
         <!-- ── Modal: Add Meal Item ────────────────────────────────── -->
-        <div id="food-modal-overlay" class="ex-modal-overlay" onclick="closeFoodModal()"></div>
-        <div id="food-modal" class="ex-modal">
+        <div id="food-modal-overlay" class="ex-modal-overlay"></div>
+        <div id="food-modal" class="ex-modal food-quick-modal">
             <div class="ex-modal-header">
                 <h3>Adicionar Alimento</h3>
                 <button class="btn-icon" onclick="closeFoodModal()"><i class="ph-bold ph-x"></i></button>
             </div>
-            <div class="ex-modal-body">
-                <div class="input-group" style="width:100%; position: relative;">
-                    <label>ALIMENTO / PREPARAÇÃO</label>
+            <div class="ex-modal-body food-quick-body">
+                <section class="food-zone food-zone-search input-group" style="width:100%; position: relative;">
+                    <label>BUSCA DE ALIMENTO</label>
                     <input type="text" id="food-nome" class="q-input" placeholder="Ex: Frango grelhado"
-                        autocomplete="off" oninput="searchFoodAPI(this.value)">
-                    <div id="food-library-results" class="library-results"></div>
-                </div>
-                <div id="food-target-hint" class="food-target-hint"></div>
-                <div class="ex-modal-grid food-modal-grid">
+                        autocomplete="off" oninput="searchFoodAPI(this.value)" onkeydown="handleFoodModalSearchKeydown(event)">
+                    <div id="food-macro-filters" class="food-macro-filters">
+                        <div class="food-filter-group">
+                            <button type="button" class="food-macro-chip active" data-group="macro" data-value="all" onclick="setFoodModalFilter('macro','all')">Todos</button>
+                            <button type="button" class="food-macro-chip" data-group="macro" data-value="high-protein" onclick="setFoodModalFilter('macro','high-protein')">Alto em proteína</button>
+                            <button type="button" class="food-macro-chip" data-group="macro" data-value="high-carb" onclick="setFoodModalFilter('macro','high-carb')">Alto em carbo</button>
+                            <button type="button" class="food-macro-chip" data-group="macro" data-value="high-fat" onclick="setFoodModalFilter('macro','high-fat')">Alto em gordura</button>
+                            <button type="button" class="food-macro-chip" data-group="kcal" data-value="low" onclick="setFoodModalFilter('kcal','low')">Baixo kcal</button>
+                            <button type="button" class="food-macro-chip" data-group="kcal" data-value="medium" onclick="setFoodModalFilter('kcal','medium')">Médio kcal</button>
+                            <button type="button" class="food-macro-chip" data-group="kcal" data-value="high" onclick="setFoodModalFilter('kcal','high')">Alto kcal</button>
+                            <button type="button" class="food-macro-chip" data-group="type" data-value="animal" onclick="setFoodModalFilter('type','animal')">Animal</button>
+                            <button type="button" class="food-macro-chip" data-group="type" data-value="vegetal" onclick="setFoodModalFilter('type','vegetal')">Vegetal</button>
+                        </div>
+                        <div class="food-filter-group food-filter-group-meal">
+                            <button type="button" class="food-macro-chip" data-group="meal" data-value="cafe" onclick="setFoodModalFilter('meal','cafe')">Café</button>
+                            <button type="button" class="food-macro-chip" data-group="meal" data-value="almoco" onclick="setFoodModalFilter('meal','almoco')">Almoço</button>
+                            <button type="button" class="food-macro-chip" data-group="meal" data-value="jantar" onclick="setFoodModalFilter('meal','jantar')">Jantar</button>
+                            <button type="button" class="food-macro-chip" data-group="meal" data-value="lanche" onclick="setFoodModalFilter('meal','lanche')">Lanche</button>
+                            <button type="button" class="food-macro-chip" data-group="meal" data-value="ceia" onclick="setFoodModalFilter('meal','ceia')">Ceia</button>
+                            <button type="button" class="food-macro-chip" data-group="flags" data-value="favorites" onclick="toggleFoodModalFlagFilter('favorites')">Favoritos</button>
+                            <button type="button" class="food-macro-chip" data-group="flags" data-value="recent" onclick="toggleFoodModalFlagFilter('recent')">Recentes</button>
+                            <button type="button" class="food-macro-chip ghost" onclick="clearFoodModalFilters()">Limpar</button>
+                        </div>
+                    </div>
+                </section>
+                <section class="food-zone food-zone-results">
+                    <div id="food-library-results" class="library-results food-quick-results"></div>
+                </section>
+                <section id="food-config-zone" class="food-zone food-zone-config is-disabled">
+                <div id="food-selection-preview" class="food-quick-preview">Selecione um alimento para ver a prévia de macros.</div>
+                <div id="food-target-hint" class="food-target-hint food-quick-target"></div>
+                <div class="food-quick-main-grid">
                     <div class="input-group">
                         <label>QUANTIDADE</label>
-                        <input type="text" id="food-qtd" class="q-input" placeholder="150g" oninput="recalculateFoodFromQuantity()">
+                        <input type="text" id="food-qtd" class="q-input food-hidden-input" placeholder="150g" oninput="recalculateFoodFromQuantity()">
+                        <div class="food-qty-control">
+                            <input type="range" id="food-qty-slider" min="1" max="600" step="1" value="150" oninput="syncFoodQuantityFromSlider(this.value)">
+                            <div class="food-qty-meta">
+                                <input type="number" id="food-qty-number" class="q-input" min="1" value="150" oninput="syncFoodQuantityFromNumber(this.value)">
+                                <span id="food-qty-unit" class="food-qty-unit">g</span>
+                            </div>
+                        </div>
                     </div>
+                    <button type="button" id="food-toggle-manual-btn" class="food-quick-toggle-manual" onclick="toggleFoodManualMacros()">
+                        <i class="ph-bold ph-sliders-horizontal"></i> Editar macros
+                    </button>
+                    <button type="button" id="food-apply-remaining-btn" class="food-quick-magic-btn" onclick="applyRemainingCaloriesToCurrentFood()">
+                        <i class="ph-bold ph-magic-wand"></i> Ajustar por kcal restante
+                    </button>
+                </div>
+                <div id="food-manual-macros" class="ex-modal-grid food-modal-grid food-manual-macros">
                     <div class="input-group">
                         <label>KCAL</label>
                         <input type="number" id="food-kcal" class="q-input" placeholder="250">
@@ -863,17 +1124,21 @@
                         <input type="number" id="food-gord" class="q-input" placeholder="0">
                     </div>
                 </div>
+                </section>
             </div>
-            <div class="ex-modal-footer">
-                <button class="btn-secondary" style="width:auto;padding:0.75rem 1.5rem;"
+
+            <div class="ex-modal-footer food-quick-footer">
+                <div class="food-quick-secondary-actions">
+                    <button class="btn-secondary" style="width:auto;padding:0.75rem 1.1rem;"
                     onclick="saveCurrentFoodToCatalog()">Salvar no banco</button>
-                <button class="btn-secondary" style="width:auto;padding:0.75rem 1.5rem;"
-                    onclick="applyRemainingCaloriesToCurrentFood()">Ajustar por kcal restante</button>
-                <button class="btn-secondary" style="width:auto;padding:0.75rem 1.5rem;"
+                    <button class="btn-secondary" style="width:auto;padding:0.75rem 1.1rem;"
                     onclick="closeFoodModal()">Cancelar</button>
-                <button class="btn-primary" style="width:auto;padding:0.75rem 1.5rem;" onclick="confirmAddFood()">
+                </div>
+                <div class="food-quick-primary-actions">
+                    <button id="food-confirm-btn" class="btn-primary" style="width:auto;padding:0.75rem 1.2rem;" onclick="confirmAddFood()">
                     <i class="ph-bold ph-check"></i> Adicionar
-                </button>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -966,6 +1231,7 @@
         </div>
     </div>
 
+    <script src="app-config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase.js"></script>
     <script src="script.js"></script>
