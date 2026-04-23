@@ -17000,3 +17000,185 @@ body {
         transform: translate3d(20px, -18px, 0) scale(1.05);
     }
 }
+
+/* ==========================================
+   AUTH UX FIXES + PREMIUM POLISH (LOGIN/SIGNUP)
+   ========================================== */
+
+.auth-screen .auth-bg-layer {
+    background:
+        radial-gradient(circle at 50% 42%, rgba(66, 94, 24, 0.28) 0%, rgba(20, 28, 12, 0.1) 34%, rgba(5, 8, 5, 0) 62%),
+        radial-gradient(circle at 18% 10%, rgba(163, 230, 53, 0.13) 0%, rgba(163, 230, 53, 0) 48%),
+        radial-gradient(circle at 78% 95%, rgba(132, 204, 22, 0.12) 0%, rgba(132, 204, 22, 0) 44%),
+        linear-gradient(160deg, rgba(2, 6, 3, 0.98) 0%, rgba(2, 6, 3, 0.92) 35%, rgba(4, 8, 5, 0.98) 100%);
+}
+
+.auth-screen .auth-card {
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    background:
+        linear-gradient(170deg, rgba(163, 230, 53, 0.08) 0%, rgba(163, 230, 53, 0) 36%),
+        rgba(0, 0, 0, 0.4);
+}
+
+.auth-screen .auth-field {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.4rem;
+    border: 0;
+    min-height: auto;
+    background: transparent;
+}
+
+.auth-screen .auth-field-label {
+    margin: 0;
+    color: #c7cec6;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding-left: 0.1rem;
+}
+
+.auth-screen .auth-input-shell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 56px;
+    border-radius: var(--auth-radius-md);
+    border: 1px solid #27272a;
+    background: rgba(24, 24, 27, 0.5);
+    transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.auth-screen .auth-input-shell:hover {
+    border-color: #3f3f46;
+}
+
+.auth-screen .auth-input-shell:focus-within {
+    border-color: #a3e635;
+    box-shadow: 0 0 0 4px rgba(163, 230, 53, 0.16), 0 0 18px rgba(163, 230, 53, 0.2);
+    background: rgba(24, 24, 27, 0.68);
+}
+
+.auth-screen .auth-input-shell .auth-field-icon {
+    width: 40px;
+    margin-left: 0.5rem;
+    color: #a1a1aa;
+}
+
+.auth-screen .auth-input-shell input {
+    width: 100%;
+    border: 0;
+    outline: none;
+    color: #f4f7f3;
+    background: transparent;
+    padding: 0.95rem 2.75rem 0.95rem 0;
+    font-size: 0.95rem;
+    font-weight: 500;
+}
+
+.auth-screen .auth-input-shell input::placeholder {
+    color: #71717a;
+}
+
+.auth-screen .auth-input-shell .auth-pass-toggle {
+    right: 0.55rem;
+}
+
+.auth-screen .auth-submit {
+    background: linear-gradient(150deg, #b8ff4a 0%, #8bd91a 100%);
+    border: 1px solid rgba(163, 230, 53, 0.82);
+    box-shadow: 0 14px 30px rgba(163, 230, 53, 0.28), 0 0 0 1px rgba(163, 230, 53, 0.28);
+    transform-origin: center;
+}
+
+.auth-screen .auth-submit:hover:not(:disabled) {
+    transform: scale(1.02);
+    box-shadow: 0 20px 44px rgba(163, 230, 53, 0.35), 0 0 0 1px rgba(163, 230, 53, 0.36);
+}
+
+.auth-screen .auth-secondary-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.auth-screen .auth-alt-btn {
+    width: 100%;
+    min-height: 46px;
+    background: rgba(24, 24, 27, 0.92);
+    border-color: #27272a;
+}
+
+.auth-screen .auth-alt-btn .lucide-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.auth-screen .auth-alt-btn:hover {
+    border-color: rgba(163, 230, 53, 0.5);
+    box-shadow: 0 0 0 2px rgba(163, 230, 53, 0.14);
+}
+
+.auth-screen .auth-footer {
+    color: #c4ccc2;
+}
+
+.auth-screen .auth-footer a {
+    color: #a3e635;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 160ms ease, color 160ms ease;
+}
+
+.auth-screen .auth-footer a:hover {
+    color: #c9ff74;
+    text-decoration: none;
+    border-bottom-color: #c9ff74;
+}
+
+@media (max-width: 640px) {
+    .auth-screen .auth-secondary-actions {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Auth visibility fix: never render two auth screens at once */
+.auth-screen {
+    display: none !important;
+}
+
+.auth-screen.active {
+    display: flex !important;
+}
+
+/* Smooth transition between login and signup */
+.auth-screen.auth-screen-enter .auth-card {
+    animation: authScreenEnter 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.auth-screen.auth-screen-enter .auth-bg-layer {
+    animation: authBackdropEnter 320ms ease-out both;
+}
+
+@keyframes authScreenEnter {
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.985);
+        filter: blur(2px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        filter: blur(0);
+    }
+}
+
+@keyframes authBackdropEnter {
+    from {
+        opacity: 0.35;
+    }
+    to {
+        opacity: 1;
+    }
+}

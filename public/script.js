@@ -1,8 +1,26 @@
 ﻿function hideAllScreens() {
     const screens = document.querySelectorAll('.screen');
-    screens.forEach(screen => screen.classList.remove('active'));
+    screens.forEach((screen) => {
+        screen.classList.remove('active', 'auth-screen-enter');
+    });
     const app = document.getElementById('app');
     if (app) app.classList.remove('wide');
+}
+
+function activateScreen(screenId, options = {}) {
+    const screen = document.getElementById(screenId);
+    if (!screen) return false;
+    hideAllScreens();
+    screen.classList.add('active');
+
+    if (options.animate) {
+        screen.classList.remove('auth-screen-enter');
+        void screen.offsetWidth;
+        screen.classList.add('auth-screen-enter');
+        setTimeout(() => screen.classList.remove('auth-screen-enter'), 340);
+    }
+
+    return true;
 }
 
 
@@ -1088,9 +1106,7 @@ function goToHome() {
     memoryRemoveItem('currentStudentId');
     memoryRemoveItem('connectedTrainerCode');
     memoryRemoveItem('studentName');
-    hideAllScreens();
-    const home = document.getElementById('home-screen');
-    if (home) home.classList.add('active');
+    activateScreen('home-screen');
 }
 
 function logout() {
@@ -2338,7 +2354,7 @@ function editTrainerProfile() {
     const trainerName = memoryGetItem('trainerName') || 'Treinador';
     const trainerCode = memoryGetItem('currentTrainerCode') || '00001';
 
-    alert(`✏️ Editar Perfil\n\nNome: ${trainerName}\nCódigo: ${trainerCode}\n\nEsta funcionalidade será implementada em breve.`);
+    alert(`?? Editar Perfil\n\nNome: ${trainerName}\nCódigo: ${trainerCode}\n\nEsta funcionalidade será implementada em breve.`);
     closeTrainerProfileMenu();
 }
 
@@ -2351,7 +2367,7 @@ function viewTrainerStats() {
     const active = myStudents.filter(s => s.active).length;
     const pending = myStudents.filter(s => s.pending).length;
 
-    alert(`📊 Estatísticas\n\nTotal de Alunos: ${total}\nAtivos: ${active}\nPendentes: ${pending}\n\nVisita a aba "Alunos" para gerenciar.`);
+    alert(`?? Estatísticas\n\nTotal de Alunos: ${total}\nAtivos: ${active}\nPendentes: ${pending}\n\nVisita a aba "Alunos" para gerenciar.`);
     closeTrainerProfileMenu();
     switchDashView('alunos');
 }
@@ -2366,15 +2382,13 @@ function shareTrainerCode() {
             text: message
         });
     } else {
-        alert(`📤 Código para compartilhar:\n\n${trainerCode}\n\nCopie este código e compartilhe com seus alunos.`);
+        alert(`?? Código para compartilhar:\n\n${trainerCode}\n\nCopie este código e compartilhe com seus alunos.`);
     }
     closeTrainerProfileMenu();
 }
 
 function goToStudentArea() {
-    hideAllScreens();
-    const studentScreen = document.getElementById('student-screen');
-    if (studentScreen) studentScreen.classList.add('active');
+    activateScreen('student-screen');
 }
 
 async function goToGlobalLogin() {
@@ -2384,8 +2398,7 @@ async function goToGlobalLogin() {
         goToStudentArea();
         return;
     }
-    hideAllScreens();
-    loginScreen.classList.add('active');
+    activateScreen('global-login-screen', { animate: true });
 }
 
 async function goToProfileCreate() {
@@ -2401,8 +2414,7 @@ async function goToProfileCreate() {
         }
         return;
     }
-    hideAllScreens();
-    profileCreateScreen.classList.add('active');
+    activateScreen('profile-create-screen', { animate: true });
 }
 
 function openTrainerArea() {
@@ -3146,7 +3158,7 @@ function notifyTrainerWorkoutUpdate(student, options = {}) {
         kind: 'workout_update',
         studentId,
         studentName,
-        title: `📌 Treino atualizado - ${studentName}`,
+        title: `?? Treino atualizado - ${studentName}`,
         desc: `[Plano de treino atualizado] ${blocks.length} treino(s), ${totalExercises} exercícios.`,
         time: new Date().toISOString(),
         unread: true
@@ -3609,7 +3621,7 @@ function pushStudentMessageToTrainer(studentId, studentName, payload = {}) {
         type: 'duvida',
         studentId,
         studentName: safeName,
-        title: `💬 Dúvida de ${safeName}`,
+        title: `?? Dúvida de ${safeName}`,
         desc: safeText || '[Mídia enviada]',
         media,
         time: nowIso,
@@ -4718,7 +4730,7 @@ function deleteMetricEntry(idx) {
     }
 }
 
-// ─── Q&A / Dúvidas ──────────────────────────────────────────────────────────
+// --- Q&A / Dúvidas ----------------------------------------------------------
 
 function openDuvidaModal() {
     const modal = document.getElementById('duvida-modal-overlay');
@@ -4760,7 +4772,7 @@ function enviarDuvida() {
         type: 'duvida',
         studentId: studentId,
         studentName: studentName,
-        title: `💬 Dúvida de ${studentName}`,
+        title: `?? Dúvida de ${studentName}`,
         desc: `[${assuntoLabels[assunto]}] ${texto}`,
         time: new Date().toISOString(),
         unread: true
@@ -4775,7 +4787,7 @@ function enviarDuvida() {
     closeDuvidaModal();
 
     // Feedback
-    alert('✅ Dúvida enviada com sucesso! Seu treinador receberá a mensagem.');
+    alert('? Dúvida enviada com sucesso! Seu treinador receberá a mensagem.');
 }
 
 function getMuscleGroups(exercises) {
@@ -7618,7 +7630,7 @@ async function initTrainerDashboard() {
                 pointer-events: none;
                 backdrop-filter: blur(10px);
             `;
-            pullIndicator.textContent = '↻ Atualizar';
+            pullIndicator.textContent = '? Atualizar';
             mainContent.style.position = 'relative';
             mainContent.appendChild(pullIndicator);
         };
@@ -7672,7 +7684,7 @@ async function initTrainerDashboard() {
 
                 // Animate indicator
                 if (pullIndicator) {
-                    pullIndicator.textContent = '✓ Atualizado';
+                    pullIndicator.textContent = '? Atualizado';
                     pullIndicator.style.background = 'rgba(34, 197, 94, 0.9)';
                     setTimeout(() => {
                         if (pullIndicator) {
@@ -7742,7 +7754,7 @@ async function initTrainerDashboard() {
             animation: slideUpFade 0.5s ease, fadeOut 0.5s ease 3s forwards;
             pointer-events: none;
         `;
-        hint.innerHTML = '👆 Deslize para navegar entre as telas';
+        hint.innerHTML = '?? Deslize para navegar entre as telas';
         document.body.appendChild(hint);
 
         setTimeout(() => hint.remove(), 4000);
@@ -9003,7 +9015,7 @@ function renderDuvidas(filterText) {
                 const s = students.find(x => x.id === sId);
                 if (s) sName = s.name;
             } else {
-                sName = d.title.replace('💬 Dúvida de ', '');
+                sName = d.title.replace('?? Dúvida de ', '');
             }
 
             chatsMap[sId] = {
@@ -9383,13 +9395,13 @@ function sendTrainerChat() {
         const students = readStorageJSON('trainerStudents', []);
         const matchedStudent = students.find(s => s.id === activeChatStudentId);
         const fallbackNotif = notifs.find(n => isFromActiveStudent(n));
-        const fallbackName = fallbackNotif?.studentName || (fallbackNotif?.title ? String(fallbackNotif.title).replace('💬 Dúvida de ', '') : 'Aluno');
+        const fallbackName = fallbackNotif?.studentName || (fallbackNotif?.title ? String(fallbackNotif.title).replace('?? Dúvida de ', '') : 'Aluno');
 
         notifs.unshift({
             type: 'duvida',
             studentId: activeChatStudentId === 'unknown' ? null : activeChatStudentId,
             studentName: matchedStudent?.name || fallbackName,
-            title: `💬 Dúvida de ${matchedStudent?.name || fallbackName}`,
+            title: `?? Dúvida de ${matchedStudent?.name || fallbackName}`,
             desc: '',
             fromTrainerOnly: true,
             reply: finalReplyText,
@@ -9570,7 +9582,7 @@ function responderDuvida(idx) {
 
         updateTrainerStats();
         renderDuvidas();
-        alert('✅ Resposta enviada ao aluno!');
+        alert('? Resposta enviada ao aluno!');
     }
 }
 
@@ -13263,6 +13275,7 @@ function setSetExecution(exIdx, setIdx, execValue) {
     saveWorkoutBackup();
     renderWorkoutLog();
 }
+
 
 
 

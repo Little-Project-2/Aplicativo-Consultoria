@@ -22,27 +22,35 @@
 
             <form class="auth-form" id="signup-form" onsubmit="event.preventDefault(); handleProfileCreation();">
                 <div class="auth-field">
-                    <i class="ph-bold ph-user auth-field-icon"></i>
-                    <input type="text" id="reg-name" placeholder=" " required autocomplete="name">
-                    <label for="reg-name">Nome completo</label>
+                    <label class="auth-field-label" for="reg-name">Nome completo</label>
+                    <div class="auth-input-shell">
+                        <i class="ph-bold ph-user auth-field-icon"></i>
+                        <input type="text" id="reg-name" placeholder="Ex: Nicolas Silveira" required autocomplete="name">
+                    </div>
                 </div>
 
                 <div class="auth-field">
-                    <i class="ph-bold ph-envelope auth-field-icon"></i>
-                    <input type="email" id="reg-email" placeholder=" " required autocomplete="email" inputmode="email">
-                    <label for="reg-email">E-mail</label>
+                    <label class="auth-field-label" for="reg-email">E-mail</label>
+                    <div class="auth-input-shell">
+                        <i class="ph-bold ph-envelope auth-field-icon"></i>
+                        <input type="email" id="reg-email" placeholder="seu@email.com" required autocomplete="email" inputmode="email">
+                    </div>
                 </div>
 
                 <div class="auth-field">
-                    <i class="ph-bold ph-password auth-field-icon"></i>
-                    <input type="password" id="reg-pass" placeholder=" " required minlength="8" autocomplete="new-password">
-                    <label for="reg-pass">Criar senha</label>
+                    <label class="auth-field-label" for="reg-pass">Criar senha</label>
+                    <div class="auth-input-shell">
+                        <i class="ph-bold ph-password auth-field-icon"></i>
+                        <input type="password" id="reg-pass" placeholder="Minimo 8 caracteres" required minlength="8" autocomplete="new-password">
+                    </div>
                 </div>
 
                 <div class="auth-field">
-                    <i class="ph-bold ph-password auth-field-icon"></i>
-                    <input type="password" id="reg-pass-confirm" placeholder=" " required minlength="8" autocomplete="new-password">
-                    <label for="reg-pass-confirm">Confirmar senha</label>
+                    <label class="auth-field-label" for="reg-pass-confirm">Confirmar senha</label>
+                    <div class="auth-input-shell">
+                        <i class="ph-bold ph-password auth-field-icon"></i>
+                        <input type="password" id="reg-pass-confirm" placeholder="Repita sua senha" required minlength="8" autocomplete="new-password">
+                    </div>
                 </div>
 
                 <div class="auth-section">

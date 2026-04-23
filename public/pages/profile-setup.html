@@ -21,27 +21,35 @@
 
             <form class="auth-form" onsubmit="event.preventDefault(); completeProfileSetup();">
                 <div class="auth-field">
-                    <i class="ph-bold ph-identification-card auth-field-icon"></i>
-                    <input type="text" id="profile-setup-name" placeholder=" " required>
-                    <label for="profile-setup-name">Nome de exibicao</label>
+                    <label class="auth-field-label" for="profile-setup-name">Nome de exibicao</label>
+                    <div class="auth-input-shell">
+                        <i class="ph-bold ph-identification-card auth-field-icon"></i>
+                        <input type="text" id="profile-setup-name" placeholder="Como seu nome sera exibido" required>
+                    </div>
                 </div>
 
                 <div class="auth-field">
-                    <i class="ph-bold ph-image auth-field-icon"></i>
-                    <input type="url" id="profile-setup-avatar" placeholder=" ">
-                    <label for="profile-setup-avatar">Foto (URL)</label>
+                    <label class="auth-field-label" for="profile-setup-avatar">Foto (URL)</label>
+                    <div class="auth-input-shell">
+                        <i class="ph-bold ph-image auth-field-icon"></i>
+                        <input type="url" id="profile-setup-avatar" placeholder="https://...">
+                    </div>
                 </div>
 
                 <div class="auth-field">
-                    <i class="ph-bold ph-lock-key auth-field-icon"></i>
-                    <input type="password" id="profile-setup-pass" placeholder=" ">
-                    <label for="profile-setup-pass">Nova senha (opcional)</label>
+                    <label class="auth-field-label" for="profile-setup-pass">Nova senha (opcional)</label>
+                    <div class="auth-input-shell">
+                        <i class="ph-bold ph-lock-key auth-field-icon"></i>
+                        <input type="password" id="profile-setup-pass" placeholder="Nova senha (opcional)">
+                    </div>
                 </div>
 
                 <div class="auth-field">
-                    <i class="ph-bold ph-lock-key auth-field-icon"></i>
-                    <input type="password" id="profile-setup-pass-confirm" placeholder=" ">
-                    <label for="profile-setup-pass-confirm">Confirmar nova senha</label>
+                    <label class="auth-field-label" for="profile-setup-pass-confirm">Confirmar nova senha</label>
+                    <div class="auth-input-shell">
+                        <i class="ph-bold ph-lock-key auth-field-icon"></i>
+                        <input type="password" id="profile-setup-pass-confirm" placeholder="Repita a nova senha">
+                    </div>
                 </div>
 
                 <p id="profile-setup-student-hint" class="auth-helper" style="display:none; margin-top:-0.25rem;">
