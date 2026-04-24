@@ -84,14 +84,40 @@ const SELF_TRAINING_STUDENT_NAME = 'Diego';
 const SELF_TRAINING_STUDENT_CODES = [SELF_TRAINING_STUDENT_CODE];
 const ENABLE_DEMO_ACCESS = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const STUDENT_AUTH_TOKEN_KEY = 'student_access_token_v1';
 const TRAINER_SETTINGS_KEY = 'trainer_settings_v1';
+const AUTH_MIGRATION_DONE_KEY = 'migration_done_v1';
 let activeDashboardFilter = 'all';
 let activeEngagementRange = 7;
 let lastMainTrainerView = 'dashboard';
 let trainerDrawerOpen = false;
 let trainerRouteLock = false;
 const TRAINER_DASHBOARD_TUTORIAL_KEY = 'trainer_dashboard_tutorial_v1';
+
+function getMigrationDoneKey(userId = '') {
+    const safeId = String(userId || '').trim();
+    return safeId ? `${AUTH_MIGRATION_DONE_KEY}:${safeId}` : AUTH_MIGRATION_DONE_KEY;
+}
+
+function hasMigrationCompleted(userId = '') {
+    return memoryGetItem(getMigrationDoneKey(userId)) === '1';
+}
+
+function markMigrationCompleted(userId = '') {
+    memorySetItem(getMigrationDoneKey(userId), '1');
+    memorySetItem(AUTH_MIGRATION_DONE_KEY, '1');
+}
+
+function clearAuthRuntimeContext() {
+    memoryRemoveItem('currentUserId');
+    memoryRemoveItem('currentUserEmail');
+    memoryRemoveItem('currentUserRoles');
+    memoryRemoveItem('currentUserRole');
+    memoryRemoveItem('currentOnboardingStep');
+    memoryRemoveItem('currentStudentId');
+    memoryRemoveItem('connectedTrainerCode');
+    memoryRemoveItem('studentName');
+    memoryRemoveItem('currentAnamnesis');
+}
 
 const DEMO_WORKOUT_BLOCKS = [
     {
@@ -309,37 +335,27 @@ function readStorageJSON(key, fallback = []) {
     }
 }
 
-function readStudentAuthToken() {
-    return readStorageJSON(STUDENT_AUTH_TOKEN_KEY, null);
-}
-
-function saveStudentAuthToken(student) {
-    if (!student || !student.id) return;
-    const payload = {
-        studentId: String(student.id),
-        trainerCode: String(student.trainerCode || memoryGetItem('connectedTrainerCode') || ''),
-        name: String(student.name || memoryGetItem('studentName') || 'Aluno'),
-        issuedAt: new Date().toISOString()
-    };
-    memorySetItem(STUDENT_AUTH_TOKEN_KEY, JSON.stringify(payload));
-}
-
-function clearStudentAuthToken() {
-    memoryRemoveItem(STUDENT_AUTH_TOKEN_KEY);
-}
-
-function openStudentDashboardSession(student, opts = {}) {
+function openStudentDashboardSession(student) {
     if (!student || !student.id) return false;
     const studentDashboardScreen = document.getElementById('student-dashboard-screen');
     if (!studentDashboardScreen) return false;
+    if (!ENABLE_DEMO_ACCESS && !memoryGetItem('currentUserId')) {
+        console.warn('Sessao de aluno bloqueada: usuario nao autenticado.');
+        goToGlobalLogin();
+        return false;
+    }
 
     memorySetItem('currentStudentId', String(student.id));
     memorySetItem('studentName', String(student.name || 'Aluno'));
-    memorySetItem('connectedTrainerCode', String(student.trainerCode || '00001'));
-
-    if (opts.persistToken !== false) {
-        saveStudentAuthToken(student);
+    const studentTrainerCode = sanitizeCodeInput(
+        student.trainerCode || student.trainer_code || memoryGetItem('connectedTrainerCode') || '',
+        5
+    );
+    if (studentTrainerCode) {
+        memorySetItem('connectedTrainerCode', studentTrainerCode);
     }
+    if (navigator.onLine === false) setStudentSyncState('offline', 'Sem conexão');
+    else setStudentSyncState('synced', 'Sincronizado');
 
     hideAllScreens();
     const app = document.getElementById('app');
@@ -348,20 +364,6 @@ function openStudentDashboardSession(student, opts = {}) {
     initStudentDashboard();
     switchStudentView('home');
     return true;
-}
-
-function tryAutoStudentLogin() {
-    const token = readStudentAuthToken();
-    if (!token || !token.studentId) return false;
-
-    const students = readStorageJSON('trainerStudents', []);
-    const student = students.find(s => String(s.id) === String(token.studentId));
-    if (!student) {
-        clearStudentAuthToken();
-        return false;
-    }
-
-    return openStudentDashboardSession(student, { persistToken: true });
 }
 
 function sanitizeUserInput(value, options = {}) {
@@ -1102,20 +1104,42 @@ function ensureAdminStudent() {
 
 function goToHome() {
     stopSupabaseRealtimeSync();
-    // Keep remember-me token, clear only active session data.
     memoryRemoveItem('currentStudentId');
     memoryRemoveItem('connectedTrainerCode');
     memoryRemoveItem('studentName');
     activateScreen('home-screen');
 }
 
-function logout() {
+async function logout() {
     if (workoutState && !confirmExitActiveWorkout()) return;
     if (confirm('Deseja realmente sair?')) {
         stopSupabaseRealtimeSync();
-        memoryClear();
-        location.reload(); // Hard refresh to clear state
+        clearAuthRuntimeContext();
+        workoutState = null;
+        workoutFeedbackRating = 0;
+        workoutFeedbackIntensity = 'moderado';
+        clearWorkoutBackup();
+        try {
+            if (typeof window.supabase?.auth?.signOut === 'function') {
+                await window.supabase.auth.signOut();
+            }
+        } catch (err) {
+            console.warn('Falha ao encerrar sessao no Supabase.', err);
+        }
+        setStudentSyncState('synced', 'Sessão encerrada');
+        goToGlobalLogin();
     }
+}
+
+async function goBackFromStudentConnect() {
+    const activeUser = await getSupabaseSessionUser();
+    const currentUserId = String(memoryGetItem('currentUserId') || '');
+    const connectedCode = sanitizeCodeInput(memoryGetItem('connectedTrainerCode') || '', 5);
+    if (activeUser?.id && currentUserId && String(activeUser.id) === currentUserId) {
+        const opened = await openStudentDashboardForUser(activeUser.id, connectedCode);
+        if (opened) return;
+    }
+    goToHome();
 }
 
 // -------------------------------
@@ -1149,14 +1173,38 @@ function isSupabaseReady() {
 const SUPABASE_TABLES = {
     trainers: 'app_trainers',
     students: 'app_students',
-    foods: 'app_foods'
+    foods: 'app_foods',
+    foodPortions: 'app_food_portions',
+    studentProfiles: 'student_profiles',
+    dietLogs: 'diet_logs',
+    workoutSessions: 'workout_sessions',
+    workoutSets: 'workout_sets',
+    studentConnections: 'student_connections'
 };
 
 let supabaseStudentsSyncTimer = null;
 let supabaseFoodsChannel = null;
 let supabaseFoodsSyncTimer = null;
 let foodCatalogCache = [];
+let supabaseEntityDietSyncTimers = new Map();
+let studentSyncState = {
+    status: 'synced',
+    message: 'Sincronizado',
+    updatedAt: ''
+};
+const entityTablesAvailability = {
+    dietLogs: true,
+    workout: true,
+    connections: true,
+    profiles: true
+};
 const DIET_SCHEMA_VERSION = 2;
+const SUPABASE_TRAINER_CODES_CACHE_TTL_MS = 60000;
+const supabaseTrainerCodesCache = {
+    userId: '',
+    expiresAt: 0,
+    codes: new Set()
+};
 
 function normalizeDietMetaShape(meta) {
     const m = meta && typeof meta === 'object' ? meta : {};
@@ -1175,6 +1223,9 @@ function normalizeDietMealItem(item = {}) {
     const prot = parseDecimalSafe(item.prot || item.protein);
     const carb = parseDecimalSafe(item.carb);
     const gord = parseDecimalSafe(item.gord || item.fat);
+    const parsedQty = parseAmountAndUnit(qtd, item.unitKey || item.unit_key || item.baseUnit || item.base_unit || 'g');
+    const unitKey = normalizeFoodUnitKey(item.unitKey || item.unit_key || parsedQty.unit || 'g');
+    const amount = Math.max(0.1, parseDecimalSafe(item.amount || item.portionAmount) || parsedQty.amount || 1);
     return {
         nome: name,
         qtd,
@@ -1183,11 +1234,14 @@ function normalizeDietMealItem(item = {}) {
         carb: Number.isFinite(carb) ? carb : 0,
         gord: Number.isFinite(gord) ? gord : 0,
         foodId: String(item.foodId || item.food_id || ''),
-        baseQty: Math.max(0.1, parseDecimalSafe(item.baseQty || item.base_qty) || parseAmountAndUnit(qtd, 'g').amount || 100),
-        baseUnit: ['g', 'ml', 'un'].includes(String(item.baseUnit || item.base_unit || '').toLowerCase())
-            ? String(item.baseUnit || item.base_unit).toLowerCase()
-            : (parseAmountAndUnit(qtd, 'g').unit || 'g'),
-        source: sanitizeUserInput(item.source || 'manual', { maxLen: 40 }) || 'manual'
+        baseQty: Math.max(0.1, parseDecimalSafe(item.baseQty || item.base_qty) || parsedQty.amount || 100),
+        baseUnit: normalizeFoodUnitKey(item.baseUnit || item.base_unit || parsedQty.unit || 'g'),
+        source: sanitizeUserInput(item.source || 'manual', { maxLen: 40 }) || 'manual',
+        amount,
+        unitKey,
+        portionId: String(item.portionId || item.portion_id || ''),
+        portionLabel: sanitizeUserInput(item.portionLabel || item.portion_label || '', { maxLen: 80 }),
+        portions: Array.isArray(item.portions) ? item.portions.map(normalizeFoodPortionRow).filter(Boolean) : []
     };
 }
 
@@ -1221,6 +1275,10 @@ function normalizeDietLogsShape(dietLogs, mealBlocks) {
                 normalizedItems[itemIdx] = {
                     checked: !!row.checked,
                     qty: sanitizeUserInput(row.qty || '', { maxLen: 40 }),
+                    amount: Math.max(0.1, parseDecimalSafe(row.amount) || parseAmountAndUnit(row.qty || '', row.unitKey || row.unit_key || 'g').amount || 1),
+                    unitKey: normalizeFoodUnitKey(row.unitKey || row.unit_key || parseAmountAndUnit(row.qty || '', 'g').unit || 'g'),
+                    portionId: String(row.portionId || row.portion_id || ''),
+                    portionLabel: sanitizeUserInput(row.portionLabel || row.portion_label || '', { maxLen: 80 }),
                     substitute: {
                         enabled: !!sub.enabled,
                         name: sanitizeUserInput(sub.name || '', { maxLen: 140 }),
@@ -1231,10 +1289,12 @@ function normalizeDietLogsShape(dietLogs, mealBlocks) {
                         gord: parseDecimalSafe(sub.gord) || 0,
                         foodId: String(sub.foodId || sub.food_id || ''),
                         baseQty: Math.max(0.1, parseDecimalSafe(sub.baseQty || sub.base_qty) || 100),
-                        baseUnit: ['g', 'ml', 'un'].includes(String(sub.baseUnit || sub.base_unit || '').toLowerCase())
-                            ? String(sub.baseUnit || sub.base_unit).toLowerCase()
-                            : 'g',
-                        source: sanitizeUserInput(sub.source || 'manual', { maxLen: 40 }) || 'manual'
+                        baseUnit: normalizeFoodUnitKey(sub.baseUnit || sub.base_unit || 'g'),
+                        source: sanitizeUserInput(sub.source || 'manual', { maxLen: 40 }) || 'manual',
+                        amount: Math.max(0.1, parseDecimalSafe(sub.amount) || parseAmountAndUnit(sub.qty || '', sub.unitKey || sub.unit_key || 'g').amount || 1),
+                        unitKey: normalizeFoodUnitKey(sub.unitKey || sub.unit_key || parseAmountAndUnit(sub.qty || '', 'g').unit || 'g'),
+                        portionId: String(sub.portionId || sub.portion_id || ''),
+                        portionLabel: sanitizeUserInput(sub.portionLabel || sub.portion_label || '', { maxLen: 80 })
                     }
                 };
             });
@@ -1249,7 +1309,27 @@ function normalizeDietLogsShape(dietLogs, mealBlocks) {
                     normalizedMeals[mealIdx].items[itemIdx] = {
                         checked: false,
                         qty: '',
-                        substitute: { enabled: false, name: '', qty: '', kcal: 0, prot: 0, carb: 0, gord: 0, foodId: '', baseQty: 100, baseUnit: 'g', source: 'manual' }
+                        amount: 1,
+                        unitKey: 'g',
+                        portionId: '',
+                        portionLabel: '',
+                        substitute: {
+                            enabled: false,
+                            name: '',
+                            qty: '',
+                            kcal: 0,
+                            prot: 0,
+                            carb: 0,
+                            gord: 0,
+                            foodId: '',
+                            baseQty: 100,
+                            baseUnit: 'g',
+                            source: 'manual',
+                            amount: 1,
+                            unitKey: 'g',
+                            portionId: '',
+                            portionLabel: ''
+                        }
                     };
                 }
             });
@@ -1310,20 +1390,22 @@ function normalizeFoodCatalogRow(row) {
     if (!row) return null;
     const name = sanitizeUserInput(row.name || row.nome || '', { maxLen: 140 });
     if (!name) return null;
+    const baseUnit = normalizeFoodUnitKey(row.base_unit || row.baseUnit || 'g');
+    const portionsInput = Array.isArray(row.portions) ? row.portions : [];
+    const normalizedPortions = portionsInput.map(normalizeFoodPortionRow).filter(Boolean);
     return {
         id: String(row.id || ''),
         name,
         brand: sanitizeUserInput(row.brand || '', { maxLen: 80 }),
         base_qty: Math.max(0.1, parseDecimalSafe(row.base_qty) || 100),
-        base_unit: ['g', 'ml', 'un'].includes(String(row.base_unit || '').toLowerCase())
-            ? String(row.base_unit).toLowerCase()
-            : 'g',
+        base_unit: baseUnit,
         kcal: Math.max(0, parseDecimalSafe(row.kcal)),
-        protein: Math.max(0, parseDecimalSafe(row.protein)),
+        protein: Math.max(0, parseDecimalSafe(row.protein || row.prot)),
         carb: Math.max(0, parseDecimalSafe(row.carb)),
-        fat: Math.max(0, parseDecimalSafe(row.fat)),
+        fat: Math.max(0, parseDecimalSafe(row.fat || row.gord)),
         source: sanitizeUserInput(row.source || 'manual', { maxLen: 40 }) || 'manual',
-        created_by: sanitizeUserInput(row.created_by || '', { maxLen: 80 })
+        created_by: sanitizeUserInput(row.created_by || '', { maxLen: 80 }),
+        portions: normalizedPortions
     };
 }
 
@@ -1334,57 +1416,459 @@ function getCurrentFoodCreatorId() {
         || 'anon';
 }
 
-function parseAmountAndUnit(rawValue, fallbackUnit = 'g') {
-    const text = String(rawValue || '').trim().toLowerCase();
-    const amount = parseDecimalSafe(text.replace(',', '.').replace(/[^\d.]/g, ''));
-    const unit = text.includes('ml') ? 'ml' : (text.includes('un') ? 'un' : fallbackUnit);
+const FOOD_UNIT_KEYS = ['g', 'ml', 'un', 'slice', 'tbsp', 'tsp', 'cup', 'glass', 'ladle'];
+const FOOD_UNIT_LABELS = {
+    g: { single: 'grama', plural: 'gramas', short: 'g' },
+    ml: { single: 'mililitro', plural: 'mililitros', short: 'ml' },
+    un: { single: 'unidade', plural: 'unidades', short: 'un' },
+    slice: { single: 'fatia', plural: 'fatias', short: 'fatia' },
+    tbsp: { single: 'colher de sopa', plural: 'colheres de sopa', short: 'cs' },
+    tsp: { single: 'colher de chá', plural: 'colheres de chá', short: 'ccha' },
+    cup: { single: 'xícara', plural: 'xícaras', short: 'xic' },
+    glass: { single: 'copo', plural: 'copos', short: 'copo' },
+    ladle: { single: 'concha', plural: 'conchas', short: 'concha' }
+};
+const FOOD_UNIT_ALIASES = {
+    g: ['g', 'gr', 'grama', 'gramas'],
+    ml: ['ml', 'mililitro', 'mililitros'],
+    un: ['un', 'und', 'unid', 'unidade', 'unidades'],
+    slice: ['fatia', 'fatias', 'slice', 'slices'],
+    tbsp: ['colher de sopa', 'colher sopa', 'colheres de sopa', 'tbsp', 'cs'],
+    tsp: ['colher de cha', 'colher de chá', 'colher cha', 'colheres de cha', 'colheres de chá', 'tsp', 'ccha'],
+    cup: ['xicara', 'xícara', 'xicaras', 'xícaras', 'cup'],
+    glass: ['copo', 'copos', 'glass'],
+    ladle: ['concha', 'conchas', 'ladle']
+};
+
+function normalizeFoodUnitKey(rawValue) {
+    const raw = normalizeText(String(rawValue || '').trim());
+    if (!raw) return 'g';
+    if (FOOD_UNIT_KEYS.includes(raw)) return raw;
+    const found = FOOD_UNIT_KEYS.find((key) => (FOOD_UNIT_ALIASES[key] || []).some((alias) => normalizeText(alias) === raw));
+    return found || 'g';
+}
+
+function getFoodUnitLabel(unitKey, amount = 1) {
+    const safeUnit = normalizeFoodUnitKey(unitKey);
+    const dictionary = FOOD_UNIT_LABELS[safeUnit] || FOOD_UNIT_LABELS.g;
+    return Number(amount || 0) === 1 ? dictionary.single : dictionary.plural;
+}
+
+function getFoodUnitShort(unitKey) {
+    const safeUnit = normalizeFoodUnitKey(unitKey);
+    return (FOOD_UNIT_LABELS[safeUnit] || FOOD_UNIT_LABELS.g).short;
+}
+
+function formatFoodQuantity(amountValue, unitKey, { compact = false } = {}) {
+    const safeUnit = normalizeFoodUnitKey(unitKey);
+    const numericAmount = Math.max(0.1, parseDecimalSafe(amountValue) || 0);
+    const roundedAmount = Number.isInteger(numericAmount) ? numericAmount : Math.round(numericAmount * 10) / 10;
+    if (safeUnit === 'g' || safeUnit === 'ml') {
+        return `${roundedAmount}${safeUnit}`;
+    }
+    if (compact) {
+        return `${roundedAmount}${getFoodUnitShort(safeUnit)}`;
+    }
+    return `${roundedAmount} ${getFoodUnitLabel(safeUnit, roundedAmount)}`;
+}
+
+function normalizeFoodPortionRow(row) {
+    if (!row) return null;
+    const unitKey = normalizeFoodUnitKey(row.unit_key || row.unitKey || 'g');
+    const amount = Math.max(0.1, parseDecimalSafe(row.amount) || 1);
+    const baseEquivalent = Math.max(0.1, parseDecimalSafe(row.base_qty_equivalent || row.baseQtyEquivalent) || amount);
+    const label = sanitizeUserInput(row.label || `${getFoodUnitLabel(unitKey, amount)}`, { maxLen: 90 }) || `${getFoodUnitLabel(unitKey, amount)}`;
     return {
-        amount: amount > 0 ? amount : 0,
-        unit
+        id: String(row.id || ''),
+        food_id: String(row.food_id || row.foodId || ''),
+        label,
+        amount,
+        unit_key: unitKey,
+        base_qty_equivalent: baseEquivalent,
+        is_default: !!row.is_default,
+        sort_order: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : 0
     };
 }
 
-function computeMacrosByAmount(food, amount, unit) {
+function addFallbackPortion(portions, foodId, portion) {
+    if (!Array.isArray(portions) || !portion) return;
+    const normalized = normalizeFoodPortionRow({
+        ...portion,
+        id: '',
+        food_id: String(foodId || portion.food_id || '')
+    });
+    if (!normalized) return;
+    const key = `${normalizeFoodUnitKey(normalized.unit_key)}:${normalizeText(normalized.label)}`;
+    const exists = portions.some((item) => `${normalizeFoodUnitKey(item.unit_key)}:${normalizeText(item.label)}` === key);
+    if (!exists) portions.push(normalized);
+}
+
+function inferUnitEquivalentByFoodName(foodName, baseQty) {
+    const safeBase = Math.max(1, parseDecimalSafe(baseQty) || 100);
+    const rules = [
+        { term: 'ovo', equivalent: 50 },
+        { term: 'banana', equivalent: 90 },
+        { term: 'maca', equivalent: 130 },
+        { term: 'pera', equivalent: 140 },
+        { term: 'laranja', equivalent: 130 },
+        { term: 'tangerina', equivalent: 120 },
+        { term: 'kiwi', equivalent: 75 },
+        { term: 'abacate', equivalent: 150 },
+        { term: 'manga', equivalent: 150 }
+    ];
+    const match = rules.find((rule) => foodName.includes(rule.term));
+    return Math.max(1, parseDecimalSafe(match?.equivalent) || safeBase);
+}
+
+function getFallbackFoodPortions(foodLike = {}) {
+    const food = normalizeFoodCatalogRow(foodLike) || {};
+    const defaultPortions = [];
+    const baseUnit = normalizeFoodUnitKey(food.base_unit || 'g');
+    const baseQty = Math.max(0.1, parseDecimalSafe(food.base_qty) || 100);
+    const foodId = String(food.id || '');
+    const foodName = normalizeText(food.name || '');
+    if (baseUnit === 'ml') {
+        addFallbackPortion(defaultPortions, foodId, { label: 'mililitro (ml)', amount: 1, unit_key: 'ml', base_qty_equivalent: 1, is_default: true, sort_order: 0 });
+        addFallbackPortion(defaultPortions, foodId, { label: 'colher de chá', amount: 1, unit_key: 'tsp', base_qty_equivalent: 5, is_default: false, sort_order: 10 });
+        addFallbackPortion(defaultPortions, foodId, { label: 'colher de sopa', amount: 1, unit_key: 'tbsp', base_qty_equivalent: 15, is_default: false, sort_order: 20 });
+        addFallbackPortion(defaultPortions, foodId, { label: 'xícara', amount: 1, unit_key: 'cup', base_qty_equivalent: 240, is_default: false, sort_order: 30 });
+        addFallbackPortion(defaultPortions, foodId, { label: 'copo', amount: 1, unit_key: 'glass', base_qty_equivalent: 200, is_default: false, sort_order: 40 });
+        addFallbackPortion(defaultPortions, foodId, { label: 'concha', amount: 1, unit_key: 'ladle', base_qty_equivalent: 100, is_default: false, sort_order: 50 });
+    } else if (baseUnit === 'un') {
+        addFallbackPortion(defaultPortions, foodId, { label: 'unidade', amount: 1, unit_key: 'un', base_qty_equivalent: 1, is_default: true, sort_order: 0 });
+    } else {
+        addFallbackPortion(defaultPortions, foodId, { label: 'grama (g)', amount: 1, unit_key: 'g', base_qty_equivalent: 1, is_default: true, sort_order: 0 });
+    }
+
+    if (foodName.includes('pao')) {
+        addFallbackPortion(defaultPortions, foodId, {
+            label: 'fatia',
+            amount: 1,
+            unit_key: 'slice',
+            base_qty_equivalent: 25,
+            is_default: false,
+            sort_order: 15
+        });
+    }
+
+    const portableTerms = ['ovo', 'banana', 'maca', 'pera', 'laranja', 'tangerina', 'kiwi', 'manga', 'abacate', 'goiaba'];
+    if (baseUnit === 'g' && portableTerms.some((term) => foodName.includes(term))) {
+        addFallbackPortion(defaultPortions, foodId, {
+            label: 'unidade',
+            amount: 1,
+            unit_key: 'un',
+            base_qty_equivalent: inferUnitEquivalentByFoodName(foodName, baseQty),
+            is_default: false,
+            sort_order: 12
+        });
+    }
+
+    const spoonFriendlyTerms = ['arroz', 'feijao', 'lentilha', 'grao de bico', 'ervilha', 'macarrao', 'quinoa', 'cuscuz', 'aveia', 'granola', 'farofa'];
+    if (baseUnit === 'g' && spoonFriendlyTerms.some((term) => foodName.includes(term))) {
+        addFallbackPortion(defaultPortions, foodId, { label: 'colher de chá', amount: 1, unit_key: 'tsp', base_qty_equivalent: 5, is_default: false, sort_order: 18 });
+        addFallbackPortion(defaultPortions, foodId, { label: 'colher de sopa', amount: 1, unit_key: 'tbsp', base_qty_equivalent: 15, is_default: false, sort_order: 20 });
+        addFallbackPortion(defaultPortions, foodId, { label: 'xícara', amount: 1, unit_key: 'cup', base_qty_equivalent: 160, is_default: false, sort_order: 25 });
+        addFallbackPortion(defaultPortions, foodId, { label: 'concha', amount: 1, unit_key: 'ladle', base_qty_equivalent: 100, is_default: false, sort_order: 30 });
+    }
+
+    return defaultPortions.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+}
+
+function getFoodPortions(foodLike = {}) {
+    const normalizedFood = normalizeFoodCatalogRow(foodLike);
+    if (!normalizedFood) return [];
+    const provided = Array.isArray(normalizedFood.portions)
+        ? normalizedFood.portions.map(normalizeFoodPortionRow).filter(Boolean)
+        : [];
+    const list = provided.length ? provided : getFallbackFoodPortions(normalizedFood);
+    return list.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+}
+
+function parseAmountAndUnit(rawValue, fallbackUnit = 'g') {
+    const text = String(rawValue || '').trim();
+    const normalizedTextValue = normalizeText(text);
+    const numericMatches = text.replace(',', '.').match(/-?\d+(\.\d+)?/);
+    const amount = Math.max(0, parseDecimalSafe(numericMatches?.[0] || '0'));
+    const normalizedFallback = normalizeFoodUnitKey(fallbackUnit || 'g');
+
+    let unitKey = normalizedFallback;
+    if (normalizedTextValue) {
+        for (const key of FOOD_UNIT_KEYS) {
+            const aliases = FOOD_UNIT_ALIASES[key] || [];
+            if (aliases.some((alias) => normalizedTextValue.includes(normalizeText(alias)))) {
+                unitKey = key;
+                break;
+            }
+        }
+    }
+    return {
+        amount: amount > 0 ? amount : 0,
+        unit: unitKey,
+        unitKey
+    };
+}
+
+function resolveFoodQuantity(foodLike, amountValue, unitKeyValue, portionId = '') {
+    const food = normalizeFoodCatalogRow(foodLike);
+    if (!food) {
+        return {
+            factor: 1,
+            amount: Math.max(0.1, parseDecimalSafe(amountValue) || 100),
+            unitKey: normalizeFoodUnitKey(unitKeyValue || 'g'),
+            portion: null,
+            qtyText: formatFoodQuantity(Math.max(0.1, parseDecimalSafe(amountValue) || 100), unitKeyValue || 'g')
+        };
+    }
+    const baseQty = Math.max(0.1, parseDecimalSafe(food.base_qty) || 100);
+    const amount = Math.max(0.1, parseDecimalSafe(amountValue) || baseQty);
+    const unitKey = normalizeFoodUnitKey(unitKeyValue || food.base_unit || 'g');
+    const portions = getFoodPortions(food);
+    let selectedPortion = null;
+    if (portionId) {
+        selectedPortion = portions.find((portion) => String(portion.id || '') === String(portionId));
+    }
+    if (!selectedPortion) {
+        selectedPortion = portions.find((portion) => normalizeFoodUnitKey(portion.unit_key) === unitKey && !!portion.is_default)
+            || portions.find((portion) => normalizeFoodUnitKey(portion.unit_key) === unitKey)
+            || null;
+    }
+
+    let baseEquivalent = amount;
+    if (selectedPortion) {
+        const perAmount = Math.max(0.0001, parseDecimalSafe(selectedPortion.base_qty_equivalent) || 1) / Math.max(0.0001, parseDecimalSafe(selectedPortion.amount) || 1);
+        baseEquivalent = amount * perAmount;
+    } else if (unitKey === normalizeFoodUnitKey(food.base_unit || 'g')) {
+        baseEquivalent = amount;
+    }
+    const factor = Math.max(0.01, baseEquivalent / baseQty);
+    return {
+        factor,
+        amount,
+        unitKey,
+        portion: selectedPortion,
+        baseEquivalent,
+        qtyText: formatFoodQuantity(amount, unitKey)
+    };
+}
+
+function computeMacrosByAmount(food, amount, unit, portionId = '') {
     const normalized = normalizeFoodCatalogRow(food);
     if (!normalized) {
-        return { kcal: 0, protein: 0, carb: 0, fat: 0, base_qty: 100, base_unit: 'g' };
+        return { kcal: 0, protein: 0, carb: 0, fat: 0, base_qty: 100, base_unit: 'g', amount: 0, unit_key: 'g', portion_id: '', portion_label: '' };
     }
-    const safeAmount = Math.max(0.1, parseDecimalSafe(amount) || normalized.base_qty || 100);
-    const inputUnit = ['g', 'ml', 'un'].includes(String(unit || '').toLowerCase()) ? String(unit).toLowerCase() : normalized.base_unit;
-    const baseQty = Math.max(0.1, normalized.base_qty || 100);
-    const sameUnit = inputUnit === normalized.base_unit;
-    const factor = sameUnit ? (safeAmount / baseQty) : (safeAmount / baseQty);
+    const resolved = resolveFoodQuantity(normalized, amount, unit, portionId);
+    const factor = resolved.factor;
     return {
         kcal: Math.round((normalized.kcal || 0) * factor),
         protein: Math.round((normalized.protein || 0) * factor * 10) / 10,
         carb: Math.round((normalized.carb || 0) * factor * 10) / 10,
         fat: Math.round((normalized.fat || 0) * factor * 10) / 10,
-        base_qty: baseQty,
-        base_unit: normalized.base_unit
+        base_qty: Math.max(0.1, normalized.base_qty || 100),
+        base_unit: normalized.base_unit,
+        amount: resolved.amount,
+        unit_key: resolved.unitKey,
+        portion_id: String(resolved.portion?.id || ''),
+        portion_label: resolved.portion?.label || getFoodUnitLabel(resolved.unitKey, resolved.amount)
     };
+}
+
+async function fetchFoodPortionsByFoodIds(foodIds = []) {
+    const safeIds = Array.from(new Set((Array.isArray(foodIds) ? foodIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (!safeIds.length || !isSupabaseReady()) return new Map();
+    const { data, error } = await window.supabase
+        .from(SUPABASE_TABLES.foodPortions)
+        .select('*')
+        .in('food_id', safeIds);
+    if (error) {
+        console.warn('Supabase food portions fetch failed', error.message);
+        return new Map();
+    }
+    const grouped = new Map();
+    (data || []).forEach((row) => {
+        const normalized = normalizeFoodPortionRow(row);
+        if (!normalized) return;
+        const foodId = String(normalized.food_id || '').trim();
+        if (!foodId) return;
+        if (!grouped.has(foodId)) grouped.set(foodId, []);
+        grouped.get(foodId).push(normalized);
+    });
+    return grouped;
+}
+
+const BASELINE_FOOD_LIBRARY_SEED = [
+    { name: 'Arroz branco cozido', base_qty: 100, base_unit: 'g', kcal: 130, protein: 2.7, carb: 28.0, fat: 0.3, source: 'baseline' },
+    { name: 'Arroz integral cozido', base_qty: 100, base_unit: 'g', kcal: 124, protein: 2.6, carb: 25.8, fat: 1.0, source: 'baseline' },
+    { name: 'Feijao carioca cozido', base_qty: 100, base_unit: 'g', kcal: 76, protein: 4.8, carb: 13.6, fat: 0.5, source: 'baseline' },
+    { name: 'Feijao preto cozido', base_qty: 100, base_unit: 'g', kcal: 77, protein: 4.5, carb: 14.0, fat: 0.5, source: 'baseline' },
+    { name: 'Lentilha cozida', base_qty: 100, base_unit: 'g', kcal: 93, protein: 6.3, carb: 16.3, fat: 0.4, source: 'baseline' },
+    { name: 'Grao de bico cozido', base_qty: 100, base_unit: 'g', kcal: 164, protein: 8.9, carb: 27.4, fat: 2.6, source: 'baseline' },
+    { name: 'Macarrao cozido', base_qty: 100, base_unit: 'g', kcal: 157, protein: 5.8, carb: 30.9, fat: 0.9, source: 'baseline' },
+    { name: 'Batata inglesa cozida', base_qty: 100, base_unit: 'g', kcal: 52, protein: 1.2, carb: 11.9, fat: 0.1, source: 'baseline' },
+    { name: 'Batata doce cozida', base_qty: 100, base_unit: 'g', kcal: 77, protein: 0.6, carb: 18.4, fat: 0.1, source: 'baseline' },
+    { name: 'Mandioca cozida', base_qty: 100, base_unit: 'g', kcal: 125, protein: 0.6, carb: 30.1, fat: 0.3, source: 'baseline' },
+    { name: 'Inhame cozido', base_qty: 100, base_unit: 'g', kcal: 96, protein: 2.1, carb: 23.0, fat: 0.2, source: 'baseline' },
+    { name: 'Aveia em flocos', base_qty: 100, base_unit: 'g', kcal: 394, protein: 13.9, carb: 66.6, fat: 8.5, source: 'baseline' },
+    { name: 'Tapioca (goma)', base_qty: 100, base_unit: 'g', kcal: 331, protein: 0.6, carb: 82.0, fat: 0.2, source: 'baseline' },
+    { name: 'Pao frances', base_qty: 100, base_unit: 'g', kcal: 300, protein: 8.0, carb: 58.6, fat: 3.1, source: 'baseline' },
+    { name: 'Pao integral', base_qty: 100, base_unit: 'g', kcal: 253, protein: 9.4, carb: 43.0, fat: 3.4, source: 'baseline' },
+    { name: 'Torrada integral', base_qty: 100, base_unit: 'g', kcal: 418, protein: 12.0, carb: 72.0, fat: 8.0, source: 'baseline' },
+    { name: 'Cuscuz nordestino cozido', base_qty: 100, base_unit: 'g', kcal: 112, protein: 2.2, carb: 25.3, fat: 0.7, source: 'baseline' },
+    { name: 'Milho verde cozido', base_qty: 100, base_unit: 'g', kcal: 98, protein: 3.2, carb: 17.1, fat: 2.0, source: 'baseline' },
+    { name: 'Banana prata', base_qty: 100, base_unit: 'g', kcal: 98, protein: 1.3, carb: 26.0, fat: 0.1, source: 'baseline' },
+    { name: 'Banana nanica', base_qty: 100, base_unit: 'g', kcal: 92, protein: 1.4, carb: 23.8, fat: 0.1, source: 'baseline' },
+    { name: 'Maca', base_qty: 100, base_unit: 'g', kcal: 56, protein: 0.3, carb: 15.2, fat: 0.2, source: 'baseline' },
+    { name: 'Pera', base_qty: 100, base_unit: 'g', kcal: 53, protein: 0.3, carb: 14.0, fat: 0.1, source: 'baseline' },
+    { name: 'Laranja', base_qty: 100, base_unit: 'g', kcal: 47, protein: 0.9, carb: 11.8, fat: 0.1, source: 'baseline' },
+    { name: 'Mamao', base_qty: 100, base_unit: 'g', kcal: 45, protein: 0.8, carb: 11.6, fat: 0.1, source: 'baseline' },
+    { name: 'Abacaxi', base_qty: 100, base_unit: 'g', kcal: 50, protein: 0.5, carb: 13.0, fat: 0.1, source: 'baseline' },
+    { name: 'Melancia', base_qty: 100, base_unit: 'g', kcal: 30, protein: 0.6, carb: 7.6, fat: 0.2, source: 'baseline' },
+    { name: 'Uva', base_qty: 100, base_unit: 'g', kcal: 53, protein: 0.6, carb: 13.6, fat: 0.2, source: 'baseline' },
+    { name: 'Morango', base_qty: 100, base_unit: 'g', kcal: 30, protein: 0.9, carb: 6.8, fat: 0.3, source: 'baseline' },
+    { name: 'Abacate', base_qty: 100, base_unit: 'g', kcal: 96, protein: 1.2, carb: 6.0, fat: 8.4, source: 'baseline' },
+    { name: 'Manga', base_qty: 100, base_unit: 'g', kcal: 60, protein: 0.8, carb: 15.0, fat: 0.4, source: 'baseline' },
+    { name: 'Iogurte natural desnatado', base_qty: 100, base_unit: 'g', kcal: 42, protein: 3.8, carb: 5.2, fat: 0.1, source: 'baseline' },
+    { name: 'Leite desnatado', base_qty: 100, base_unit: 'ml', kcal: 34, protein: 3.4, carb: 4.9, fat: 0.1, source: 'baseline' },
+    { name: 'Leite integral', base_qty: 100, base_unit: 'ml', kcal: 61, protein: 3.2, carb: 4.7, fat: 3.3, source: 'baseline' },
+    { name: 'Whey protein concentrado', base_qty: 30, base_unit: 'g', kcal: 120, protein: 23.0, carb: 3.0, fat: 2.0, source: 'baseline' },
+    { name: 'Ovo cozido', base_qty: 100, base_unit: 'g', kcal: 155, protein: 13.0, carb: 1.1, fat: 11.0, source: 'baseline' },
+    { name: 'Ovo mexido', base_qty: 100, base_unit: 'g', kcal: 167, protein: 11.0, carb: 1.6, fat: 12.3, source: 'baseline' },
+    { name: 'Peito de frango grelhado', base_qty: 100, base_unit: 'g', kcal: 165, protein: 31.0, carb: 0.0, fat: 3.6, source: 'baseline' },
+    { name: 'Coxa de frango assada sem pele', base_qty: 100, base_unit: 'g', kcal: 175, protein: 25.0, carb: 0.0, fat: 7.5, source: 'baseline' },
+    { name: 'Patinho grelhado', base_qty: 100, base_unit: 'g', kcal: 219, protein: 35.0, carb: 0.0, fat: 8.0, source: 'baseline' },
+    { name: 'Carne moida magra cozida', base_qty: 100, base_unit: 'g', kcal: 212, protein: 26.0, carb: 0.0, fat: 11.0, source: 'baseline' },
+    { name: 'Tilapia grelhada', base_qty: 100, base_unit: 'g', kcal: 129, protein: 26.0, carb: 0.0, fat: 2.7, source: 'baseline' },
+    { name: 'Sardinha em lata', base_qty: 100, base_unit: 'g', kcal: 208, protein: 24.0, carb: 0.0, fat: 11.0, source: 'baseline' },
+    { name: 'Atum em agua', base_qty: 100, base_unit: 'g', kcal: 116, protein: 25.0, carb: 0.0, fat: 1.0, source: 'baseline' },
+    { name: 'Salmao grelhado', base_qty: 100, base_unit: 'g', kcal: 206, protein: 22.0, carb: 0.0, fat: 12.0, source: 'baseline' },
+    { name: 'Queijo minas frescal', base_qty: 100, base_unit: 'g', kcal: 264, protein: 17.0, carb: 3.2, fat: 20.0, source: 'baseline' },
+    { name: 'Queijo muçarela', base_qty: 100, base_unit: 'g', kcal: 300, protein: 22.6, carb: 3.0, fat: 22.0, source: 'baseline' },
+    { name: 'Ricota', base_qty: 100, base_unit: 'g', kcal: 140, protein: 11.0, carb: 3.0, fat: 8.0, source: 'baseline' },
+    { name: 'Cottage', base_qty: 100, base_unit: 'g', kcal: 98, protein: 11.0, carb: 3.4, fat: 4.3, source: 'baseline' },
+    { name: 'Peito de peru', base_qty: 100, base_unit: 'g', kcal: 95, protein: 16.0, carb: 2.0, fat: 2.0, source: 'baseline' },
+    { name: 'Tofu firme', base_qty: 100, base_unit: 'g', kcal: 76, protein: 8.0, carb: 1.9, fat: 4.8, source: 'baseline' },
+    { name: 'Azeite de oliva', base_qty: 100, base_unit: 'ml', kcal: 884, protein: 0.0, carb: 0.0, fat: 100.0, source: 'baseline' },
+    { name: 'Pasta de amendoim integral', base_qty: 100, base_unit: 'g', kcal: 588, protein: 25.0, carb: 20.0, fat: 50.0, source: 'baseline' },
+    { name: 'Castanha do para', base_qty: 100, base_unit: 'g', kcal: 656, protein: 14.0, carb: 12.0, fat: 66.0, source: 'baseline' },
+    { name: 'Amendoas', base_qty: 100, base_unit: 'g', kcal: 579, protein: 21.0, carb: 22.0, fat: 50.0, source: 'baseline' },
+    { name: 'Nozes', base_qty: 100, base_unit: 'g', kcal: 654, protein: 15.0, carb: 14.0, fat: 65.0, source: 'baseline' },
+    { name: 'Chia', base_qty: 100, base_unit: 'g', kcal: 486, protein: 17.0, carb: 42.0, fat: 31.0, source: 'baseline' },
+    { name: 'Linhaca', base_qty: 100, base_unit: 'g', kcal: 534, protein: 18.0, carb: 29.0, fat: 42.0, source: 'baseline' },
+    { name: 'Brocolis cozido', base_qty: 100, base_unit: 'g', kcal: 35, protein: 2.4, carb: 7.2, fat: 0.4, source: 'baseline' },
+    { name: 'Cenoura cozida', base_qty: 100, base_unit: 'g', kcal: 30, protein: 0.8, carb: 6.7, fat: 0.2, source: 'baseline' },
+    { name: 'Abobrinha cozida', base_qty: 100, base_unit: 'g', kcal: 19, protein: 1.1, carb: 3.2, fat: 0.1, source: 'baseline' },
+    { name: 'Alface', base_qty: 100, base_unit: 'g', kcal: 15, protein: 1.4, carb: 2.9, fat: 0.2, source: 'baseline' },
+    { name: 'Tomate', base_qty: 100, base_unit: 'g', kcal: 18, protein: 0.9, carb: 3.9, fat: 0.2, source: 'baseline' },
+    { name: 'Pepino', base_qty: 100, base_unit: 'g', kcal: 15, protein: 0.7, carb: 3.6, fat: 0.1, source: 'baseline' },
+    { name: 'Couve refogada', base_qty: 100, base_unit: 'g', kcal: 90, protein: 2.9, carb: 6.0, fat: 6.0, source: 'baseline' },
+    { name: 'Beterraba cozida', base_qty: 100, base_unit: 'g', kcal: 32, protein: 1.3, carb: 7.2, fat: 0.1, source: 'baseline' }
+];
+
+let baselineFoodCatalogCache = null;
+
+function getFoodCatalogMergeKey(item = {}) {
+    const name = normalizeText(item.name || item.nome || '');
+    const brand = normalizeText(item.brand || '');
+    const unit = normalizeFoodUnitKey(item.base_unit || item.baseUnit || 'g');
+    return `${name}|${brand}|${unit}`;
+}
+
+function mergeFoodCatalogSources(primary = [], secondary = [], limit = 0) {
+    const output = [];
+    const seen = new Set();
+    const maxItems = Number(limit) > 0 ? Math.max(1, parseInt(limit, 10)) : Infinity;
+    const merged = [
+        ...(Array.isArray(primary) ? primary : []),
+        ...(Array.isArray(secondary) ? secondary : [])
+    ];
+    for (const rawItem of merged) {
+        if (output.length >= maxItems) break;
+        const normalized = normalizeFoodCatalogRow(rawItem);
+        if (!normalized) continue;
+        const key = getFoodCatalogMergeKey(normalized);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        output.push({
+            ...normalized,
+            portions: getFoodPortions(normalized)
+        });
+    }
+    return output;
+}
+
+function getBaselineFoodCatalog(limit = 0) {
+    if (!Array.isArray(baselineFoodCatalogCache) || !baselineFoodCatalogCache.length) {
+        baselineFoodCatalogCache = BASELINE_FOOD_LIBRARY_SEED
+            .map((item, idx) => normalizeFoodCatalogRow({
+                ...item,
+                id: `baseline-${idx + 1}`
+            }))
+            .filter(Boolean);
+    }
+    return mergeFoodCatalogSources(baselineFoodCatalogCache, [], limit);
+}
+
+function getEffectiveFoodCatalog(limit = 0) {
+    return mergeFoodCatalogSources(foodCatalogCache || [], getBaselineFoodCatalog(), limit);
+}
+
+async function hydrateFoodRowsWithPortions(foodRows = []) {
+    const baseRows = (Array.isArray(foodRows) ? foodRows : []).map(normalizeFoodCatalogRow).filter(Boolean);
+    if (!baseRows.length) return [];
+    const ids = baseRows.map((row) => String(row.id || '')).filter(Boolean);
+    if (!ids.length || !isSupabaseReady()) {
+        return baseRows.map((row) => ({ ...row, portions: getFoodPortions(row) }));
+    }
+    const portionsByFood = await fetchFoodPortionsByFoodIds(ids);
+    return baseRows.map((row) => ({
+        ...row,
+        portions: getFoodPortions({
+            ...row,
+            portions: portionsByFood.get(String(row.id || '')) || row.portions || []
+        })
+    }));
 }
 
 async function searchFoodsCatalog(query, limit = 12) {
     const q = sanitizeUserInput(query || '', { maxLen: 90 });
     if (!q || q.length < 2) return [];
+    const safeLimit = Math.max(1, Math.min(60, parseInt(limit, 10) || 12));
+    const localMatches = getEffectiveFoodCatalog()
+        .filter((item) => normalizeText(item.name).includes(normalizeText(q)))
+        .slice(0, safeLimit);
     if (!isSupabaseReady()) {
-        return foodCatalogCache
-            .filter((item) => normalizeText(item.name).includes(normalizeText(q)))
-            .slice(0, limit);
+        return localMatches;
     }
     const { data, error } = await window.supabase
         .from(SUPABASE_TABLES.foods)
         .select('*')
         .ilike('name', `%${q}%`)
         .order('name', { ascending: true })
-        .limit(limit);
+        .limit(safeLimit);
     if (error) {
         console.warn('Supabase foods search failed', error.message);
-        return foodCatalogCache
-            .filter((item) => normalizeText(item.name).includes(normalizeText(q)))
-            .slice(0, limit);
+        return localMatches;
     }
-    return (data || []).map(normalizeFoodCatalogRow).filter(Boolean);
+    const remoteMatches = await hydrateFoodRowsWithPortions(data || []);
+    return mergeFoodCatalogSources(remoteMatches, localMatches, safeLimit);
+}
+
+async function fetchFoodsCatalogDefault(limit = 24) {
+    const safeLimit = Math.max(1, Math.min(60, parseInt(limit, 10) || 24));
+    const localDefault = getEffectiveFoodCatalog(safeLimit);
+    if (!isSupabaseReady()) {
+        return localDefault;
+    }
+    const { data, error } = await window.supabase
+        .from(SUPABASE_TABLES.foods)
+        .select('*')
+        .order('name', { ascending: true })
+        .limit(safeLimit);
+    if (error) {
+        console.warn('Supabase foods default fetch failed', error.message);
+        return localDefault;
+    }
+    const remoteDefault = await hydrateFoodRowsWithPortions(data || []);
+    return mergeFoodCatalogSources(remoteDefault, localDefault, safeLimit);
 }
 
 async function insertFoodIntoCatalog(foodPayload = {}) {
@@ -1401,7 +1885,11 @@ async function insertFoodIntoCatalog(foodPayload = {}) {
     if (localMatch) return localMatch;
 
     if (!isSupabaseReady()) {
-        const fake = { ...normalized, id: `local-${Date.now()}` };
+        const fake = {
+            ...normalized,
+            id: `local-${Date.now()}`,
+            portions: getFoodPortions(normalized)
+        };
         foodCatalogCache = [fake, ...foodCatalogCache.filter((x) =>
             !(normalizeText(x.name) === normalizedName && normalizeText(x.brand || '') === normalizedBrand)
         )];
@@ -1423,8 +1911,10 @@ async function insertFoodIntoCatalog(foodPayload = {}) {
                 && String(item.base_unit || 'g') === String(normalized.base_unit || 'g')
             );
         if (existing) {
-            foodCatalogCache = [existing, ...foodCatalogCache.filter((x) => String(x.id) !== String(existing.id))];
-            return existing;
+            const [hydratedExisting] = await hydrateFoodRowsWithPortions([existing]);
+            const safeExisting = hydratedExisting || { ...existing, portions: getFoodPortions(existing) };
+            foodCatalogCache = [safeExisting, ...foodCatalogCache.filter((x) => String(x.id) !== String(safeExisting.id))];
+            return safeExisting;
         }
     }
 
@@ -1448,13 +1938,13 @@ async function insertFoodIntoCatalog(foodPayload = {}) {
         .single();
     if (error) {
         console.warn('Supabase food insert failed', error.message);
-        const fallback = { ...normalized, id: `local-${Date.now()}` };
+        const fallback = { ...normalized, id: `local-${Date.now()}`, portions: getFoodPortions(normalized) };
         foodCatalogCache = [fallback, ...foodCatalogCache.filter((x) =>
             !(normalizeText(x.name) === normalizedName && normalizeText(x.brand || '') === normalizedBrand)
         )];
         return fallback;
     }
-    const inserted = normalizeFoodCatalogRow(data);
+    const [inserted] = await hydrateFoodRowsWithPortions([data]);
     if (inserted) {
         foodCatalogCache = [inserted, ...foodCatalogCache.filter((x) => String(x.id) !== String(inserted.id))];
     }
@@ -1472,7 +1962,7 @@ async function syncFoodsCatalogFromSupabase() {
         console.warn('Supabase foods sync failed', error.message);
         return;
     }
-    foodCatalogCache = (data || []).map(normalizeFoodCatalogRow).filter(Boolean);
+    foodCatalogCache = await hydrateFoodRowsWithPortions(data || []);
 }
 
 function scheduleFoodsCatalogSync(delayMs = 120) {
@@ -1490,6 +1980,11 @@ function startSupabaseFoodsRealtimeSync() {
         .on(
             'postgres_changes',
             { event: '*', schema: 'public', table: SUPABASE_TABLES.foods },
+            () => scheduleFoodsCatalogSync(80)
+        )
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: SUPABASE_TABLES.foodPortions },
             () => scheduleFoodsCatalogSync(80)
         )
         .subscribe((status) => {
@@ -1621,6 +2116,28 @@ async function getStudentByIdRemote(studentId) {
     return normalizeStudentRow(data);
 }
 
+async function getStudentByUserIdRemote(userId, trainerCode = '') {
+    if (!isSupabaseReady() || !userId) return null;
+    const safeUserId = String(userId || '').trim();
+    const safeTrainerCode = sanitizeCodeInput(trainerCode, 5);
+    let query = window.supabase
+        .from(SUPABASE_TABLES.students)
+        .select('*')
+        .contains('data', { userId: safeUserId })
+        .order('updated_at', { ascending: false })
+        .limit(1);
+
+    if (safeTrainerCode) query = query.eq('trainer_code', safeTrainerCode);
+
+    const { data, error } = await query;
+    if (error) {
+        console.warn('Supabase student user fetch failed', error.message || error);
+        return null;
+    }
+    const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
+    return normalizeStudentRow(row);
+}
+
 async function generateUniqueTrainerCode() {
     const localCodes = new Set(readStorageJSON('allTrainers', []).map(t => String(t.code || '')));
     for (let attempt = 0; attempt < 25; attempt += 1) {
@@ -1665,35 +2182,119 @@ async function ensureTrainerExistsRemote(code, fallbackName = 'Treinador', fallb
     return row;
 }
 
+function getStudentTrainerCodeValue(studentLike = {}) {
+    const rawCode =
+        studentLike?.trainerCode
+        || studentLike?.trainer_code
+        || studentLike?.data?.trainerCode
+        || studentLike?.data?.trainer_code
+        || '';
+    return sanitizeCodeInput(rawCode, 5);
+}
+
+function getStudentUserIdValue(studentLike = {}) {
+    return String(
+        studentLike?.userId
+        || studentLike?.user_id
+        || studentLike?.data?.userId
+        || studentLike?.data?.user_id
+        || ''
+    ).trim();
+}
+
+async function getOwnedTrainerCodesForUser(userId, { force = false } = {}) {
+    const safeUserId = String(userId || '').trim();
+    if (!safeUserId || !isSupabaseReady()) return new Set();
+    const now = Date.now();
+    if (
+        !force
+        && supabaseTrainerCodesCache.userId === safeUserId
+        && supabaseTrainerCodesCache.expiresAt > now
+    ) {
+        return new Set(supabaseTrainerCodesCache.codes);
+    }
+
+    const { data, error } = await window.supabase
+        .from(SUPABASE_TABLES.trainers)
+        .select('code')
+        .eq('owner_id', safeUserId);
+
+    if (error) {
+        console.warn('[students-sync] Falha ao buscar códigos do treinador dono', error.message || error);
+        return new Set();
+    }
+
+    const ownedCodes = new Set(
+        (data || [])
+            .map((row) => sanitizeCodeInput(row?.code || '', 5))
+            .filter(Boolean)
+    );
+
+    supabaseTrainerCodesCache.userId = safeUserId;
+    supabaseTrainerCodesCache.expiresAt = now + SUPABASE_TRAINER_CODES_CACHE_TTL_MS;
+    supabaseTrainerCodesCache.codes = new Set(ownedCodes);
+    return ownedCodes;
+}
+
 async function syncStudentsFromSupabase(trainerCode) {
     if (!isSupabaseReady() || !trainerCode) return;
+    const scopedTrainerCode = sanitizeCodeInput(trainerCode, 5);
+    if (!scopedTrainerCode) return;
+    if (navigator.onLine === false) {
+        setStudentSyncState('offline', 'Sem conexão');
+        return;
+    }
     const { data, error } = await window.supabase
         .from(SUPABASE_TABLES.students)
         .select('*')
-        .eq('trainer_code', String(trainerCode));
+        .eq('trainer_code', String(scopedTrainerCode));
     if (error) {
         console.warn('Supabase students sync failed', error.message);
+        setStudentSyncState('error', 'Falha ao atualizar dados');
         return;
     }
     if (!data) return;
     const remoteStudents = data.map(normalizeStudentRow).filter(Boolean);
     const localStudents = normalizeStudentsDietSchema(readStorageJSON('trainerStudents', []));
-    const students = remoteStudents.map((remoteStudent) => {
-        const localMatch = localStudents.find((s) => String(s.id) === String(remoteStudent.id));
-        return mergeStudentRemoteLocal(localMatch, remoteStudent);
+    const localScoped = localStudents.filter((student) => getStudentTrainerCodeValue(student) === scopedTrainerCode);
+    const localOthers = localStudents.filter((student) => getStudentTrainerCodeValue(student) !== scopedTrainerCode);
+    const localScopedById = new Map(localScoped.map((student) => [String(student.id || ''), student]));
+    const mergedScopedById = new Map();
+
+    remoteStudents.forEach((remoteStudent) => {
+        const id = String(remoteStudent.id || '');
+        if (!id) return;
+        const localMatch = localScopedById.get(id);
+        mergedScopedById.set(id, mergeStudentRemoteLocal(localMatch, remoteStudent));
     });
+
+    localScoped.forEach((localStudent) => {
+        const id = String(localStudent.id || '');
+        if (!id) return;
+        if (!mergedScopedById.has(id)) {
+            // Preserve local fallback (especially pending requests) until remote confirms.
+            mergedScopedById.set(id, normalizeStudentDietSchema(localStudent));
+        }
+    });
+
+    const students = normalizeStudentsDietSchema([
+        ...localOthers,
+        ...Array.from(mergedScopedById.values()).filter(Boolean)
+    ]);
+
     if (isSupabaseReady()) {
-        const fallbackName = trainerCode === '00001' ? 'Administrador Teste' : 'Treinador';
+        const fallbackName = scopedTrainerCode === '00001' ? 'Administrador Teste' : 'Treinador';
         const fallbackConsultoria = fallbackName ? `Consultoria de ${fallbackName.split(' ')[0]} ` : '';
-        await ensureTrainerExistsRemote(trainerCode, fallbackName, fallbackConsultoria);
+        await ensureTrainerExistsRemote(scopedTrainerCode, fallbackName, fallbackConsultoria);
     }
 
-    saveStudentData(students);
+    saveStudentData(students, { skipSupabaseSync: true });
     mergeWorkoutHistoryFromStudents(students);
     syncChatMessagesFromStudents(students);
     renderStudents();
     renderPendingRequests();
     updateTrainerStats();
+    setStudentSyncState('synced', 'Sincronizado');
 }
 
 function clearSupabaseStudentsPolling() {
@@ -1786,10 +2387,65 @@ function startSupabaseRealtimeSync(trainerCode) {
 
 function queueSupabaseStudentsSync(students) {
     if (!isSupabaseReady()) return;
+    if (navigator.onLine === false) {
+        setStudentSyncState('offline', 'Sem conexão');
+        return;
+    }
+    setStudentSyncState('pending', 'Sincronização pendente');
     if (supabaseStudentsSyncTimer) clearTimeout(supabaseStudentsSyncTimer);
     const payload = normalizeStudentsDietSchema(JSON.parse(JSON.stringify(students || [])));
     supabaseStudentsSyncTimer = setTimeout(async () => {
-        const ids = payload.map((student) => String(student.id || '')).filter(Boolean);
+        const sessionUser = await getSupabaseSessionUser();
+        if (!sessionUser?.id) return;
+        const actorUserId = String(sessionUser.id);
+        const profile = await getProfileByUserId(actorUserId);
+        const actorRoles = normalizeAppRoles(
+            profile?.roles || sessionUser?.user_metadata?.roles,
+            profile?.role || sessionUser?.user_metadata?.role
+        );
+        const canActAsTrainer = actorRoles.includes('trainer');
+        const canActAsStudent = actorRoles.includes('student');
+        const ownedTrainerCodes = canActAsTrainer
+            ? await getOwnedTrainerCodesForUser(actorUserId)
+            : new Set();
+        const inferredTrainerCode = sanitizeCodeInput(
+            profile?.trainer_code || memoryGetItem('currentTrainerCode') || '',
+            5
+        );
+        if (canActAsTrainer && inferredTrainerCode) {
+            ownedTrainerCodes.add(inferredTrainerCode);
+        }
+
+        let skippedUnauthorized = 0;
+        const permittedStudents = payload.filter((student) => {
+            const studentId = String(student?.id || '').trim();
+            const trainerCode = getStudentTrainerCodeValue(student);
+            const studentUserId = getStudentUserIdValue(student);
+            if (!studentId || !trainerCode) {
+                skippedUnauthorized += 1;
+                console.warn(`[students-sync] Registro ignorado (id/trainer_code ausente). id=${studentId || '-'} trainer_code=${trainerCode || '-'}`);
+                return false;
+            }
+            const allowByStudent = canActAsStudent && studentUserId === actorUserId;
+            const allowByTrainer = canActAsTrainer && ownedTrainerCodes.has(trainerCode);
+            if (!allowByStudent && !allowByTrainer) {
+                skippedUnauthorized += 1;
+                console.warn(
+                    `[students-sync] Registro sem permissão, ignorado. id=${studentId} trainer_code=${trainerCode} user_id=${studentUserId || '-'} actor=${actorUserId} roles=${actorRoles.join(',')}`
+                );
+                return false;
+            }
+            return true;
+        });
+
+        if (permittedStudents.length === 0) {
+            if (skippedUnauthorized > 0) {
+                console.warn(`[students-sync] Nenhum registro permitido para sync. ignorados=${skippedUnauthorized}`);
+            }
+            return;
+        }
+
+        const ids = permittedStudents.map((student) => String(student.id || '')).filter(Boolean);
         let remoteById = new Map();
         if (ids.length > 0) {
             const { data: remoteRows } = await window.supabase
@@ -1801,23 +2457,275 @@ function queueSupabaseStudentsSync(students) {
             }
         }
 
-        const rows = payload.map((student) => {
+        const rows = permittedStudents.map((student) => {
             const id = String(student.id || '');
             const remote = remoteById.get(id);
-            const mergedStudent = mergeStudentRemoteLocal(remote, student || remote);
+            const mergedStudent = mergeStudentRemoteLocal(student, remote || student);
+            const trainerCode = getStudentTrainerCodeValue(mergedStudent);
+            const studentUserId = getStudentUserIdValue(mergedStudent);
+            if (!trainerCode) return null;
             return {
-            id: String(mergedStudent.id || id),
-            trainer_code: String(mergedStudent.trainerCode || mergedStudent.trainer_code || student.trainerCode || student.trainer_code || ''),
-            data: mergedStudent,
-            updated_at: new Date().toISOString()
-        };
-        }).filter((row) => row.id);
+                id: String(mergedStudent.id || id),
+                trainer_code: trainerCode,
+                data: {
+                    ...mergedStudent,
+                    trainerCode,
+                    userId: studentUserId || actorUserId,
+                    pending: Boolean(mergedStudent?.pending),
+                    active: Boolean(mergedStudent?.active)
+                },
+                updated_at: new Date().toISOString()
+            };
+        }).filter((row) => row?.id && row?.trainer_code);
         if (rows.length === 0) return;
-        const { error } = await window.supabase
-            .from(SUPABASE_TABLES.students)
-            .upsert(rows, { onConflict: 'id' });
-        if (error) console.warn('Supabase students upsert failed', error.message);
+
+        let syncedCount = 0;
+        let failedCount = 0;
+        for (const row of rows) {
+            const { error: rowError } = await window.supabase
+                .from(SUPABASE_TABLES.students)
+                .upsert(row, { onConflict: 'id' });
+            if (rowError) {
+                failedCount += 1;
+                console.warn(
+                    `[students-sync] Upsert falhou para id=${row.id} trainer_code=${row.trainer_code} actor=${actorUserId}. ${rowError.message || rowError}`
+                );
+                continue;
+            }
+            syncedCount += 1;
+        }
+
+        if (failedCount > 0 || skippedUnauthorized > 0) {
+            console.warn(
+                `[students-sync] Resumo sync: enviados=${rows.length} sucesso=${syncedCount} falhas=${failedCount} ignorados=${skippedUnauthorized}`
+            );
+        }
+        if (failedCount > 0) {
+            setStudentSyncState('error', `Falha em ${failedCount} registro(s)`);
+        } else if (syncedCount > 0) {
+            setStudentSyncState('synced', 'Sincronizado');
+        } else {
+            setStudentSyncState('pending', 'Sem alterações para sincronizar');
+        }
     }, 400);
+}
+
+function buildDietLogRowsForSync(student, dateKey, dayLog) {
+    const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || '')) ? String(dateKey) : getTodayDateKey();
+    const studentUserId = String(student?.userId || memoryGetItem('currentUserId') || '').trim();
+    const studentLocalId = String(student?.id || '').trim();
+    if (!studentUserId || !studentLocalId) return [];
+
+    const meals = dayLog?.meals && typeof dayLog.meals === 'object' ? dayLog.meals : {};
+    const rows = [];
+    Object.keys(meals).forEach((mealIdxKey) => {
+        const mealIdx = parseInt(mealIdxKey, 10);
+        const meal = meals[mealIdxKey] || {};
+        const items = meal?.items && typeof meal.items === 'object' ? meal.items : {};
+        Object.keys(items).forEach((itemIdxKey) => {
+            const itemIdx = parseInt(itemIdxKey, 10);
+            const item = items[itemIdxKey] || {};
+            const parsedQty = parseAmountAndUnit(item.qty || '', item.unitKey || item.unit_key || 'g');
+            rows.push({
+                student_user_id: studentUserId,
+                student_local_id: studentLocalId,
+                log_date: safeDate,
+                meal_idx: Number.isFinite(mealIdx) ? mealIdx : 0,
+                item_idx: Number.isFinite(itemIdx) ? itemIdx : 0,
+                checked: !!item.checked,
+                qty: String(item.qty || ''),
+                amount: Math.max(0.1, parseDecimalSafe(item.amount) || parsedQty.amount || 1),
+                unit_key: normalizeFoodUnitKey(item.unitKey || item.unit_key || parsedQty.unit || 'g'),
+                portion_id: String(item.portionId || item.portion_id || '') || null,
+                portion_label: sanitizeUserInput(item.portionLabel || item.portion_label || '', { maxLen: 80 }) || null,
+                substitute: item?.substitute && typeof item.substitute === 'object'
+                    ? item.substitute
+                    : { enabled: false },
+                updated_at: new Date().toISOString()
+            });
+        });
+    });
+    return rows;
+}
+
+async function syncStudentProfileEntity(student) {
+    if (!isSupabaseReady() || !student || !entityTablesAvailability.profiles) return;
+    const studentUserId = String(student?.userId || memoryGetItem('currentUserId') || '').trim();
+    if (!studentUserId) return;
+    const payload = {
+        student_user_id: studentUserId,
+        student_local_id: String(student.id || ''),
+        trainer_code: getStudentTrainerCodeValue(student),
+        profile_data: {
+            name: student.name || '',
+            age: student.age || '',
+            gender: student.gender || '',
+            goal: student.goal || '',
+            weight: student.weight || '',
+            height: student.height || '',
+            bodyFat: student.bodyFat || '',
+            questionnaire: student.questionnaire || {}
+        },
+        updated_at: new Date().toISOString()
+    };
+    const { error } = await window.supabase
+        .from(SUPABASE_TABLES.studentProfiles)
+        .upsert(payload, { onConflict: 'student_user_id' });
+    if (error) {
+        console.warn('[entity-sync] student_profiles upsert falhou', error.message || error);
+        if (String(error.message || '').toLowerCase().includes('does not exist')) {
+            entityTablesAvailability.profiles = false;
+        }
+    }
+}
+
+function queueEntityDietLogsSync(student, dateKey) {
+    if (!isSupabaseReady() || !student?.id || !entityTablesAvailability.dietLogs) return;
+    const timerKey = `${student.id}:${dateKey}`;
+    const existingTimer = supabaseEntityDietSyncTimers.get(timerKey);
+    if (existingTimer) clearTimeout(existingTimer);
+
+    const nextTimer = setTimeout(async () => {
+        const dayLog = getStudentDietLogForDate(student, dateKey);
+        const rows = buildDietLogRowsForSync(student, dateKey, dayLog);
+        if (!rows.length) {
+            supabaseEntityDietSyncTimers.delete(timerKey);
+            return;
+        }
+        const { error } = await window.supabase
+            .from(SUPABASE_TABLES.dietLogs)
+            .upsert(rows, { onConflict: 'student_user_id,log_date,meal_idx,item_idx' });
+        if (error) {
+            const message = String(error.message || '').toLowerCase();
+            const legacyColumnsMissing = (
+                message.includes('column "amount"')
+                || message.includes('column "unit_key"')
+                || message.includes('column "portion_id"')
+                || message.includes('column "portion_label"')
+            );
+            if (legacyColumnsMissing) {
+                const legacyRows = rows.map(({ amount, unit_key, portion_id, portion_label, ...rest }) => rest);
+                const { error: legacyError } = await window.supabase
+                    .from(SUPABASE_TABLES.dietLogs)
+                    .upsert(legacyRows, { onConflict: 'student_user_id,log_date,meal_idx,item_idx' });
+                if (!legacyError) {
+                    setStudentSyncState('synced', 'Sincronizado');
+                    supabaseEntityDietSyncTimers.delete(timerKey);
+                    return;
+                }
+            }
+            console.warn('[entity-sync] diet_logs upsert falhou', error.message || error);
+            if (String(error.message || '').toLowerCase().includes('does not exist')) {
+                entityTablesAvailability.dietLogs = false;
+            }
+            setStudentSyncState('error', 'Falha ao salvar logs de dieta');
+            supabaseEntityDietSyncTimers.delete(timerKey);
+            return;
+        }
+        setStudentSyncState('synced', 'Sincronizado');
+        supabaseEntityDietSyncTimers.delete(timerKey);
+    }, 360);
+
+    supabaseEntityDietSyncTimers.set(timerKey, nextTimer);
+}
+
+async function syncWorkoutArchiveToEntities(student, workoutArchive, sessionId = '') {
+    if (!isSupabaseReady() || !student || !workoutArchive || !entityTablesAvailability.workout) return;
+    const studentUserId = String(student?.userId || memoryGetItem('currentUserId') || '').trim();
+    if (!studentUserId) return;
+    const normalizedSessionId = String(sessionId || `session-${Date.now()}`);
+    const startedAt = workoutState?.startTime
+        ? new Date(workoutState.startTime).toISOString()
+        : new Date(workoutArchive.Data_Treino).toISOString();
+    const finishedAt = new Date(workoutArchive.Data_Treino).toISOString();
+
+    const sessionRow = {
+        id: normalizedSessionId,
+        student_user_id: studentUserId,
+        student_local_id: String(student.id || ''),
+        workout_title: String(workoutArchive.Nome_Treino || ''),
+        started_at: startedAt,
+        finished_at: finishedAt,
+        duration_seconds: Number(workoutArchive.Duracao || 0),
+        volume_total: Number(workoutArchive.Volume_Total || 0),
+        feedback: workoutArchive.Avaliacao_Geral || {},
+        updated_at: new Date().toISOString()
+    };
+
+    const setRows = [];
+    (workoutArchive.Exercicios || []).forEach((exercise, exIdx) => {
+        (exercise.sets || []).forEach((set, setIdx) => {
+            setRows.push({
+                session_id: normalizedSessionId,
+                exercise_index: exIdx,
+                exercise_name: String(exercise.nome || ''),
+                set_index: setIdx,
+                weight: Number(set.peso || 0),
+                reps: Number(set.reps || 0),
+                rpe: set.rpe === null || set.rpe === undefined ? null : Number(set.rpe),
+                execucao: set.execucao === null || set.execucao === undefined ? null : Number(set.execucao),
+                extra: {
+                    type: set.type || 'normal',
+                    intensidade: set.intensidade ?? null,
+                    rir: set.rir ?? null,
+                    brokenPRs: set.brokenPRs || {}
+                },
+                completed_at: finishedAt,
+                updated_at: new Date().toISOString()
+            });
+        });
+    });
+
+    const { error: sessionError } = await window.supabase
+        .from(SUPABASE_TABLES.workoutSessions)
+        .upsert(sessionRow, { onConflict: 'id' });
+    if (sessionError) {
+        console.warn('[entity-sync] workout_sessions upsert falhou', sessionError.message || sessionError);
+        if (String(sessionError.message || '').toLowerCase().includes('does not exist')) {
+            entityTablesAvailability.workout = false;
+        }
+        return;
+    }
+    if (setRows.length > 0) {
+        const { error: setsError } = await window.supabase
+            .from(SUPABASE_TABLES.workoutSets)
+            .upsert(setRows, { onConflict: 'session_id,exercise_index,set_index' });
+        if (setsError) {
+            console.warn('[entity-sync] workout_sets upsert falhou', setsError.message || setsError);
+            if (String(setsError.message || '').toLowerCase().includes('does not exist')) {
+                entityTablesAvailability.workout = false;
+            }
+            return;
+        }
+    }
+}
+
+async function syncStudentConnectionEntity(studentUserId, trainerCode, status = 'pending') {
+    if (!isSupabaseReady() || !entityTablesAvailability.connections) return;
+    const safeUserId = String(studentUserId || '').trim();
+    const safeTrainerCode = sanitizeCodeInput(trainerCode, 5);
+    const safeStatus = ['pending', 'approved', 'rejected'].includes(String(status || '').toLowerCase())
+        ? String(status || '').toLowerCase()
+        : 'pending';
+    if (!safeUserId || !safeTrainerCode) return;
+
+    const payload = {
+        student_user_id: safeUserId,
+        trainer_code: safeTrainerCode,
+        status: safeStatus,
+        requested_at: new Date().toISOString(),
+        decided_at: safeStatus === 'pending' ? null : new Date().toISOString(),
+        updated_at: new Date().toISOString()
+    };
+    const { error } = await window.supabase
+        .from(SUPABASE_TABLES.studentConnections)
+        .upsert(payload, { onConflict: 'student_user_id,trainer_code' });
+    if (error) {
+        console.warn('[entity-sync] student_connections upsert falhou', error.message || error);
+        if (String(error.message || '').toLowerCase().includes('does not exist')) {
+            entityTablesAvailability.connections = false;
+        }
+    }
 }
 
 function getActiveSyncTrainerCode() {
@@ -1827,6 +2735,36 @@ function getActiveSyncTrainerCode() {
         memoryGetItem('trainerCodeDefault') ||
         ''
     );
+}
+
+function setStudentSyncState(status = 'synced', message = '', options = {}) {
+    const normalizedStatus = String(status || 'synced').toLowerCase();
+    const validStatus = ['synced', 'pending', 'offline', 'error'].includes(normalizedStatus)
+        ? normalizedStatus
+        : 'synced';
+    studentSyncState = {
+        status: validStatus,
+        message: message || (
+            validStatus === 'synced'
+                ? 'Sincronizado'
+                : validStatus === 'pending'
+                    ? 'Sincronização pendente'
+                    : validStatus === 'offline'
+                        ? 'Sem conexão'
+                        : 'Falha de sincronização'
+        ),
+        updatedAt: options.updatedAt || new Date().toISOString()
+    };
+    renderDietSyncStatus();
+}
+
+function renderDietSyncStatus() {
+    const pill = document.getElementById('diet-sync-pill');
+    if (!pill) return;
+    const statusClass = `is-${studentSyncState.status || 'synced'}`;
+    pill.classList.remove('is-synced', 'is-pending', 'is-offline', 'is-error');
+    pill.classList.add(statusClass);
+    pill.textContent = studentSyncState.message || 'Sincronizado';
 }
 
 function getLocalStateUpdatedAt() {
@@ -2152,28 +3090,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    // Fast path: remember-me token only in local demo mode.
-    if (ENABLE_DEMO_ACCESS && tryAutoStudentLogin()) return;
+    clearAuthRuntimeContext();
 
-    // Legacy fallback for sessions without token
-    const studentId = ENABLE_DEMO_ACCESS ? memoryGetItem('currentStudentId') : null;
-    if (studentId) {
-        const students = readStorageJSON('trainerStudents', []);
-        const legacyStudent = students.find(s => String(s.id) === String(studentId));
-        if (legacyStudent) {
-            if (openStudentDashboardSession(legacyStudent, { persistToken: true })) {
-                return;
+    if (isSupabaseReady() && typeof window.supabase?.auth?.onAuthStateChange === 'function') {
+        window.supabase.auth.onAuthStateChange((event) => {
+            if (event === 'SIGNED_OUT') {
+                clearAuthRuntimeContext();
+                goToGlobalLogin();
             }
-        }
-        memoryRemoveItem('currentStudentId');
-        memoryRemoveItem('connectedTrainerCode');
-        memoryRemoveItem('studentName');
+        });
     }
 
     const login = document.getElementById('global-login-screen');
     if (login) {
-        hideAllScreens();
-        login.classList.add('active');
+        await goToGlobalLogin();
         return;
     }
 
@@ -2182,6 +3112,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         hideAllScreens();
         home.classList.add('active');
     }
+});
+
+window.addEventListener('online', () => {
+    setStudentSyncState('pending', 'Reconectado, sincronizando...');
+    const students = readStorageJSON('trainerStudents', []);
+    if (Array.isArray(students) && students.length > 0) {
+        queueSupabaseStudentsSync(students);
+    }
+});
+
+window.addEventListener('offline', () => {
+    setStudentSyncState('offline', 'Sem conexão');
 });
 
 // â”€â”€â”€ Real-Time Sync (Cross-Tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2344,7 +3286,6 @@ function closeTrainerProfileMenu() {
 
 function logoutTrainerFromMenu() {
     stopSupabaseRealtimeSync();
-    memoryRemoveItem('trainerSessionCode');
     memoryRemoveItem('trainerName');
     memoryRemoveItem('currentTrainerCode');
     window.location.href = 'index.html';
@@ -2387,16 +3328,20 @@ function shareTrainerCode() {
     closeTrainerProfileMenu();
 }
 
-function goToStudentArea() {
-    activateScreen('student-screen');
-}
-
 async function goToGlobalLogin() {
     const loginScreen = await ensureScreenElement('global-login-screen', 'pages/login.html');
     if (!loginScreen) {
-        console.warn('Tela de login indisponivel, abrindo fallback do aluno.');
-        goToStudentArea();
+        console.warn('Tela de login indisponivel, abrindo home.');
+        const homeScreen = document.getElementById('home-screen');
+        if (homeScreen) {
+            activateScreen('home-screen');
+            return;
+        }
         return;
+    }
+    const testButton = loginScreen.querySelector('.auth-alt-btn-test');
+    if (testButton) {
+        testButton.style.display = ENABLE_DEMO_ACCESS ? '' : 'none';
     }
     activateScreen('global-login-screen', { animate: true });
 }
@@ -2417,7 +3362,19 @@ async function goToProfileCreate() {
     activateScreen('profile-create-screen', { animate: true });
 }
 
-function openTrainerArea() {
+async function openTrainerArea() {
+    const activeUser = await getSupabaseSessionUser();
+    if (!activeUser || !isEmailConfirmed(activeUser)) {
+        alert('Faça login com e-mail e senha para acessar a área do treinador.');
+        goToGlobalLogin();
+        return;
+    }
+    const profile = await getProfileByUserId(activeUser.id);
+    const roles = normalizeAppRoles(profile?.roles || activeUser?.user_metadata?.roles, profile?.role || activeUser?.user_metadata?.role);
+    if (!roles.includes('trainer')) {
+        alert('Sua conta não possui acesso de treinador.');
+        return;
+    }
     window.location.href = 'trainer.html';
 }
 
@@ -2484,6 +3441,45 @@ async function getSupabaseSessionUser() {
     return data?.session?.user || null;
 }
 
+async function runOneShotLegacyMigration(user, profile, roles = []) {
+    if (!user?.id || !isSupabaseReady()) return;
+    if (hasMigrationCompleted(user.id)) return;
+
+    try {
+        const localStudents = normalizeStudentsDietSchema(readStorageJSON('trainerStudents', []));
+        if (Array.isArray(localStudents) && localStudents.length > 0) {
+            let scopedStudents = localStudents;
+            const isTrainer = normalizeAppRoles(roles, profile?.role).includes('trainer');
+            const isStudent = normalizeAppRoles(roles, profile?.role).includes('student');
+
+            if (isTrainer) {
+                const trainerCode = sanitizeCodeInput(profile?.trainer_code || memoryGetItem('currentTrainerCode') || '', 5);
+                if (trainerCode) {
+                    scopedStudents = localStudents.filter((s) =>
+                        sanitizeCodeInput(s?.trainerCode || s?.trainer_code || '', 5) === trainerCode
+                    );
+                }
+            } else if (isStudent) {
+                const currentStudentId = String(memoryGetItem('currentStudentId') || '');
+                scopedStudents = localStudents
+                    .filter((s) =>
+                        String(s?.userId || '') === String(user.id) ||
+                        (currentStudentId && String(s?.id || '') === currentStudentId)
+                    )
+                    .map((s) => ({ ...s, userId: user.id }));
+            }
+
+            if (scopedStudents.length > 0) {
+                queueSupabaseStudentsSync(scopedStudents);
+            }
+        }
+    } catch (err) {
+        console.warn('Falha na migracao one-shot do legado', err);
+    } finally {
+        markMigrationCompleted(user.id);
+    }
+}
+
 async function getProfileByUserId(userId) {
     if (!isSupabaseReady() || !userId) return null;
     const { data, error } = await window.supabase
@@ -2518,21 +3514,45 @@ function cacheAuthenticatedContext(user, profile, roles, onboardingStep) {
     if (profile?.connected_trainer_code) {
         memorySetItem('connectedTrainerCode', sanitizeCodeInput(profile.connected_trainer_code, 5));
     }
+    if (profile?.anamnesis && typeof profile.anamnesis === 'object') {
+        memorySetItem('currentAnamnesis', JSON.stringify(profile.anamnesis));
+    }
 }
 
 async function openStudentDashboardForUser(userId, trainerCode = '') {
-    if (tryAutoStudentLogin()) return true;
     let students = readStorageJSON('trainerStudents', []);
     let student = students.find((s) => String(s.userId || '') === String(userId));
+    const safeTrainerCode = sanitizeCodeInput(trainerCode, 5);
 
-    if (!student && trainerCode && isSupabaseReady()) {
-        await syncStudentsFromSupabase(trainerCode);
+    if (!student && safeTrainerCode && isSupabaseReady()) {
+        await syncStudentsFromSupabase(safeTrainerCode);
         students = readStorageJSON('trainerStudents', []);
         student = students.find((s) => String(s.userId || '') === String(userId));
     }
 
+    if (!student && isSupabaseReady()) {
+        const remoteStudent = await getStudentByUserIdRemote(userId, safeTrainerCode);
+        if (remoteStudent) {
+            const mergedStudents = normalizeStudentsDietSchema([
+                ...students.filter((s) => String(s.id) !== String(remoteStudent.id)),
+                remoteStudent
+            ]);
+            saveStudentData(mergedStudents);
+            student = remoteStudent;
+            const remoteTrainerCode = getStudentTrainerCodeValue(remoteStudent);
+            if (remoteTrainerCode) {
+                memorySetItem('connectedTrainerCode', remoteTrainerCode);
+            }
+            if (remoteTrainerCode && remoteTrainerCode !== safeTrainerCode) {
+                await syncStudentsFromSupabase(remoteTrainerCode);
+                students = readStorageJSON('trainerStudents', []);
+                student = students.find((s) => String(s.userId || '') === String(userId)) || student;
+            }
+        }
+    }
+
     if (!student) return false;
-    return openStudentDashboardSession(student, { persistToken: true });
+    return openStudentDashboardSession(student);
 }
 
 function showProfileSetupScreen(profile, roles) {
@@ -2558,14 +3578,36 @@ function showProfileSetupScreen(profile, roles) {
 }
 
 function showTrainerConnectScreen() {
-    hideAllScreens();
-    const studentScreen = document.getElementById('student-screen');
-    if (studentScreen) studentScreen.classList.add('active');
+    activateScreen('student-screen', { animate: true });
 
     const title = document.getElementById('student-connect-title');
     const subtitle = document.getElementById('student-connect-subtitle');
+    const trainerCodeInput = document.getElementById('trainer-code');
+    const currentCode = sanitizeCodeInput(
+        memoryGetItem('connectedTrainerCode') || memoryGetItem('currentTrainerCode') || '',
+        5
+    );
     if (title) title.textContent = 'Conectar com Treinador';
-    if (subtitle) subtitle.textContent = 'Adicione o código do treinador para concluir seu acesso como aluno';
+    if (subtitle) {
+        subtitle.textContent = currentCode
+            ? `Código atual: ${currentCode}. Informe outro código para reconectar sua conta.`
+            : 'Adicione o código do treinador para concluir seu acesso como aluno.';
+    }
+    if (trainerCodeInput) trainerCodeInput.value = currentCode || '';
+}
+
+async function openStudentConnectFromDashboard() {
+    const activeUser = await getSupabaseSessionUser();
+    if (!activeUser) {
+        goToGlobalLogin();
+        return;
+    }
+    document.querySelectorAll('#student-dashboard-screen .sidebar-nav .nav-item').forEach((item) => {
+        item.classList.remove('active');
+    });
+    const navConnect = document.getElementById('snav-connect');
+    if (navConnect) navConnect.classList.add('active');
+    showTrainerConnectScreen();
 }
 
 async function routeByOnboarding(user, profile, roles) {
@@ -2798,6 +3840,31 @@ async function handleEmailLogin() {
     }
 }
 
+function handleTestLogin() {
+    const showLoginFeedback = (message, type = 'info') => {
+        const hasInline = setAuthInlineFeedback('login-inline-feedback', message, type);
+        if (!hasInline && message) alert(message);
+    };
+
+    if (!ENABLE_DEMO_ACCESS) {
+        showLoginFeedback('Acesso de teste disponivel apenas em ambiente local.', 'warning');
+        return;
+    }
+
+    ensureAdminStudent();
+    const students = readStorageJSON('trainerStudents', []);
+    const demoStudent = students.find((s) => String(s.id) === String(ADMIN_STUDENT_CODE)) || {
+        id: ADMIN_STUDENT_CODE,
+        name: ADMIN_STUDENT_NAME,
+        trainerCode: '00001',
+        active: true,
+        pending: false
+    };
+
+    showLoginFeedback('Entrando em modo teste...', 'success');
+    openStudentDashboardSession(demoStudent);
+}
+
 async function resendVerificationEmailFromLogin() {
     const emailInput = sanitizeEmailInput(document.getElementById('login-email')?.value);
     const rememberedEmail = sanitizeEmailInput(memoryGetItem('pendingVerificationEmail') || '');
@@ -3011,8 +4078,37 @@ async function processLogin(user) {
     memorySetItem('studentName', safeUserName);
     memorySetItem('trainerName', safeUserName.split(' ')[0]);
     if (profile?.trainer_code) memorySetItem('currentTrainerCode', sanitizeCodeInput(profile.trainer_code, 5));
+    await runOneShotLegacyMigration(activeUser, profile, roles);
 
     await routeByOnboarding(activeUser, profile, roles);
+}
+
+if (typeof window !== 'undefined') {
+    Object.assign(window, {
+        goToGlobalLogin,
+        goToProfileCreate,
+        handleEmailLogin,
+        handleGoogleLogin,
+        resendVerificationEmailFromLogin,
+        handleProfileCreation,
+        handleTestLogin,
+        completeProfileSetup,
+        connectStudent,
+        confirmConnection,
+        openTrainerArea,
+        goToTrainerArea,
+        goToTrainerCreate,
+        connectTrainer,
+        createConsultoria,
+        goToHome,
+        goBackFromStudentConnect,
+        openStudentConnectFromDashboard,
+        repeatPreviousDietDay,
+        undoRepeatPreviousDietDay,
+        toggleDietDayCompletion,
+        openPerfilAnamnesisModal,
+        closePerfilAnamnesisModal
+    });
 }
 
 let currentWorkoutTab = 0;
@@ -3032,7 +4128,16 @@ document.addEventListener('visibilitychange', () => {
     if (!document.hidden && restEndAt) updateRestTimerUI();
 });
 
-function switchStudentView(view) {
+async function switchStudentView(view) {
+    const protectedViews = ['home', 'treino', 'dieta', 'perfil', 'log-workout', 'workout-summary'];
+    if (protectedViews.includes(view) && !ENABLE_DEMO_ACCESS) {
+        const activeUser = await getSupabaseSessionUser();
+        if (!activeUser || !isEmailConfirmed(activeUser)) {
+            clearAuthRuntimeContext();
+            goToGlobalLogin();
+            return;
+        }
+    }
     if (workoutState && view !== 'log-workout' && view !== 'workout-summary') {
         if (!confirmExitActiveWorkout()) return;
     }
@@ -3043,6 +4148,8 @@ function switchStudentView(view) {
         if (el) el.style.display = v === view ? 'block' : 'none';
         if (nav) nav.classList.toggle('active', v === view);
     });
+    const navConnect = document.getElementById('snav-connect');
+    if (navConnect) navConnect.classList.remove('active');
 
     // Specific logic for each view
     if (view === 'treino') {
@@ -4917,24 +6024,38 @@ function getStudentDietLogForDate(student, dateKey) {
 function computeDietConsumedMacros(baseItem, logEntry) {
     if (logEntry?.substitute?.enabled) {
         const sub = logEntry.substitute || {};
-        const subProt = parseDecimalSafe(sub.prot);
-        const subCarb = parseDecimalSafe(sub.carb);
-        const subGord = parseDecimalSafe(sub.gord);
-        const subKcal = parseDecimalSafe(sub.kcal) || Math.round((subProt * 4) + (subCarb * 4) + (subGord * 9));
-        return { prot: subProt, carb: subCarb, gord: subGord, kcal: subKcal };
+        const parsedSubQty = parseAmountAndUnit(sub.qty || '', sub.unitKey || sub.unit_key || sub.baseUnit || sub.base_unit || 'g');
+        const subCalc = computeMacrosByAmount({
+            id: sub.foodId || '',
+            name: sub.name || baseItem?.nome || 'Substituto',
+            base_qty: Math.max(0.1, parseDecimalSafe(sub.baseQty || sub.base_qty) || 100),
+            base_unit: normalizeFoodUnitKey(sub.baseUnit || sub.base_unit || parsedSubQty.unit || 'g'),
+            kcal: parseDecimalSafe(sub.kcal),
+            protein: parseDecimalSafe(sub.prot),
+            carb: parseDecimalSafe(sub.carb),
+            fat: parseDecimalSafe(sub.gord)
+        }, Math.max(0.1, parseDecimalSafe(sub.amount) || parsedSubQty.amount || parseDecimalSafe(sub.baseQty || sub.base_qty) || 1), normalizeFoodUnitKey(sub.unitKey || sub.unit_key || parsedSubQty.unit || 'g'), sub.portionId || sub.portion_id || '');
+        return { prot: subCalc.protein, carb: subCalc.carb, gord: subCalc.fat, kcal: subCalc.kcal };
     }
 
     const base = getDietItemBaseMacros(baseItem);
-    const baseQty = Math.max(0.1, parseDecimalSafe(baseItem?.baseQty) || parseQuantityNumeric(baseItem?.qtd) || 1);
-    const consumedQty = Math.max(0.1, parseQuantityNumeric(logEntry?.qty) || baseQty);
-    const ratio = consumedQty / baseQty;
-
-    return {
-        prot: Math.round(base.prot * ratio * 10) / 10,
-        carb: Math.round(base.carb * ratio * 10) / 10,
-        gord: Math.round(base.gord * ratio * 10) / 10,
-        kcal: Math.round(base.kcal * ratio)
+    const parsedQty = parseAmountAndUnit(logEntry?.qty || '', logEntry?.unitKey || logEntry?.unit_key || baseItem?.unitKey || baseItem?.baseUnit || baseItem?.base_unit || 'g');
+    const amount = Math.max(0.1, parseDecimalSafe(logEntry?.amount) || parsedQty.amount || parseDecimalSafe(baseItem?.amount) || parseQuantityNumeric(baseItem?.qtd) || 1);
+    const unitKey = normalizeFoodUnitKey(logEntry?.unitKey || logEntry?.unit_key || parsedQty.unit || baseItem?.unitKey || baseItem?.baseUnit || baseItem?.base_unit || 'g');
+    const foodFromCache = (foodCatalogCache || []).find((item) => String(item.id || '') === String(baseItem?.foodId || ''));
+    const foodPayload = {
+        id: baseItem?.foodId || '',
+        name: baseItem?.nome || baseItem?.name || foodFromCache?.name || 'Alimento',
+        base_qty: Math.max(0.1, parseDecimalSafe(baseItem?.baseQty) || parseQuantityNumeric(baseItem?.qtd) || 1),
+        base_unit: normalizeFoodUnitKey(baseItem?.baseUnit || baseItem?.base_unit || foodFromCache?.base_unit || 'g'),
+        kcal: base.kcal,
+        protein: base.prot,
+        carb: base.carb,
+        fat: base.gord,
+        portions: getFoodPortions(foodFromCache || baseItem || {})
     };
+    const calc = computeMacrosByAmount(foodPayload, amount, unitKey, logEntry?.portionId || logEntry?.portion_id || baseItem?.portionId || baseItem?.portion_id || '');
+    return { prot: calc.protein, carb: calc.carb, gord: calc.fat, kcal: calc.kcal };
 }
 
 function renderStudentDietContent(student) {
@@ -4943,10 +6064,24 @@ function renderStudentDietContent(student) {
     const meals = Array.isArray(student?.mealBlocks) ? student.mealBlocks : [];
     const dayLog = getStudentDietLogForDate(student, selectedDate);
     const weekly = buildWeeklyDietSummary(student, selectedDate);
+    const completionPercent = macro.completion.total > 0
+        ? Math.round((macro.completion.done / macro.completion.total) * 100)
+        : 0;
+    const isDayCompleted = !!dayLog?.meta?.completed;
+    const completionLabel = isDayCompleted ? 'Dia concluído' : `${completionPercent}% concluído`;
+    const statusClass = isDayCompleted ? 'done' : 'pending';
+    const canUndoCopy = !!(
+        studentDietRepeatUndoState
+        && String(studentDietRepeatUndoState.studentId || '') === String(student.id || '')
+        && studentDietRepeatUndoState.dateKey === selectedDate
+    );
 
     const summaryCard = `
         <div class="diet-modern-summary-card">
-            <div class="diet-modern-summary-title">Macros Diários</div>
+            <div class="diet-modern-summary-head">
+                <div class="diet-modern-summary-title">Macros Diários</div>
+                <span class="diet-modern-day-status ${statusClass}">${completionLabel}</span>
+            </div>
             <div class="diet-modern-date-controls">
                 <button type="button" class="diet-modern-icon-btn" onclick="setStudentDietDate('${getDateKeyShift(selectedDate, -1)}')"><i class="ph-bold ph-caret-left"></i></button>
                 <input type="date" class="diet-modern-date-input" value="${selectedDate}" onchange="setStudentDietDate(this.value)">
@@ -4973,6 +6108,19 @@ function renderStudentDietContent(student) {
                 <div class="diet-progress-value">${macro.totals.consumed.kcal}/${macro.targets.kcal} kcal</div>
             </div>
             <div class="diet-modern-summary-foot">${selectedDate} · ${macro.completion.done}/${macro.completion.total} alimentos marcados</div>
+            <div class="diet-modern-day-actions">
+                <button type="button" class="diet-modern-ghost-btn" onclick="repeatPreviousDietDay()">
+                    Repetir dia anterior
+                </button>
+                ${canUndoCopy ? `
+                    <button type="button" class="diet-modern-ghost-btn" onclick="undoRepeatPreviousDietDay()">
+                        Desfazer cópia
+                    </button>
+                ` : ''}
+                <button type="button" class="diet-modern-cta-btn ${isDayCompleted ? 'done' : ''}" onclick="toggleDietDayCompletion()">
+                    ${isDayCompleted ? 'Reabrir dia alimentar' : 'Concluir dia alimentar'}
+                </button>
+            </div>
         </div>
         <div class="diet-modern-weekly-card">
             <div class="diet-modern-weekly-title">Resumo Semanal</div>
@@ -4989,11 +6137,23 @@ function renderStudentDietContent(student) {
         </div>
     `;
 
-    const mealCards = meals.map((meal, mealIdx) => `
-        <div class="diet-modern-meal-card tone-${mealIdx % 3}">
+    const mealCards = meals.map((meal, mealIdx) => {
+        const mealItems = Array.isArray(meal?.items) ? meal.items : [];
+        const doneItems = mealItems.reduce((acc, _item, itemIdx) => acc + (getDietLogItem(dayLog, mealIdx, itemIdx)?.checked ? 1 : 0), 0);
+        const mealProgressLabel = mealItems.length
+            ? `${doneItems}/${mealItems.length} itens concluídos`
+            : 'Sem itens cadastrados';
+        return `
+        <div class="diet-modern-meal-card tone-${mealIdx % 3}" style="--meal-order:${mealIdx};">
             <div class="diet-modern-meal-header">
-                <h3>${escHtml(meal.name)}</h3>
+                <div class="diet-modern-meal-title-wrap">
+                    <h3>${escHtml(meal.name)}</h3>
+                    <span class="diet-modern-meal-meta">${mealProgressLabel}</span>
+                </div>
                 <div class="diet-modern-meal-actions">
+                    <button type="button" class="diet-modern-check-all-btn ${isStudentMealCompleted(dayLog, mealIdx, meal) ? 'done' : ''}" onclick="toggleDietMealCheck(${mealIdx})" title="Marcar ou desmarcar todos os itens">
+                        ${isStudentMealCompleted(dayLog, mealIdx, meal) ? 'Desfazer' : 'Marcar tudo'}
+                    </button>
                     <button type="button" class="diet-modern-icon-btn" onclick="toggleStudentMealAddForm(${mealIdx})" title="Adicionar alimento">
                         <i class="ph-bold ph-plus"></i>
                     </button>
@@ -5015,7 +6175,7 @@ function renderStudentDietContent(student) {
                             ${studentDietFoodSearchResults.map((food, idx) => `
                                 <button type="button" class="diet-modern-draft-item" onclick="selectStudentMealDraftFood(${idx})">
                                     <strong>${escHtml(food.name)}</strong>
-                                    <span>${food.kcal}kcal · P ${food.protein}g · C ${food.carb}g · G ${food.fat}g (${food.base_qty}${food.base_unit})</span>
+                                    <span>${food.kcal}kcal · P ${food.protein}g · C ${food.carb}g · G ${food.fat}g (${formatFoodQuantity(food.base_qty, food.base_unit)})</span>
                                 </button>
                             `).join('')}
                         </div>
@@ -5040,7 +6200,8 @@ function renderStudentDietContent(student) {
                             <div style="flex:1;">
                                 <label class="diet-modern-check">
                                     <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleDietItemCheck(${mealIdx}, ${itemIdx}, this.checked)">
-                                    <span>${escHtml(item.nome)}</span>
+                                    <span class="diet-food-detail-trigger student" title="Clique para ver detalhes nutricionais"
+                                        onclick="event.preventDefault(); event.stopPropagation(); openFoodDetailsFromStudentItem(${mealIdx}, ${itemIdx});">${escHtml(item.nome)}</span>
                                 </label>
                                 <span class="diet-modern-base-qty">Base: ${escHtml(item.qtd || '--')}</span>
                             </div>
@@ -5085,7 +6246,8 @@ function renderStudentDietContent(student) {
                 }).join('')}
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     return `${summaryCard}${mealCards}`;
 }
@@ -5140,28 +6302,60 @@ function getDietDailyCompletion(student, dateKey = getTodayDateKey()) {
     };
 }
 
+function cloneDietDayLog(dayLog = {}, mealBlocks = []) {
+    const next = {
+        meals: {}
+    };
+    const sourceMeals = dayLog?.meals && typeof dayLog.meals === 'object' ? dayLog.meals : {};
+    (Array.isArray(mealBlocks) ? mealBlocks : []).forEach((meal, mealIdx) => {
+        const sourceMeal = sourceMeals?.[mealIdx] || {};
+        const sourceItems = sourceMeal?.items && typeof sourceMeal.items === 'object' ? sourceMeal.items : {};
+        const targetItems = {};
+        (Array.isArray(meal?.items) ? meal.items : []).forEach((_, itemIdx) => {
+            const sourceItem = sourceItems?.[itemIdx] || {};
+            targetItems[itemIdx] = {
+                checked: !!sourceItem.checked,
+                qty: String(sourceItem.qty || ''),
+                amount: Math.max(0.1, parseDecimalSafe(sourceItem.amount) || parseAmountAndUnit(sourceItem.qty || '', sourceItem.unitKey || sourceItem.unit_key || 'g').amount || 1),
+                unitKey: normalizeFoodUnitKey(sourceItem.unitKey || sourceItem.unit_key || parseAmountAndUnit(sourceItem.qty || '', 'g').unit || 'g'),
+                portionId: String(sourceItem.portionId || sourceItem.portion_id || ''),
+                portionLabel: sanitizeUserInput(sourceItem.portionLabel || sourceItem.portion_label || '', { maxLen: 80 }),
+                substitute: sourceItem?.substitute && typeof sourceItem.substitute === 'object'
+                    ? { ...sourceItem.substitute }
+                    : { enabled: false }
+            };
+        });
+        next.meals[mealIdx] = { items: targetItems };
+    });
+    if (dayLog?.meta && typeof dayLog.meta === 'object') {
+        next.meta = { ...dayLog.meta };
+    }
+    return next;
+}
+
 let activeStudentMealAddFormIdx = null;
 let studentDietMealDraft = { name: '', qtd: '', kcal: '', prot: '', carb: '', gord: '' };
 let studentDietSelectedDateKey = getTodayDateKey();
 let studentDietFoodSearchResults = [];
 let studentDietFoodSearchTimer = null;
+let studentDietRepeatUndoState = null;
 let dietFoodPickerState = {
     open: false,
+    view: 'list',
     context: '',
     mealIdx: null,
     itemIdx: null,
+    baseItem: null,
     query: '',
     loading: false,
     allResults: [],
     results: [],
     selected: null,
     qty: '',
+    qtyTouched: false,
     highlightIndex: -1,
+    listScrollTop: 0,
     filters: {
-        macro: 'all',
-        kcal: 'all',
-        type: 'all',
-        meal: 'all',
         favoritesOnly: false,
         recentOnly: false
     }
@@ -5175,15 +6369,87 @@ function setStudentDietDate(dateKey) {
     refreshStudentDietViews();
 }
 
+function repeatPreviousDietDay() {
+    if (!ensureDietWriteAllowed('student')) return;
+    const { studentId, students, student } = getStudentData();
+    if (!student) return;
+    const targetDate = studentDietSelectedDateKey || getTodayDateKey();
+    const previousDate = getDateKeyShift(targetDate, -1);
+    const previousDayLog = getStudentDietLogForDate(student, previousDate);
+    const hasSourceData = Object.keys(previousDayLog?.meals || {}).length > 0;
+    if (!hasSourceData) {
+        showDietRuntimeMessage('Não há dados no dia anterior para copiar.', 'info');
+        return;
+    }
+    const currentDayLog = getStudentDietLogForDate(student, targetDate);
+    const nextDayLog = cloneDietDayLog(previousDayLog, student.mealBlocks || []);
+    nextDayLog.meta = {
+        ...(nextDayLog.meta || {}),
+        copiedFrom: previousDate,
+        copiedAt: new Date().toISOString(),
+        completed: false
+    };
+
+    const idx = students.findIndex((s) => String(s.id) === String(studentId));
+    if (idx < 0) return;
+    if (!students[idx].dietLogs || typeof students[idx].dietLogs !== 'object') students[idx].dietLogs = {};
+    studentDietRepeatUndoState = {
+        studentId: String(studentId),
+        dateKey: targetDate,
+        previousSnapshot: cloneDietDayLog(currentDayLog, student.mealBlocks || [])
+    };
+    students[idx].dietLogs[targetDate] = nextDayLog;
+    saveStudentData(students);
+    queueEntityDietLogsSync(students[idx], targetDate);
+    setStudentSyncState('pending', 'Sincronização pendente');
+    showDietRuntimeMessage('Plano copiado do dia anterior.', 'success');
+    refreshStudentDietViews();
+}
+
+function undoRepeatPreviousDietDay() {
+    if (!ensureDietWriteAllowed('student')) return;
+    const { studentId, students } = getStudentData();
+    const targetDate = studentDietSelectedDateKey || getTodayDateKey();
+    const canUndo = !!(
+        studentDietRepeatUndoState
+        && String(studentDietRepeatUndoState.studentId || '') === String(studentId || '')
+        && studentDietRepeatUndoState.dateKey === targetDate
+    );
+    if (!canUndo) {
+        showDietRuntimeMessage('Nenhuma cópia recente para desfazer.', 'info');
+        return;
+    }
+    const idx = students.findIndex((s) => String(s.id) === String(studentId));
+    if (idx < 0) return;
+    if (!students[idx].dietLogs || typeof students[idx].dietLogs !== 'object') students[idx].dietLogs = {};
+    students[idx].dietLogs[targetDate] = cloneDietDayLog(studentDietRepeatUndoState.previousSnapshot || {}, students[idx].mealBlocks || []);
+    saveStudentData(students);
+    queueEntityDietLogsSync(students[idx], targetDate);
+    studentDietRepeatUndoState = null;
+    setStudentSyncState('pending', 'Sincronização pendente');
+    showDietRuntimeMessage('Cópia desfeita com sucesso.', 'success');
+    refreshStudentDietViews();
+}
+
+function toggleDietDayCompletion() {
+    persistStudentDietLog((dayLog) => {
+        if (!dayLog.meta || typeof dayLog.meta !== 'object') dayLog.meta = {};
+        const nowCompleted = !dayLog.meta.completed;
+        dayLog.meta.completed = nowCompleted;
+        dayLog.meta.completedAt = nowCompleted ? new Date().toISOString() : null;
+    });
+    showDietRuntimeMessage('Status do dia alimentar atualizado.', 'success');
+}
+
 function resetStudentMealDraft() {
-    studentDietMealDraft = { name: '', qtd: '', kcal: '', prot: '', carb: '', gord: '' };
+    studentDietMealDraft = { name: '', qtd: '', kcal: '', prot: '', carb: '', gord: '', amount: '', unitKey: 'g', portionId: '', portionLabel: '' };
     studentDietFoodSearchResults = [];
 }
 
 function updateStudentMealDraftField(field, value) {
     studentDietMealDraft[field] = value;
     if (field === 'qtd' && studentDietMealDraft.baseQty) {
-        const parsed = parseAmountAndUnit(value, studentDietMealDraft.baseUnit || 'g');
+        const parsed = parseAmountAndUnit(value, studentDietMealDraft.unitKey || studentDietMealDraft.baseUnit || 'g');
         const calc = computeMacrosByAmount({
             name: studentDietMealDraft.name,
             base_qty: studentDietMealDraft.baseQty,
@@ -5191,12 +6457,17 @@ function updateStudentMealDraftField(field, value) {
             kcal: parseDecimalSafe(studentDietMealDraft.kcal),
             protein: parseDecimalSafe(studentDietMealDraft.prot),
             carb: parseDecimalSafe(studentDietMealDraft.carb),
-            fat: parseDecimalSafe(studentDietMealDraft.gord)
-        }, parsed.amount || parseDecimalSafe(studentDietMealDraft.baseQty), parsed.unit || studentDietMealDraft.baseUnit || 'g');
+            fat: parseDecimalSafe(studentDietMealDraft.gord),
+            portions: Array.isArray(studentDietMealDraft.portions) ? studentDietMealDraft.portions : []
+        }, parsed.amount || parseDecimalSafe(studentDietMealDraft.baseQty), parsed.unit || studentDietMealDraft.baseUnit || 'g', studentDietMealDraft.portionId || '');
         studentDietMealDraft.kcal = String(calc.kcal);
         studentDietMealDraft.prot = String(calc.protein);
         studentDietMealDraft.carb = String(calc.carb);
         studentDietMealDraft.gord = String(calc.fat);
+        studentDietMealDraft.amount = calc.amount;
+        studentDietMealDraft.unitKey = calc.unit_key;
+        studentDietMealDraft.portionId = calc.portion_id || '';
+        studentDietMealDraft.portionLabel = calc.portion_label || '';
         refreshStudentDietViews();
     }
 }
@@ -5219,16 +6490,26 @@ function updateStudentMealDraftName(value) {
 function selectStudentMealDraftFood(index) {
     const food = studentDietFoodSearchResults[index];
     if (!food) return;
+    const portions = getFoodPortions(food);
+    const defaultPortion = portions.find((portion) => portion.is_default) || portions[0] || null;
+    const initialAmount = Math.max(0.1, parseDecimalSafe(defaultPortion?.amount) || parseDecimalSafe(food.base_qty) || 100);
+    const initialUnit = normalizeFoodUnitKey(defaultPortion?.unit_key || food.base_unit || 'g');
     studentDietMealDraft.name = food.name;
-    studentDietMealDraft.qtd = `${food.base_qty}${food.base_unit}`;
-    studentDietMealDraft.kcal = String(food.kcal);
-    studentDietMealDraft.prot = String(food.protein);
-    studentDietMealDraft.carb = String(food.carb);
-    studentDietMealDraft.gord = String(food.fat);
+    studentDietMealDraft.qtd = formatFoodQuantity(initialAmount, initialUnit);
+    const calc = computeMacrosByAmount(food, initialAmount, initialUnit, defaultPortion?.id || '');
+    studentDietMealDraft.kcal = String(calc.kcal);
+    studentDietMealDraft.prot = String(calc.protein);
+    studentDietMealDraft.carb = String(calc.carb);
+    studentDietMealDraft.gord = String(calc.fat);
     studentDietMealDraft.foodId = food.id;
     studentDietMealDraft.baseQty = food.base_qty;
     studentDietMealDraft.baseUnit = food.base_unit;
     studentDietMealDraft.source = food.source || 'catalog';
+    studentDietMealDraft.amount = calc.amount;
+    studentDietMealDraft.unitKey = calc.unit_key;
+    studentDietMealDraft.portionId = calc.portion_id || '';
+    studentDietMealDraft.portionLabel = calc.portion_label || '';
+    studentDietMealDraft.portions = portions;
     studentDietFoodSearchResults = [];
     refreshStudentDietViews();
 }
@@ -5248,12 +6529,13 @@ async function saveStudentMealDraft(mealIdx) {
     const nome = String(studentDietMealDraft.name || '').trim();
     if (!nome) return;
     const qtd = String(studentDietMealDraft.qtd || '').trim() || '100g';
-    const parsedQty = parseAmountAndUnit(qtd, String(studentDietMealDraft.baseUnit || 'g').toLowerCase());
+    const parsedQty = parseAmountAndUnit(qtd, normalizeFoodUnitKey(studentDietMealDraft.unitKey || studentDietMealDraft.baseUnit || 'g'));
     const baseQty = Math.max(0.1, parseDecimalSafe(studentDietMealDraft.baseQty) || parsedQty.amount || 100);
-    const baseUnit = ['g', 'ml', 'un'].includes(String(studentDietMealDraft.baseUnit || '').toLowerCase())
-        ? String(studentDietMealDraft.baseUnit).toLowerCase()
-        : (parsedQty.unit || 'g');
+    const baseUnit = normalizeFoodUnitKey(studentDietMealDraft.baseUnit || parsedQty.unit || 'g');
     const source = studentDietMealDraft.source || (studentDietMealDraft.foodId ? 'catalog' : 'manual');
+    const selectedAmount = Math.max(0.1, parseDecimalSafe(studentDietMealDraft.amount) || parsedQty.amount || baseQty);
+    const selectedUnit = normalizeFoodUnitKey(studentDietMealDraft.unitKey || parsedQty.unit || baseUnit);
+    const selectedPortionId = String(studentDietMealDraft.portionId || '');
 
     let foodId = studentDietMealDraft.foodId || '';
     let baseKcal = parseDecimalSafe(studentDietMealDraft.kcal);
@@ -5289,8 +6571,9 @@ async function saveStudentMealDraft(mealIdx) {
         kcal: baseKcal,
         protein: baseProt,
         carb: baseCarb,
-        fat: baseFat
-    }, parsedQty.amount || baseQty, parsedQty.unit || baseUnit);
+        fat: baseFat,
+        portions: Array.isArray(studentDietMealDraft.portions) ? studentDietMealDraft.portions : []
+    }, selectedAmount, selectedUnit, selectedPortionId);
 
     persistStudentMealBlocks((student) => {
         if (!Array.isArray(student.mealBlocks)) student.mealBlocks = [];
@@ -5298,7 +6581,7 @@ async function saveStudentMealDraft(mealIdx) {
         if (!Array.isArray(student.mealBlocks[mealIdx].items)) student.mealBlocks[mealIdx].items = [];
         student.mealBlocks[mealIdx].items.push({
             nome,
-            qtd,
+            qtd: formatFoodQuantity(calc.amount, calc.unit_key),
             kcal: calc.kcal,
             prot: calc.protein,
             carb: calc.carb,
@@ -5307,7 +6590,11 @@ async function saveStudentMealDraft(mealIdx) {
             foodId: foodId || '',
             baseQty,
             baseUnit,
-            source
+            source,
+            amount: calc.amount,
+            unitKey: calc.unit_key,
+            portionId: calc.portion_id || '',
+            portionLabel: calc.portion_label || ''
         });
     });
 
@@ -5351,8 +6638,12 @@ function showDietRuntimeMessage(message, type = 'info') {
 function ensureDietWriteAllowed(context = 'diet') {
     if (navigator.onLine === false) {
         showDietRuntimeMessage('Sem internet. Conecte-se para editar a dieta.', 'error');
+        setStudentSyncState('offline', 'Sem conexão');
         if (context === 'planner') setSettingsSavebarState('error', 'Conecte-se para salvar alterações');
         return false;
+    }
+    if (studentSyncState.status === 'offline') {
+        setStudentSyncState('pending', 'Sincronização pendente');
     }
     return true;
 }
@@ -5384,6 +6675,8 @@ function persistStudentDietLog(updateFn) {
     updateFn(student.dietLogs[dateKey], student);
     students[idx] = student;
     saveStudentData(students);
+    queueEntityDietLogsSync(student, dateKey);
+    setStudentSyncState('pending', 'Sincronização pendente');
     refreshStudentDietViews();
 }
 
@@ -5398,6 +6691,8 @@ function persistStudentMealBlocks(updateFn) {
     updateFn(student);
     students[idx] = student;
     saveStudentData(normalizeStudentsDietSchema(students));
+    queueEntityDietLogsSync(student, studentDietSelectedDateKey || getTodayDateKey());
+    setStudentSyncState('pending', 'Sincronização pendente');
 }
 
 function refreshStudentDietViews() {
@@ -5415,6 +6710,7 @@ function refreshStudentDietViews() {
         mainContainer.innerHTML = renderStudentDietContent(student);
         optimizeMediaElements(mainContainer);
     }
+    renderDietSyncStatus();
 }
 
 function ensureDietLogItem(dayLog, mealIdx, itemIdx) {
@@ -5423,7 +6719,27 @@ function ensureDietLogItem(dayLog, mealIdx, itemIdx) {
         dayLog.meals[mealIdx].items[itemIdx] = {
             checked: false,
             qty: '',
-            substitute: { enabled: false, name: '', qty: '', kcal: 0, prot: 0, carb: 0, gord: 0, foodId: '', baseQty: 100, baseUnit: 'g', source: 'manual' }
+            amount: 1,
+            unitKey: 'g',
+            portionId: '',
+            portionLabel: '',
+            substitute: {
+                enabled: false,
+                name: '',
+                qty: '',
+                kcal: 0,
+                prot: 0,
+                carb: 0,
+                gord: 0,
+                foodId: '',
+                baseQty: 100,
+                baseUnit: 'g',
+                source: 'manual',
+                amount: 1,
+                unitKey: 'g',
+                portionId: '',
+                portionLabel: ''
+            }
         };
     }
     return dayLog.meals[mealIdx].items[itemIdx];
@@ -5439,7 +6755,11 @@ function toggleDietItemCheck(mealIdx, itemIdx, checked) {
 function updateDietItemQty(mealIdx, itemIdx, qty) {
     persistStudentDietLog((dayLog) => {
         const item = ensureDietLogItem(dayLog, mealIdx, itemIdx);
-        item.qty = String(qty || '');
+        const safeQty = String(qty || '');
+        const parsed = parseAmountAndUnit(safeQty, item.unitKey || 'g');
+        item.qty = safeQty;
+        item.amount = Math.max(0.1, parsed.amount || item.amount || 1);
+        item.unitKey = normalizeFoodUnitKey(parsed.unit || item.unitKey || 'g');
     });
 }
 
@@ -5457,92 +6777,440 @@ function getDietFoodPickerTitle() {
         : 'Substituir Alimento Consumido';
 }
 
+function resolveDietFoodPickerDefaultQty(foodLike = null, fallbackQty = '100g') {
+    const food = normalizeFoodCatalogRow(foodLike);
+    if (!food) return String(fallbackQty || '100g');
+    const portions = getFoodPortions(food);
+    const defaultPortion = portions.find((portion) => portion.is_default) || portions[0] || null;
+    const amount = Math.max(
+        0.1,
+        parseDecimalSafe(defaultPortion?.amount)
+        || parseDecimalSafe(food.base_qty)
+        || parseAmountAndUnit(fallbackQty, food.base_unit || 'g').amount
+        || 100
+    );
+    const unitKey = normalizeFoodUnitKey(defaultPortion?.unit_key || food.base_unit || parseAmountAndUnit(fallbackQty, 'g').unit || 'g');
+    return formatFoodQuantity(amount, unitKey);
+}
+
+function findDietFoodPickerMatchingPortion(foodLike, amountValue, unitKeyValue) {
+    const food = normalizeFoodCatalogRow(foodLike);
+    if (!food) return null;
+    const safeAmount = Math.max(0.1, parseDecimalSafe(amountValue) || 0);
+    const safeUnit = normalizeFoodUnitKey(unitKeyValue || food.base_unit || 'g');
+    return getFoodPortions(food).find((portion) => {
+        if (normalizeFoodUnitKey(portion.unit_key) !== safeUnit) return false;
+        const portionAmount = Math.max(0.1, parseDecimalSafe(portion.amount) || 1);
+        return Math.abs(portionAmount - safeAmount) < 0.11;
+    }) || null;
+}
+
+function getDietFoodPickerNormalizedQty(foodLike, qtyRaw = '') {
+    const food = normalizeFoodCatalogRow(foodLike);
+    if (!food) {
+        return {
+            amount: 100,
+            unitKey: 'g',
+            qtyText: '100g',
+            usedFallback: true,
+            portionId: ''
+        };
+    }
+    const fallbackQty = resolveDietFoodPickerDefaultQty(food, '100g');
+    const parsed = parseAmountAndUnit(qtyRaw || '', food.base_unit || 'g');
+    let amount = Math.max(0, parseDecimalSafe(parsed.amount));
+    let unitKey = normalizeFoodUnitKey(parsed.unit || food.base_unit || 'g');
+    let usedFallback = false;
+    if (!(amount > 0)) {
+        const fallbackParsed = parseAmountAndUnit(fallbackQty, food.base_unit || 'g');
+        amount = Math.max(
+            0.1,
+            parseDecimalSafe(fallbackParsed.amount)
+            || parseDecimalSafe(food.base_qty)
+            || 100
+        );
+        unitKey = normalizeFoodUnitKey(fallbackParsed.unit || food.base_unit || 'g');
+        usedFallback = true;
+    }
+    const qtyText = formatFoodQuantity(amount, unitKey);
+    const matchedPortion = findDietFoodPickerMatchingPortion(food, amount, unitKey);
+    return {
+        amount,
+        unitKey,
+        qtyText,
+        usedFallback,
+        portionId: String(matchedPortion?.id || '')
+    };
+}
+
+function setDietFoodPickerFeedback(message = '', type = 'info') {
+    const feedback = document.getElementById('diet-food-picker-feedback');
+    if (!feedback) return;
+    const text = sanitizeUserInput(message || '', { maxLen: 140 });
+    feedback.textContent = text;
+    feedback.classList.remove('is-warning', 'is-success', 'is-info');
+    if (!text) return;
+    if (type === 'warning') feedback.classList.add('is-warning');
+    else if (type === 'success') feedback.classList.add('is-success');
+    else feedback.classList.add('is-info');
+}
+
+function syncDietFoodPickerPrimaryActionState() {
+    const confirmButton = document.getElementById('diet-food-picker-confirm');
+    if (!confirmButton) return;
+    const canSubmit = !!dietFoodPickerState?.open
+        && dietFoodPickerState?.view === 'detail'
+        && !!dietFoodPickerState?.selected
+        && !dietFoodPickerState?.loading;
+    confirmButton.disabled = !canSubmit;
+    confirmButton.setAttribute('aria-disabled', canSubmit ? 'false' : 'true');
+}
+
+function focusDietFoodPickerHighlightedResult() {
+    if (dietFoodPickerState?.view !== 'list') return;
+    const container = document.getElementById('diet-food-picker-results');
+    if (!container) return;
+    const target = container.querySelector('.diet-food-picker-item.is-highlight') || container.querySelector('.diet-food-picker-item.active');
+    if (!target || typeof target.scrollIntoView !== 'function') return;
+    target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function storeDietFoodPickerListScroll() {
+    const container = document.getElementById('diet-food-picker-results');
+    if (!container) return;
+    dietFoodPickerState.listScrollTop = Math.max(0, parseIntegerSafe(container.scrollTop) || 0);
+}
+
+function restoreDietFoodPickerListScroll() {
+    const container = document.getElementById('diet-food-picker-results');
+    if (!container) return;
+    const safeTop = Math.max(0, parseIntegerSafe(dietFoodPickerState.listScrollTop) || 0);
+    container.scrollTop = safeTop;
+}
+
+function setDietFoodPickerView(view = 'list', options = {}) {
+    const targetView = view === 'detail' ? 'detail' : 'list';
+    if (targetView === 'detail' && !dietFoodPickerState.selected) return;
+    if (dietFoodPickerState.view === targetView) {
+        if (targetView === 'list') {
+            requestAnimationFrame(() => restoreDietFoodPickerListScroll());
+        }
+        return;
+    }
+
+    if (dietFoodPickerState.view === 'list' && targetView === 'detail') {
+        storeDietFoodPickerListScroll();
+    }
+
+    dietFoodPickerState.view = targetView;
+    renderDietFoodPickerModal();
+
+    if (targetView === 'list') {
+        requestAnimationFrame(() => {
+            restoreDietFoodPickerListScroll();
+            if (options.focusSearch !== false) {
+                const search = document.getElementById('diet-food-picker-search');
+                if (search) search.focus();
+            }
+        });
+        return;
+    }
+
+    requestAnimationFrame(() => {
+        const qty = document.getElementById('diet-food-picker-qty');
+        if (qty && options.focusQty !== false) qty.focus();
+    });
+}
+
+function backDietFoodPickerToList() {
+    if (!dietFoodPickerState.open) return;
+    setDietFoodPickerFeedback('');
+    setDietFoodPickerView('list');
+}
+
+function getDietFoodPickerQtyStep(unitKey, amount = 0) {
+    const safeUnit = normalizeFoodUnitKey(unitKey || 'g');
+    const safeAmount = Math.max(0, parseDecimalSafe(amount) || 0);
+    if (safeUnit === 'g' || safeUnit === 'ml') {
+        if (safeAmount >= 500) return 50;
+        if (safeAmount >= 200) return 25;
+        if (safeAmount >= 80) return 10;
+        return 5;
+    }
+    if (safeUnit === 'tbsp' || safeUnit === 'tsp') return 0.5;
+    return 1;
+}
+
+function adjustDietFoodPickerQty(direction = 1) {
+    if (!dietFoodPickerState?.selected || dietFoodPickerState.view !== 'detail') return;
+    const normalized = getDietFoodPickerNormalizedQty(dietFoodPickerState.selected, dietFoodPickerState.qty);
+    const step = getDietFoodPickerQtyStep(normalized.unitKey, normalized.amount);
+    const nextAmount = Math.max(0.1, Math.round((normalized.amount + (step * Number(direction || 0))) * 10) / 10);
+    dietFoodPickerState.qty = formatFoodQuantity(nextAmount, normalized.unitKey);
+    dietFoodPickerState.qtyTouched = true;
+    const qtyInput = document.getElementById('diet-food-picker-qty');
+    if (qtyInput) qtyInput.value = dietFoodPickerState.qty;
+    setDietFoodPickerFeedback('');
+    renderDietFoodPickerPreview();
+    renderDietFoodPickerPortions();
+}
+
+function syncDietFoodPickerSearchActionState() {
+    const clearButton = document.getElementById('diet-food-picker-search-clear');
+    if (!clearButton) return;
+    const hasQuery = String(dietFoodPickerState?.query || '').trim().length > 0;
+    clearButton.disabled = !hasQuery;
+    clearButton.classList.toggle('is-active', hasQuery);
+    clearButton.setAttribute('aria-hidden', hasQuery ? 'false' : 'true');
+}
+
+function clearDietFoodPickerSearch() {
+    if (!dietFoodPickerState.open) return;
+    const search = document.getElementById('diet-food-picker-search');
+    dietFoodPickerState.query = '';
+    if (search) {
+        search.value = '';
+        search.focus();
+    }
+    syncDietFoodPickerSearchActionState();
+    scheduleDietFoodPickerSearch('');
+}
+
+function resetDietFoodPickerFlags() {
+    if (!dietFoodPickerState.filters) return;
+    dietFoodPickerState.filters.favoritesOnly = false;
+    dietFoodPickerState.filters.recentOnly = false;
+    updateDietFoodPickerFilterUI();
+    applyDietFoodPickerFiltersAndRender();
+}
+
+function scoreDietFoodPickerResult(item, queryNorm = '', favoritesSet = new Set(), recentsSet = new Set(), selectedKey = '') {
+    const nameNorm = normalizeText(item?.name || item?.nome || '');
+    const key = getFoodItemKey(item);
+    let score = 0;
+    if (queryNorm) {
+        if (nameNorm === queryNorm) score += 220;
+        else if (nameNorm.startsWith(queryNorm)) score += 160;
+        else if (nameNorm.includes(queryNorm)) score += 110;
+        else score -= 40;
+        const queryTokens = queryNorm.split(/\s+/).filter(Boolean);
+        queryTokens.forEach((token) => {
+            if (token && nameNorm.includes(token)) score += 18;
+        });
+    }
+    if (favoritesSet.has(key)) score += 36;
+    if (recentsSet.has(key)) score += 24;
+    if (selectedKey && selectedKey === key) score += 10;
+    return score;
+}
+
+function sortDietFoodPickerResults(items = []) {
+    const queryNorm = normalizeText(dietFoodPickerState.query || '');
+    const prefs = readFoodModalPrefs();
+    const favoritesSet = new Set(prefs.favorites || []);
+    const recentsSet = new Set(prefs.recents || []);
+    const selectedKey = getFoodItemKey(dietFoodPickerState.selected);
+    return (Array.isArray(items) ? items : [])
+        .map((item, index) => ({
+            item,
+            index,
+            score: scoreDietFoodPickerResult(item, queryNorm, favoritesSet, recentsSet, selectedKey)
+        }))
+        .sort((a, b) => (b.score - a.score) || (a.index - b.index))
+        .map((entry) => entry.item);
+}
+
+function renderDietFoodPickerResultName(name = '', query = '') {
+    const safeName = String(name || '');
+    const term = String(query || '').trim();
+    if (term.length < 2) return escHtml(safeName);
+    const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let output = '';
+    let cursor = 0;
+    try {
+        const matcher = new RegExp(escapedTerm, 'ig');
+        safeName.replace(matcher, (match, offset) => {
+            const safeOffset = Math.max(0, Number(offset) || 0);
+            output += escHtml(safeName.slice(cursor, safeOffset));
+            output += `<mark class="diet-food-picker-mark">${escHtml(match)}</mark>`;
+            cursor = safeOffset + match.length;
+            return match;
+        });
+    } catch (_error) {
+        return escHtml(safeName);
+    }
+    if (!output) return escHtml(safeName);
+    output += escHtml(safeName.slice(cursor));
+    return output;
+}
+
+function getDietStarterSuggestions(baseItem = {}, limit = 18) {
+    const sourcePool = getEffectiveFoodCatalog(Math.max(24, parseInt(limit, 10) * 3));
+    if (!sourcePool.length) return [];
+    const targetMacro = getQuickMacroTarget(baseItem);
+    const targetKcal = Math.max(0, parseDecimalSafe(baseItem?.kcal));
+    const baseNameNorm = normalizeText(baseItem?.nome || baseItem?.name || '');
+    const prefs = readFoodModalPrefs();
+    const favorites = new Set(prefs.favorites || []);
+    const recents = new Set(prefs.recents || []);
+
+    const scored = sourcePool
+        .filter((item) => item && item.name)
+        .filter((item) => normalizeText(item.name) !== baseNameNorm)
+        .map((item) => {
+            const macroScore = targetMacro === 'protein'
+                ? parseDecimalSafe(item.protein)
+                : targetMacro === 'carb'
+                    ? parseDecimalSafe(item.carb)
+                    : parseDecimalSafe(item.fat);
+            const kcalValue = Math.max(0, parseDecimalSafe(item.kcal));
+            const kcalPenalty = targetKcal > 0 ? Math.min(1.5, Math.abs(kcalValue - targetKcal) / Math.max(targetKcal, 1)) : 0;
+            const key = getFoodItemKey(item);
+            const favBonus = favorites.has(key) ? 2 : 0;
+            const recentBonus = recents.has(key) ? 1 : 0;
+            const score = (macroScore * 12) - (kcalPenalty * 4) + favBonus + recentBonus;
+            return { item, score };
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit)
+        .map((entry) => entry.item);
+
+    return scored;
+}
+
+function mergeUniqueFoods(primary = [], secondary = [], limit = 24) {
+    const output = [];
+    const seen = new Set();
+    [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])].forEach((item) => {
+        if (!item) return;
+        const key = getFoodItemKey(item);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        output.push(item);
+    });
+    return output.slice(0, Math.max(1, limit));
+}
+
 function ensureDietFoodPickerModal() {
     if (document.getElementById('diet-food-picker-overlay')) return;
     const overlay = document.createElement('div');
     overlay.id = 'diet-food-picker-overlay';
     overlay.className = 'diet-food-picker-overlay';
+    overlay.addEventListener('click', closeDietFoodPicker);
 
     const modal = document.createElement('div');
     modal.id = 'diet-food-picker-modal';
     modal.className = 'diet-food-picker-modal';
     modal.innerHTML = `
         <div class="diet-food-picker-header">
-            <h3 id="diet-food-picker-title">Substituir alimento</h3>
+            <div class="diet-food-picker-header-main">
+                <button id="diet-food-picker-back" type="button" class="diet-food-picker-back-btn" onclick="backDietFoodPickerToList()">
+                    <i class="ph-bold ph-arrow-left"></i>
+                    <span>Voltar</span>
+                </button>
+                <h3 id="diet-food-picker-title">Substituir alimento</h3>
+            </div>
             <button type="button" class="diet-food-picker-close" onclick="closeDietFoodPicker()"><i class="ph-bold ph-x"></i></button>
         </div>
         <div class="diet-food-picker-body">
-            <input id="diet-food-picker-search" type="text" class="diet-modern-input" placeholder="Buscar alimento (ex: arroz, frango, banana)">
-            <div id="diet-food-picker-filters" class="diet-food-picker-filters">
-                <button type="button" class="diet-food-picker-filter-chip active" data-group="macro" data-value="all">Todos</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="macro" data-value="high-protein">Alto em proteína</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="macro" data-value="high-carb">Alto em carbo</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="macro" data-value="high-fat">Alto em gordura</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="kcal" data-value="low">Baixo kcal</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="kcal" data-value="medium">Médio kcal</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="kcal" data-value="high">Alto kcal</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="type" data-value="animal">Animal</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="type" data-value="vegetal">Vegetal</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="meal" data-value="cafe">Café</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="meal" data-value="almoco">Almoço</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="meal" data-value="jantar">Jantar</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="meal" data-value="lanche">Lanche</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="meal" data-value="ceia">Ceia</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="flags" data-value="favorites">Favoritos</button>
-                <button type="button" class="diet-food-picker-filter-chip" data-group="flags" data-value="recent">Recentes</button>
-                <button type="button" class="diet-food-picker-filter-chip ghost" data-group="clear" data-value="all">Limpar</button>
+            <div id="diet-food-picker-context" class="diet-food-picker-context"></div>
+            <div id="diet-food-picker-list-view" class="diet-food-picker-view diet-food-picker-list-view">
+                <div class="diet-food-picker-search-row">
+                    <input id="diet-food-picker-search" type="text" class="diet-modern-input" placeholder="Buscar alimento (ex: arroz, frango, banana)" autocomplete="off">
+                    <button id="diet-food-picker-search-clear" type="button" class="diet-food-picker-search-clear" onclick="clearDietFoodPickerSearch()" aria-label="Limpar busca">
+                        <i class="ph-bold ph-x"></i>
+                    </button>
+                </div>
+                <div id="diet-food-picker-filters" class="diet-food-picker-filters">
+                    <button type="button" class="diet-food-picker-filter-chip" data-group="flags" data-value="favorites">Favoritos</button>
+                    <button type="button" class="diet-food-picker-filter-chip" data-group="flags" data-value="recent">Recentes</button>
+                </div>
+                <div id="diet-food-picker-results-title" class="diet-food-picker-results-title">Selecione um alimento</div>
+                <div id="diet-food-picker-results" class="diet-food-picker-results"></div>
             </div>
-            <div id="diet-food-picker-results" class="diet-food-picker-results"></div>
-            <input id="diet-food-picker-qty" type="text" class="diet-modern-input" placeholder="Quantidade (ex: 120g)">
-            <div id="diet-food-picker-preview" class="diet-food-picker-preview"></div>
+            <div id="diet-food-picker-detail-view" class="diet-food-picker-view diet-food-picker-detail-view">
+                <div id="diet-food-picker-detail" class="diet-food-picker-detail">
+                    <div id="diet-food-picker-preview" class="diet-food-picker-preview"></div>
+                    <div id="diet-food-picker-portions" class="diet-food-picker-portions"></div>
+                    <div class="diet-food-picker-qty-row">
+                        <button type="button" class="diet-food-picker-step-btn" onclick="adjustDietFoodPickerQty(-1)" aria-label="Diminuir quantidade">-</button>
+                        <input id="diet-food-picker-qty" type="text" class="diet-modern-input" placeholder="Quantidade (ex: 2 fatias, 250ml, 120g)" autocomplete="off">
+                        <button type="button" class="diet-food-picker-step-btn" onclick="adjustDietFoodPickerQty(1)" aria-label="Aumentar quantidade">+</button>
+                    </div>
+                    <div id="diet-food-picker-feedback" class="diet-food-picker-feedback"></div>
+                </div>
+            </div>
         </div>
         <div class="diet-food-picker-footer">
             <button type="button" class="diet-modern-cancel-btn" onclick="closeDietFoodPicker()">Cancelar</button>
-            <button type="button" class="diet-modern-save-btn" onclick="confirmDietFoodPickerSelection()">Confirmar</button>
+            <button id="diet-food-picker-confirm" type="button" class="diet-modern-save-btn" onclick="confirmDietFoodPickerSelection()">Adicionar alimento</button>
         </div>
     `;
 
     document.body.appendChild(overlay);
     document.body.appendChild(modal);
+    modal.addEventListener('keydown', handleDietFoodPickerKeydown);
 
     const searchInput = modal.querySelector('#diet-food-picker-search');
     const qtyInput = modal.querySelector('#diet-food-picker-qty');
     if (searchInput) {
         searchInput.addEventListener('input', (event) => {
             dietFoodPickerState.query = String(event.target.value || '');
+            syncDietFoodPickerSearchActionState();
             scheduleDietFoodPickerSearch(dietFoodPickerState.query);
         });
-        searchInput.addEventListener('keydown', handleDietFoodPickerKeydown);
     }
     if (qtyInput) {
         qtyInput.addEventListener('input', (event) => {
             dietFoodPickerState.qty = String(event.target.value || '');
+            dietFoodPickerState.qtyTouched = true;
+            setDietFoodPickerFeedback('');
             renderDietFoodPickerPreview();
+            renderDietFoodPickerPortions();
         });
-        qtyInput.addEventListener('keydown', handleDietFoodPickerKeydown);
+        qtyInput.addEventListener('blur', () => {
+            if (!dietFoodPickerState.selected) return;
+            const normalized = getDietFoodPickerNormalizedQty(dietFoodPickerState.selected, dietFoodPickerState.qty);
+            dietFoodPickerState.qty = normalized.qtyText;
+            qtyInput.value = normalized.qtyText;
+            setDietFoodPickerFeedback(
+                normalized.usedFallback
+                    ? 'Quantidade inválida. Ajustamos para o padrão do alimento.'
+                    : '',
+                normalized.usedFallback ? 'warning' : 'info'
+            );
+            renderDietFoodPickerPreview();
+            renderDietFoodPickerPortions();
+        });
     }
     modal.querySelectorAll('#diet-food-picker-filters .diet-food-picker-filter-chip').forEach((chip) => {
         chip.addEventListener('click', () => {
             const group = chip.getAttribute('data-group') || '';
             const value = chip.getAttribute('data-value') || 'all';
-            if (group === 'clear') {
-                clearDietFoodPickerFilters();
-                return;
-            }
             if (group === 'flags') {
                 toggleDietFoodPickerFlag(value);
                 return;
             }
-            setDietFoodPickerFilter(group, value);
         });
     });
+    syncDietFoodPickerSearchActionState();
+    syncDietFoodPickerPrimaryActionState();
 }
 
 function handleDietFoodPickerKeydown(event) {
     if (!dietFoodPickerState.open) return;
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        if (dietFoodPickerState.view === 'detail') confirmDietFoodPickerSelection();
+        return;
+    }
     if (event.key === 'Escape') {
         event.preventDefault();
-        closeDietFoodPicker();
+        if (dietFoodPickerState.view === 'detail') {
+            backDietFoodPickerToList();
+        } else {
+            closeDietFoodPicker();
+        }
         return;
     }
     if (event.key === 'Enter' && event.target?.id === 'diet-food-picker-qty') {
@@ -5550,17 +7218,34 @@ function handleDietFoodPickerKeydown(event) {
         confirmDietFoodPickerSelection();
         return;
     }
+    if (dietFoodPickerState.view !== 'list') return;
     if (!Array.isArray(dietFoodPickerState.results) || !dietFoodPickerState.results.length) return;
     if (event.key === 'ArrowDown') {
         event.preventDefault();
         dietFoodPickerState.highlightIndex = Math.min(dietFoodPickerState.results.length - 1, (dietFoodPickerState.highlightIndex < 0 ? 0 : dietFoodPickerState.highlightIndex + 1));
         renderDietFoodPickerResults();
+        focusDietFoodPickerHighlightedResult();
         return;
     }
     if (event.key === 'ArrowUp') {
         event.preventDefault();
         dietFoodPickerState.highlightIndex = Math.max(0, (dietFoodPickerState.highlightIndex < 0 ? 0 : dietFoodPickerState.highlightIndex - 1));
         renderDietFoodPickerResults();
+        focusDietFoodPickerHighlightedResult();
+        return;
+    }
+    if (event.key === 'Home') {
+        event.preventDefault();
+        dietFoodPickerState.highlightIndex = 0;
+        renderDietFoodPickerResults();
+        focusDietFoodPickerHighlightedResult();
+        return;
+    }
+    if (event.key === 'End') {
+        event.preventDefault();
+        dietFoodPickerState.highlightIndex = Math.max(0, dietFoodPickerState.results.length - 1);
+        renderDietFoodPickerResults();
+        focusDietFoodPickerHighlightedResult();
         return;
     }
     if (event.key === 'Enter') {
@@ -5578,20 +7263,48 @@ function renderDietFoodPickerModal() {
 
     overlay.classList.toggle('active', !!dietFoodPickerState.open);
     modal.classList.toggle('active', !!dietFoodPickerState.open);
+    document.body.classList.toggle('diet-food-picker-open', !!dietFoodPickerState.open);
     if (!dietFoodPickerState.open) return;
 
     const title = document.getElementById('diet-food-picker-title');
+    const backButton = document.getElementById('diet-food-picker-back');
+    const context = document.getElementById('diet-food-picker-context');
     const search = document.getElementById('diet-food-picker-search');
     const qty = document.getElementById('diet-food-picker-qty');
-    if (title) title.textContent = getDietFoodPickerTitle();
+    const listView = dietFoodPickerState.view === 'list';
+
+    modal.classList.toggle('is-list-view', listView);
+    modal.classList.toggle('is-detail-view', !listView);
+
+    if (title) {
+        title.textContent = listView
+            ? getDietFoodPickerTitle()
+            : 'Detalhes do alimento';
+    }
+    if (backButton) {
+        backButton.classList.toggle('active', !listView);
+        backButton.setAttribute('aria-hidden', listView ? 'true' : 'false');
+    }
+    if (context) {
+        const baseName = escHtml(dietFoodPickerState.baseItem?.nome || dietFoodPickerState.baseItem?.name || '');
+        const baseQty = escHtml(dietFoodPickerState.baseItem?.qtd || '--');
+        context.innerHTML = baseName
+            ? `<strong>Base atual:</strong> ${baseName} <span>${baseQty}</span>`
+            : '';
+        context.classList.toggle('active', !!baseName);
+    }
     if (search) search.value = dietFoodPickerState.query || '';
     if (qty) qty.value = dietFoodPickerState.qty || '';
+    setDietFoodPickerFeedback('');
+    syncDietFoodPickerSearchActionState();
     updateDietFoodPickerFilterUI();
 
     renderDietFoodPickerResults();
+    renderDietFoodPickerPortions();
     renderDietFoodPickerPreview();
+    syncDietFoodPickerPrimaryActionState();
 
-    if (search) {
+    if (listView && search) {
         setTimeout(() => search.focus(), 10);
     }
 }
@@ -5599,56 +7312,65 @@ function renderDietFoodPickerModal() {
 function closeDietFoodPicker() {
     dietFoodPickerState = {
         open: false,
+        view: 'list',
         context: '',
         mealIdx: null,
         itemIdx: null,
+        baseItem: null,
         query: '',
         loading: false,
         allResults: [],
         results: [],
         selected: null,
         qty: '',
+        qtyTouched: false,
         highlightIndex: -1,
+        listScrollTop: 0,
         filters: {
-            macro: 'all',
-            kcal: 'all',
-            type: 'all',
-            meal: 'all',
             favoritesOnly: false,
             recentOnly: false
         }
     };
     if (dietFoodPickerTimer) clearTimeout(dietFoodPickerTimer);
+    document.body.classList.remove('diet-food-picker-open');
+    setDietFoodPickerFeedback('');
     renderDietFoodPickerModal();
 }
 
 function openDietFoodPicker(context, mealIdx, itemIdx) {
     const baseItem = getDietBaseItemForContext(context, mealIdx, itemIdx);
-    const defaultQty = String(baseItem?.qtd || '100g');
     const defaultName = String(baseItem?.nome || '');
+    const starter = getDietStarterSuggestions(baseItem, 18);
+    const starterPool = starter.length ? starter : getEffectiveFoodCatalog(18);
+    const initialQuery = context === 'student-substitute' ? '' : defaultName;
     dietFoodPickerState = {
         open: true,
+        view: 'list',
         context,
         mealIdx,
         itemIdx,
-        query: defaultName,
+        baseItem: baseItem || null,
+        query: initialQuery,
         loading: false,
-        allResults: [],
-        results: [],
+        allResults: starterPool,
+        results: starterPool,
         selected: null,
-        qty: defaultQty,
-        highlightIndex: -1,
+        qty: '',
+        qtyTouched: false,
+        highlightIndex: starterPool.length ? 0 : -1,
+        listScrollTop: 0,
         filters: {
-            macro: 'all',
-            kcal: 'all',
-            type: 'all',
-            meal: 'all',
             favoritesOnly: false,
             recentOnly: false
         }
     };
     renderDietFoodPickerModal();
-    scheduleDietFoodPickerSearch(defaultName);
+    applyDietFoodPickerFiltersAndRender();
+    if (initialQuery.length >= 2) {
+        scheduleDietFoodPickerSearch(initialQuery);
+    } else {
+        loadDietFoodPickerInitialResults(defaultName);
+    }
 }
 
 function openDietItemSubstitutePicker(mealIdx, itemIdx) {
@@ -5661,13 +7383,9 @@ function openTrainerFoodReplacePicker(mealIdx, itemIdx) {
 
 function updateDietFoodPickerFilterUI() {
     document.querySelectorAll('#diet-food-picker-filters .diet-food-picker-filter-chip').forEach((chip) => {
-        const group = chip.getAttribute('data-group') || '';
+        const group = chip.getAttribute('data-group') || 'flags';
         const value = chip.getAttribute('data-value') || '';
         let active = false;
-        if (group === 'macro') active = dietFoodPickerState.filters?.macro === value;
-        if (group === 'kcal') active = dietFoodPickerState.filters?.kcal === value;
-        if (group === 'type') active = dietFoodPickerState.filters?.type === value;
-        if (group === 'meal') active = dietFoodPickerState.filters?.meal === value;
         if (group === 'flags' && value === 'favorites') active = !!dietFoodPickerState.filters?.favoritesOnly;
         if (group === 'flags' && value === 'recent') active = !!dietFoodPickerState.filters?.recentOnly;
         chip.classList.toggle('active', active);
@@ -5676,22 +7394,62 @@ function updateDietFoodPickerFilterUI() {
 }
 
 function applyDietFoodPickerFiltersAndRender() {
-    dietFoodPickerState.results = applyFoodFilters(
+    let switchedToListView = false;
+    const filtered = applyFoodFilters(
         dietFoodPickerState.allResults,
         dietFoodPickerState.filters
     );
-    dietFoodPickerState.highlightIndex = dietFoodPickerState.results.length ? 0 : -1;
-    renderDietFoodPickerResults();
-}
+    dietFoodPickerState.results = sortDietFoodPickerResults(filtered);
 
-function setDietFoodPickerFilter(group, value) {
-    if (!dietFoodPickerState.filters) return;
-    if (group === 'macro') dietFoodPickerState.filters.macro = value;
-    if (group === 'kcal') dietFoodPickerState.filters.kcal = value;
-    if (group === 'type') dietFoodPickerState.filters.type = value;
-    if (group === 'meal') dietFoodPickerState.filters.meal = value;
-    updateDietFoodPickerFilterUI();
-    applyDietFoodPickerFiltersAndRender();
+    const selectedKey = getFoodItemKey(dietFoodPickerState.selected);
+    const selectedIndex = dietFoodPickerState.results.findIndex((item) => getFoodItemKey(item) === selectedKey);
+    const hasCurrentSelected = selectedIndex >= 0;
+
+    if (!hasCurrentSelected && dietFoodPickerState.selected && dietFoodPickerState.view !== 'detail') {
+        dietFoodPickerState.selected = null;
+    }
+
+    if (dietFoodPickerState.view === 'detail') {
+        if (!hasCurrentSelected) {
+            if (dietFoodPickerState.results.length) {
+                dietFoodPickerState.selected = dietFoodPickerState.results[0];
+                if (!dietFoodPickerState.qtyTouched) {
+                    dietFoodPickerState.qty = resolveDietFoodPickerDefaultQty(
+                        dietFoodPickerState.selected,
+                        dietFoodPickerState.qty || '100g'
+                    );
+                }
+            } else {
+                dietFoodPickerState.selected = null;
+                dietFoodPickerState.view = 'list';
+                switchedToListView = true;
+            }
+        }
+    }
+
+    const maxIndex = dietFoodPickerState.results.length - 1;
+    if (maxIndex < 0) {
+        dietFoodPickerState.highlightIndex = -1;
+    } else if (dietFoodPickerState.view === 'detail' && dietFoodPickerState.selected) {
+        const activeIndex = dietFoodPickerState.results.findIndex((item) => getFoodItemKey(item) === getFoodItemKey(dietFoodPickerState.selected));
+        dietFoodPickerState.highlightIndex = Math.max(0, activeIndex);
+    } else if (dietFoodPickerState.highlightIndex < 0 || dietFoodPickerState.highlightIndex > maxIndex) {
+        dietFoodPickerState.highlightIndex = 0;
+    }
+
+    if (switchedToListView) {
+        renderDietFoodPickerModal();
+        requestAnimationFrame(() => restoreDietFoodPickerListScroll());
+        return;
+    }
+
+    renderDietFoodPickerResults();
+    renderDietFoodPickerPortions();
+    renderDietFoodPickerPreview();
+    syncDietFoodPickerPrimaryActionState();
+    if (dietFoodPickerState.view === 'list') {
+        focusDietFoodPickerHighlightedResult();
+    }
 }
 
 function toggleDietFoodPickerFlag(flag) {
@@ -5702,16 +7460,29 @@ function toggleDietFoodPickerFlag(flag) {
     applyDietFoodPickerFiltersAndRender();
 }
 
-function clearDietFoodPickerFilters() {
-    dietFoodPickerState.filters = {
-        macro: 'all',
-        kcal: 'all',
-        type: 'all',
-        meal: 'all',
-        favoritesOnly: false,
-        recentOnly: false
-    };
-    updateDietFoodPickerFilterUI();
+async function loadDietFoodPickerInitialResults(baseName = '') {
+    if (!dietFoodPickerState.open) return;
+    if (dietFoodPickerState.loading) return;
+    const currentCount = Array.isArray(dietFoodPickerState.allResults) ? dietFoodPickerState.allResults.length : 0;
+    if (currentCount >= 10) return;
+
+    dietFoodPickerState.loading = true;
+    renderDietFoodPickerResults();
+
+    const [defaultFoods, similarFoods] = await Promise.all([
+        fetchFoodsCatalogDefault(24),
+        String(baseName || '').trim().length >= 2 ? searchFoodsWithFallback(baseName, 10) : Promise.resolve([])
+    ]);
+
+    if (!dietFoodPickerState.open) return;
+    const baselineFoods = getBaselineFoodCatalog(30);
+    const merged = mergeFoodCatalogSources(
+        mergeFoodCatalogSources(dietFoodPickerState.allResults, baselineFoods, 72),
+        mergeFoodCatalogSources(similarFoods, defaultFoods, 72),
+        36
+    );
+    dietFoodPickerState.loading = false;
+    dietFoodPickerState.allResults = merged;
     applyDietFoodPickerFiltersAndRender();
 }
 
@@ -5735,7 +7506,11 @@ async function searchFoodsWithFallback(query, limit = 12) {
             protein: parseDecimalSafe(item.nutriments?.proteins_100g),
             carb: parseDecimalSafe(item.nutriments?.carbohydrates_100g),
             fat: parseDecimalSafe(item.nutriments?.fat_100g),
-            source: 'openfoodfacts'
+            source: 'openfoodfacts',
+            portions: getFallbackFoodPortions({
+                name: item.product_name || item.generic_name || '',
+                base_unit: 'g'
+            })
         })).filter(Boolean);
     } catch (error) {
         console.warn('OpenFoodFacts search failed', error);
@@ -5748,8 +7523,14 @@ function scheduleDietFoodPickerSearch(query) {
     const term = String(query || '').trim();
     if (term.length < 2) {
         dietFoodPickerState.loading = false;
-        dietFoodPickerState.allResults = (foodCatalogCache || []).slice(0, 12);
+        const starter = getDietStarterSuggestions(dietFoodPickerState.baseItem || {}, 18);
+        dietFoodPickerState.allResults = mergeFoodCatalogSources(
+            starter,
+            getEffectiveFoodCatalog(24),
+            18
+        );
         applyDietFoodPickerFiltersAndRender();
+        loadDietFoodPickerInitialResults(dietFoodPickerState.baseItem?.nome || '');
         return;
     }
     dietFoodPickerState.loading = true;
@@ -5757,8 +7538,16 @@ function scheduleDietFoodPickerSearch(query) {
     dietFoodPickerTimer = setTimeout(async () => {
         const results = await searchFoodsWithFallback(term, 12);
         if (dietFoodPickerState.query.trim() !== term) return;
+        const starter = getDietStarterSuggestions(dietFoodPickerState.baseItem || {}, 18);
         dietFoodPickerState.loading = false;
-        dietFoodPickerState.allResults = results;
+        dietFoodPickerState.allResults = mergeFoodCatalogSources(
+            mergeFoodCatalogSources(results, starter, 30),
+            getBaselineFoodCatalog(24),
+            24
+        );
+        if (!dietFoodPickerState.allResults.length) {
+            loadDietFoodPickerInitialResults(term);
+        }
         applyDietFoodPickerFiltersAndRender();
     }, 240);
 }
@@ -5768,70 +7557,140 @@ function selectDietFoodPickerResult(index) {
     if (!selected) return;
     dietFoodPickerState.selected = selected;
     dietFoodPickerState.highlightIndex = index;
-    if (!dietFoodPickerState.qty) {
-        dietFoodPickerState.qty = `${selected.base_qty}${selected.base_unit}`;
-    }
-    renderDietFoodPickerModal();
+    dietFoodPickerState.qty = resolveDietFoodPickerDefaultQty(
+        selected,
+        String(dietFoodPickerState.baseItem?.qtd || dietFoodPickerState.qty || '100g')
+    );
+    dietFoodPickerState.qtyTouched = false;
+    setDietFoodPickerFeedback('');
+    renderDietFoodPickerResults();
+    renderDietFoodPickerPortions();
+    renderDietFoodPickerPreview();
+    syncDietFoodPickerPrimaryActionState();
+    setDietFoodPickerView('detail', { focusQty: true });
 }
 
-function toggleDietFoodPickerFavorite(index) {
-    const item = dietFoodPickerState.results[index];
-    if (!item) return;
-    const key = getFoodItemKey(item);
-    const prefs = readFoodModalPrefs();
-    const current = new Set(prefs.favorites || []);
-    if (current.has(key)) current.delete(key);
-    else current.add(key);
-    saveFoodModalPrefs({ ...prefs, favorites: Array.from(current) });
-    renderDietFoodPickerResults();
+function getQuickMacroTarget(item = {}) {
+    const prot = parseDecimalSafe(item?.prot);
+    const carb = parseDecimalSafe(item?.carb);
+    const fat = parseDecimalSafe(item?.gord);
+    const macroScores = [
+        { key: 'protein', value: prot },
+        { key: 'carb', value: carb },
+        { key: 'fat', value: fat }
+    ].sort((a, b) => b.value - a.value);
+    return macroScores[0]?.value > 0 ? macroScores[0].key : 'protein';
+}
+
+
+function selectDietFoodPickerPortion(index) {
+    const selected = dietFoodPickerState.selected;
+    if (!selected || dietFoodPickerState.view !== 'detail') return;
+    const portions = getFoodPortions(selected);
+    const portion = portions[index];
+    if (!portion) return;
+    const amount = Math.max(0.1, parseDecimalSafe(portion.amount) || 1);
+    const unitKey = normalizeFoodUnitKey(portion.unit_key || selected.base_unit || 'g');
+    dietFoodPickerState.qty = formatFoodQuantity(amount, unitKey);
+    dietFoodPickerState.qtyTouched = true;
+    setDietFoodPickerFeedback('');
+    renderDietFoodPickerPortions();
+    renderDietFoodPickerPreview();
+}
+
+function renderDietFoodPickerPortions() {
+    const container = document.getElementById('diet-food-picker-portions');
+    if (!container) return;
+    const selected = dietFoodPickerState.selected;
+    if (!selected) {
+        container.innerHTML = '';
+        return;
+    }
+    const portions = getFoodPortions(selected).slice(0, 8);
+    if (!portions.length) {
+        container.innerHTML = '';
+        return;
+    }
+    const parsedQty = parseAmountAndUnit(
+        dietFoodPickerState.qty || formatFoodQuantity(selected.base_qty, selected.base_unit),
+        selected.base_unit || 'g'
+    );
+    container.innerHTML = `
+        <div class="diet-food-picker-portions-title">Medidas rápidas</div>
+        <div class="diet-food-picker-portions-list">
+            ${portions.map((portion, index) => {
+                const amount = Math.max(0.1, parseDecimalSafe(portion.amount) || 1);
+                const unit = normalizeFoodUnitKey(portion.unit_key || 'g');
+                const active = normalizeFoodUnitKey(parsedQty.unit || 'g') === unit
+                    && Math.abs((parseDecimalSafe(parsedQty.amount) || 0) - amount) < 0.11;
+                const baseRef = `${Math.round((parseDecimalSafe(portion.base_qty_equivalent) || 0) * 10) / 10}${getFoodUnitShort(selected.base_unit || 'g')}`;
+                return `
+                    <button type="button" class="diet-food-picker-portion-chip ${active ? 'active' : ''}" onclick="selectDietFoodPickerPortion(${index})">
+                        <strong>${escHtml(formatFoodQuantity(amount, unit))}</strong>
+                        <span>${escHtml(portion.label)} · ${escHtml(baseRef)}</span>
+                    </button>
+                `;
+            }).join('')}
+        </div>
+    `;
 }
 
 function renderDietFoodPickerResults() {
     const container = document.getElementById('diet-food-picker-results');
+    const title = document.getElementById('diet-food-picker-results-title');
     if (!container) return;
     if (dietFoodPickerState.loading) {
+        if (title) title.textContent = 'Buscando alimentos...';
         container.innerHTML = '<div class="diet-food-picker-empty">Buscando alimentos...</div>';
+        syncDietFoodPickerPrimaryActionState();
         return;
     }
     if (!Array.isArray(dietFoodPickerState.results) || !dietFoodPickerState.results.length) {
-        container.innerHTML = '<div class="diet-food-picker-empty">Sem resultados. Digite outro termo.</div>';
+        if (title) title.textContent = 'Selecione um alimento';
+        const hasActiveFlags = !!(dietFoodPickerState.filters?.favoritesOnly || dietFoodPickerState.filters?.recentOnly);
+        container.innerHTML = hasActiveFlags
+            ? '<div class="diet-food-picker-empty">Sem resultados com os filtros ativos. <button type="button" class="diet-food-picker-reset-link" onclick="resetDietFoodPickerFlags()">Limpar filtros</button></div>'
+            : '<div class="diet-food-picker-empty">Sem resultados. Digite outro termo.</div>';
+        syncDietFoodPickerPrimaryActionState();
         return;
     }
-    const prefs = readFoodModalPrefs();
-    const favoritesSet = new Set(prefs.favorites || []);
+    if (title) {
+        const count = dietFoodPickerState.results.length;
+        title.textContent = `Selecione um alimento (${count})`;
+    }
     container.innerHTML = dietFoodPickerState.results.map((item, index) => {
-        const selected = dietFoodPickerState.selected && String(dietFoodPickerState.selected.id || '') === String(item.id || '')
-            && normalizeText(dietFoodPickerState.selected.name) === normalizeText(item.name);
+        const selected = dietFoodPickerState.selected
+            && getFoodItemKey(dietFoodPickerState.selected) === getFoodItemKey(item);
         const highlighted = dietFoodPickerState.highlightIndex === index;
-        const fav = favoritesSet.has(getFoodItemKey(item));
         return `
-            <div class="diet-food-picker-item-wrap ${selected ? 'active' : ''} ${highlighted ? 'is-highlight' : ''}" onclick="selectDietFoodPickerResult(${index})">
-                <button type="button" class="diet-food-picker-fav ${fav ? 'active' : ''}" onclick="event.stopPropagation(); toggleDietFoodPickerFavorite(${index})">
-                    <i class="ph-${fav ? 'fill' : 'bold'} ph-star"></i>
-                </button>
-                <div>
-                    <strong>${escHtml(item.name)}</strong>
-                    <span>${Math.round(item.kcal)} kcal · P ${item.protein}g · C ${item.carb}g · G ${item.fat}g (por ${item.base_qty}${item.base_unit})</span>
-                </div>
-            </div>
+            <button type="button" class="diet-food-picker-item ${selected ? 'active' : ''} ${highlighted ? 'is-highlight' : ''}" onclick="selectDietFoodPickerResult(${index})" aria-pressed="${selected ? 'true' : 'false'}" data-food-key="${escHtml(getFoodItemKey(item))}">
+                <span>${renderDietFoodPickerResultName(item.name, dietFoodPickerState.query)}</span>
+            </button>
         `;
     }).join('');
+    syncDietFoodPickerPrimaryActionState();
 }
 
 function renderDietFoodPickerPreview() {
     const preview = document.getElementById('diet-food-picker-preview');
     if (!preview) return;
     if (!dietFoodPickerState.selected) {
-        preview.innerHTML = '<span>Selecione um alimento para visualizar os macros.</span>';
+        preview.innerHTML = '<span>Selecione um alimento para visualizar os dados nutricionais.</span>';
+        setDietFoodPickerFeedback('');
         return;
     }
     const food = dietFoodPickerState.selected;
-    const parsed = parseAmountAndUnit(dietFoodPickerState.qty || `${food.base_qty}${food.base_unit}`, food.base_unit || 'g');
-    const safeAmount = parsed.amount > 0 ? parsed.amount : (food.base_qty || 100);
-    const calc = computeMacrosByAmount(food, safeAmount, parsed.unit || food.base_unit || 'g');
-    const qtyLabel = `${safeAmount}${parsed.unit || food.base_unit || 'g'}`;
+    const normalized = getDietFoodPickerNormalizedQty(
+        food,
+        dietFoodPickerState.qty || formatFoodQuantity(food.base_qty, food.base_unit)
+    );
+    const calc = computeMacrosByAmount(food, normalized.amount, normalized.unitKey, normalized.portionId);
+    const qtyLabel = normalized.qtyText;
+    const baseLabel = formatFoodQuantity(food.base_qty || 100, food.base_unit || 'g');
     preview.innerHTML = `
-        <div class="diet-food-picker-preview-title">${escHtml(food.name)} · ${qtyLabel}</div>
+        <div class="diet-food-picker-preview-food">${escHtml(food.name)}</div>
+        <div class="diet-food-picker-preview-base">Base nutricional: ${escHtml(baseLabel)}</div>
+        <div class="diet-food-picker-preview-title">Porção selecionada: ${qtyLabel}</div>
         <div class="diet-modern-macro-chips">
             <span class="diet-modern-chip kcal">${calc.kcal} kcal</span>
             <span class="diet-modern-chip protein">${uiSvgIcon('protein')} ${calc.protein}g P</span>
@@ -5861,21 +7720,27 @@ async function ensurePickerFoodSaved(food) {
 
 async function confirmDietFoodPickerSelection() {
     const selected = dietFoodPickerState.selected;
-    if (!selected) return;
+    if (!selected || dietFoodPickerState.loading || dietFoodPickerState.view !== 'detail') return;
 
     const persistedFood = await ensurePickerFoodSaved(selected);
+    if (!persistedFood) return;
     registerRecentFood({
         id: persistedFood?.id || selected?.id || '',
         name: persistedFood?.name || selected?.name || ''
     });
-    const parsed = parseAmountAndUnit(
-        dietFoodPickerState.qty || `${persistedFood.base_qty}${persistedFood.base_unit}`,
-        persistedFood.base_unit || 'g'
+    const normalizedQty = getDietFoodPickerNormalizedQty(
+        persistedFood,
+        dietFoodPickerState.qty || formatFoodQuantity(persistedFood.base_qty, persistedFood.base_unit),
     );
-    const safeAmount = parsed.amount > 0 ? parsed.amount : (persistedFood.base_qty || 100);
-    const unit = parsed.unit || persistedFood.base_unit || 'g';
-    const calc = computeMacrosByAmount(persistedFood, safeAmount, unit);
-    const qtyText = `${safeAmount}${unit}`;
+    const unit = normalizedQty.unitKey;
+    const calc = computeMacrosByAmount(
+        persistedFood,
+        normalizedQty.amount,
+        unit,
+        normalizedQty.portionId
+    );
+    const qtyText = formatFoodQuantity(calc.amount, calc.unit_key);
+    const usedQtyFallback = !!normalizedQty.usedFallback;
 
     if (dietFoodPickerState.context === 'trainer-replace') {
         const meal = mealBlocks?.[dietFoodPickerState.mealIdx];
@@ -5891,6 +7756,10 @@ async function confirmDietFoodPickerSelection() {
             item.baseQty = persistedFood.base_qty || 100;
             item.baseUnit = persistedFood.base_unit || unit;
             item.source = persistedFood.source || 'catalog';
+            item.amount = calc.amount;
+            item.unitKey = calc.unit_key;
+            item.portionId = calc.portion_id || '';
+            item.portionLabel = calc.portion_label || '';
         }
         renderMeals();
         updateDietPlannerSummary();
@@ -5908,18 +7777,335 @@ async function confirmDietFoodPickerSelection() {
                 foodId: persistedFood.id || '',
                 baseQty: persistedFood.base_qty || 100,
                 baseUnit: persistedFood.base_unit || unit,
-                source: persistedFood.source || 'catalog'
+                source: persistedFood.source || 'catalog',
+                amount: calc.amount,
+                unitKey: calc.unit_key,
+                portionId: calc.portion_id || '',
+                portionLabel: calc.portion_label || ''
             };
         });
     }
     closeDietFoodPicker();
+    if (usedQtyFallback) {
+        showDietRuntimeMessage('Quantidade inválida ajustada para o padrão do alimento.', 'info');
+    } else {
+        showDietRuntimeMessage('Alimento adicionado com sucesso.', 'success');
+    }
 }
 
 function toggleDietItemSubstitute(mealIdx, itemIdx) {
     persistStudentDietLog((dayLog) => {
         const item = ensureDietLogItem(dayLog, mealIdx, itemIdx);
-        item.substitute = { enabled: false };
+        item.substitute = {
+            enabled: false,
+            name: '',
+            qty: '',
+            kcal: 0,
+            prot: 0,
+            carb: 0,
+            gord: 0,
+            foodId: '',
+            baseQty: 100,
+            baseUnit: 'g',
+            source: 'manual',
+            amount: 1,
+            unitKey: 'g',
+            portionId: '',
+            portionLabel: ''
+        };
     });
+}
+
+let foodDetailsState = {
+    open: false,
+    mode: '',
+    mealIdx: null,
+    itemIdx: null,
+    food: null,
+    amount: 1,
+    unitKey: 'g',
+    portionId: '',
+    selectedPortionIndex: -1,
+    portions: [],
+    shouldAutoFocus: false
+};
+
+function resolveFoodReferenceForItem(item = {}) {
+    const cacheMatch = (foodCatalogCache || []).find((food) => String(food.id || '') === String(item.foodId || ''));
+    const fallback = {
+        id: item.foodId || '',
+        name: item.nome || item.name || cacheMatch?.name || 'Alimento',
+        brand: item.brand || cacheMatch?.brand || '',
+        base_qty: Math.max(0.1, parseDecimalSafe(item.baseQty || item.base_qty) || parseAmountAndUnit(item.qtd || '', item.baseUnit || item.base_unit || cacheMatch?.base_unit || 'g').amount || 100),
+        base_unit: normalizeFoodUnitKey(item.baseUnit || item.base_unit || cacheMatch?.base_unit || parseAmountAndUnit(item.qtd || '', 'g').unit || 'g'),
+        kcal: parseDecimalSafe(item.kcal) || parseDecimalSafe(cacheMatch?.kcal),
+        protein: parseDecimalSafe(item.prot || item.protein) || parseDecimalSafe(cacheMatch?.protein),
+        carb: parseDecimalSafe(item.carb) || parseDecimalSafe(cacheMatch?.carb),
+        fat: parseDecimalSafe(item.gord || item.fat) || parseDecimalSafe(cacheMatch?.fat),
+        source: item.source || cacheMatch?.source || 'manual',
+        portions: Array.isArray(item.portions) && item.portions.length
+            ? item.portions
+            : (cacheMatch?.portions || [])
+    };
+    return normalizeFoodCatalogRow(cacheMatch ? { ...cacheMatch, ...fallback } : fallback);
+}
+
+function ensureFoodDetailsModal() {
+    if (document.getElementById('food-details-overlay')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'food-details-overlay';
+    overlay.className = 'food-details-overlay';
+    overlay.onclick = (event) => {
+        if (event.target?.id === 'food-details-overlay') closeFoodDetailsModal();
+    };
+
+    const modal = document.createElement('div');
+    modal.id = 'food-details-modal';
+    modal.className = 'food-details-modal';
+    modal.innerHTML = `
+        <div class="food-details-header">
+            <div>
+                <h3 id="food-details-title">Detalhes do alimento</h3>
+                <small id="food-details-subtitle"></small>
+            </div>
+            <button type="button" class="food-details-close" onclick="closeFoodDetailsModal()">
+                <i class="ph-bold ph-x"></i>
+            </button>
+        </div>
+        <div class="food-details-body">
+            <div class="food-details-field">
+                <label>Quantidade</label>
+                <div class="food-details-amount-control">
+                    <button type="button" class="food-details-step-btn" onclick="adjustFoodDetailsAmount(-0.5)" aria-label="Diminuir quantidade">-</button>
+                    <input id="food-details-amount" type="number" min="0.1" step="0.1" class="diet-modern-input" oninput="updateFoodDetailsAmount(this.value)">
+                    <button type="button" class="food-details-step-btn" onclick="adjustFoodDetailsAmount(0.5)" aria-label="Aumentar quantidade">+</button>
+                </div>
+            </div>
+            <div class="food-details-field">
+                <label>Medida</label>
+                <select id="food-details-unit" class="diet-modern-input" onchange="selectFoodDetailsPortion(this.value)"></select>
+            </div>
+            <div id="food-details-base" class="food-details-base"></div>
+            <div id="food-details-qty" class="food-details-qty"></div>
+            <div id="food-details-preview" class="food-details-preview"></div>
+        </div>
+        <div class="food-details-footer">
+            <button type="button" class="diet-modern-cancel-btn" onclick="closeFoodDetailsModal()">Cancelar</button>
+            <button type="button" class="diet-modern-save-btn" onclick="confirmFoodDetailsModal()">Salvar</button>
+        </div>
+    `;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', handleFoodDetailsKeydown);
+}
+
+function handleFoodDetailsKeydown(event) {
+    if (!foodDetailsState.open) return;
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        closeFoodDetailsModal();
+        return;
+    }
+    if (event.key === 'Enter') {
+        const targetTag = String(event.target?.tagName || '').toLowerCase();
+        if (targetTag === 'textarea') return;
+        event.preventDefault();
+        confirmFoodDetailsModal();
+    }
+}
+
+function openFoodDetailsModal(state = {}) {
+    const food = resolveFoodReferenceForItem(state.food || {});
+    if (!food) return;
+    const portions = getFoodPortions(food);
+    const parsedQty = parseAmountAndUnit(state.qty || '', state.unitKey || food.base_unit || 'g');
+    const initialAmount = Math.max(0.1, parseDecimalSafe(state.amount) || parsedQty.amount || parseDecimalSafe(portions[0]?.amount) || 1);
+    let selectedPortionIndex = portions.findIndex((portion) => String(portion.id || '') === String(state.portionId || ''));
+    if (selectedPortionIndex < 0) {
+        selectedPortionIndex = portions.findIndex((portion) => normalizeFoodUnitKey(portion.unit_key) === normalizeFoodUnitKey(state.unitKey || parsedQty.unit || food.base_unit || 'g'));
+    }
+    if (selectedPortionIndex < 0) selectedPortionIndex = 0;
+    const selectedPortion = portions[selectedPortionIndex] || null;
+
+    foodDetailsState = {
+        open: true,
+        mode: state.mode || 'student',
+        mealIdx: Number.isFinite(Number(state.mealIdx)) ? Number(state.mealIdx) : null,
+        itemIdx: Number.isFinite(Number(state.itemIdx)) ? Number(state.itemIdx) : null,
+        food,
+        portions,
+        selectedPortionIndex,
+        amount: initialAmount,
+        unitKey: normalizeFoodUnitKey(selectedPortion?.unit_key || state.unitKey || parsedQty.unit || food.base_unit || 'g'),
+        portionId: String(selectedPortion?.id || state.portionId || ''),
+        shouldAutoFocus: true
+    };
+    renderFoodDetailsModal();
+}
+
+function renderFoodDetailsModal() {
+    ensureFoodDetailsModal();
+    const overlay = document.getElementById('food-details-overlay');
+    const title = document.getElementById('food-details-title');
+    const subtitle = document.getElementById('food-details-subtitle');
+    const amountInput = document.getElementById('food-details-amount');
+    const unitSelect = document.getElementById('food-details-unit');
+    const baseEl = document.getElementById('food-details-base');
+    const qtyEl = document.getElementById('food-details-qty');
+    const preview = document.getElementById('food-details-preview');
+    if (!overlay || !title || !subtitle || !amountInput || !unitSelect || !baseEl || !qtyEl || !preview) return;
+
+    overlay.classList.toggle('active', !!foodDetailsState.open);
+    document.body.classList.toggle('food-details-open', !!foodDetailsState.open);
+    if (!foodDetailsState.open) return;
+
+    const food = foodDetailsState.food || {};
+    const portions = Array.isArray(foodDetailsState.portions) ? foodDetailsState.portions : getFoodPortions(food);
+    const selectedIndex = Number.isFinite(foodDetailsState.selectedPortionIndex) ? foodDetailsState.selectedPortionIndex : 0;
+    const selectedPortion = portions[selectedIndex] || portions[0] || null;
+    title.textContent = foodDetailsState.mode === 'trainer' ? 'Editar alimento do plano' : 'Ajustar consumo do alimento';
+    subtitle.textContent = `${food.name || 'Alimento'}${food.brand ? ` · ${food.brand}` : ''}`;
+
+    amountInput.value = String(Math.max(0.1, parseDecimalSafe(foodDetailsState.amount) || 1));
+    unitSelect.innerHTML = portions.map((portion, index) => {
+        const unitLabel = getFoodUnitLabel(portion.unit_key, portion.amount);
+        const suffix = `${portion.amount} ${unitLabel} ≈ ${Math.round((parseDecimalSafe(portion.base_qty_equivalent) || 0) * 10) / 10}${getFoodUnitShort(food.base_unit || 'g')}`;
+        return `<option value="${index}" ${index === selectedIndex ? 'selected' : ''}>${escHtml(portion.label)} (${escHtml(suffix)})</option>`;
+    }).join('');
+
+    const resolved = resolveFoodQuantity(food, foodDetailsState.amount, foodDetailsState.unitKey, foodDetailsState.portionId);
+    const calc = computeMacrosByAmount(food, foodDetailsState.amount, foodDetailsState.unitKey, foodDetailsState.portionId);
+    const baseUnitShort = getFoodUnitShort(food.base_unit || 'g');
+    const baseAmountRounded = Math.round((parseDecimalSafe(food.base_qty) || 100) * 10) / 10;
+    const baseReference = `${baseAmountRounded}${baseUnitShort}`;
+    const baseKcal = Math.round(parseDecimalSafe(food.kcal) || 0);
+    const baseProtein = Math.round((parseDecimalSafe(food.protein) || 0) * 10) / 10;
+    const baseCarb = Math.round((parseDecimalSafe(food.carb) || 0) * 10) / 10;
+    const baseFat = Math.round((parseDecimalSafe(food.fat) || 0) * 10) / 10;
+    const equivalent = Math.round((parseDecimalSafe(resolved.baseEquivalent) || 0) * 10) / 10;
+    const selectedLabel = selectedPortion?.label ? ` · ${selectedPortion.label}` : '';
+    baseEl.textContent = `Base nutricional (${baseReference}): ${baseKcal} kcal · P ${baseProtein}g · C ${baseCarb}g · G ${baseFat}g`;
+    qtyEl.textContent = `Quantidade: ${formatFoodQuantity(calc.amount, calc.unit_key)}${selectedLabel} · Equivalente: ${equivalent}${baseUnitShort}`;
+    preview.innerHTML = `
+        <div class="food-details-chip kcal">${calc.kcal} kcal</div>
+        <div class="food-details-chip">${uiSvgIcon('protein')} ${calc.protein}g proteína</div>
+        <div class="food-details-chip">${uiSvgIcon('carb')} ${calc.carb}g carboidrato</div>
+        <div class="food-details-chip">${uiSvgIcon('fat')} ${calc.fat}g gordura</div>
+    `;
+
+    if (foodDetailsState.shouldAutoFocus) {
+        foodDetailsState.shouldAutoFocus = false;
+        requestAnimationFrame(() => {
+            amountInput.focus();
+            amountInput.select();
+        });
+    }
+}
+
+function closeFoodDetailsModal() {
+    foodDetailsState.open = false;
+    const overlay = document.getElementById('food-details-overlay');
+    if (overlay) overlay.classList.remove('active');
+    document.body.classList.remove('food-details-open');
+}
+
+function selectFoodDetailsPortion(indexValue) {
+    const idx = Math.max(0, parseInt(indexValue, 10) || 0);
+    const portion = foodDetailsState.portions?.[idx];
+    if (!portion) return;
+    foodDetailsState.selectedPortionIndex = idx;
+    foodDetailsState.unitKey = normalizeFoodUnitKey(portion.unit_key || foodDetailsState.unitKey || 'g');
+    foodDetailsState.portionId = String(portion.id || '');
+    renderFoodDetailsModal();
+}
+
+function updateFoodDetailsAmount(value) {
+    const next = Math.max(0.1, parseDecimalSafe(value) || 0.1);
+    foodDetailsState.amount = next;
+    renderFoodDetailsModal();
+}
+
+function adjustFoodDetailsAmount(delta) {
+    const numericDelta = parseDecimalSafe(delta) || 0;
+    if (!numericDelta) return;
+    const current = Math.max(0.1, parseDecimalSafe(foodDetailsState.amount) || 0.1);
+    const next = Math.max(0.1, Math.round((current + numericDelta) * 10) / 10);
+    foodDetailsState.amount = next;
+    renderFoodDetailsModal();
+}
+
+function openFoodDetailsFromTrainerItem(mealIdx, itemIdx) {
+    const item = mealBlocks?.[mealIdx]?.items?.[itemIdx];
+    if (!item) return;
+    openFoodDetailsModal({
+        mode: 'trainer',
+        mealIdx,
+        itemIdx,
+        food: item,
+        amount: parseDecimalSafe(item.amount) || parseAmountAndUnit(item.qtd || '', item.unitKey || item.baseUnit || 'g').amount || 1,
+        unitKey: item.unitKey || parseAmountAndUnit(item.qtd || '', item.baseUnit || 'g').unit || item.baseUnit || 'g',
+        portionId: item.portionId || '',
+        qty: item.qtd || ''
+    });
+}
+
+function openFoodDetailsFromStudentItem(mealIdx, itemIdx) {
+    const { student } = getStudentData();
+    const item = student?.mealBlocks?.[mealIdx]?.items?.[itemIdx];
+    if (!item) return;
+    const dayLog = getStudentDietLogForDate(student, studentDietSelectedDateKey || getTodayDateKey());
+    const logItem = getDietLogItem(dayLog, mealIdx, itemIdx) || {};
+    openFoodDetailsModal({
+        mode: 'student',
+        mealIdx,
+        itemIdx,
+        food: item,
+        amount: parseDecimalSafe(logItem.amount) || parseAmountAndUnit(logItem.qty || item.qtd || '', logItem.unitKey || item.unitKey || item.baseUnit || 'g').amount || 1,
+        unitKey: logItem.unitKey || parseAmountAndUnit(logItem.qty || item.qtd || '', item.unitKey || item.baseUnit || 'g').unit || item.unitKey || item.baseUnit || 'g',
+        portionId: logItem.portionId || item.portionId || '',
+        qty: logItem.qty || item.qtd || ''
+    });
+}
+
+function confirmFoodDetailsModal() {
+    const food = foodDetailsState.food;
+    if (!food) return;
+    const calc = computeMacrosByAmount(food, foodDetailsState.amount, foodDetailsState.unitKey, foodDetailsState.portionId);
+    const qtyText = formatFoodQuantity(calc.amount, calc.unit_key);
+
+    if (foodDetailsState.mode === 'trainer') {
+        const meal = mealBlocks?.[foodDetailsState.mealIdx];
+        const item = meal?.items?.[foodDetailsState.itemIdx];
+        if (!item) return;
+        item.qtd = qtyText;
+        item.kcal = calc.kcal;
+        item.prot = calc.protein;
+        item.carb = calc.carb;
+        item.gord = calc.fat;
+        item.foodId = item.foodId || food.id || '';
+        item.baseQty = Math.max(0.1, parseDecimalSafe(food.base_qty) || parseDecimalSafe(item.baseQty) || 100);
+        item.baseUnit = normalizeFoodUnitKey(food.base_unit || item.baseUnit || 'g');
+        item.source = food.source || item.source || 'catalog';
+        item.amount = calc.amount;
+        item.unitKey = calc.unit_key;
+        item.portionId = calc.portion_id || '';
+        item.portionLabel = calc.portion_label || '';
+        renderMeals();
+        updateDietPlannerSummary();
+        signalStudentPlanDirty();
+        closeFoodDetailsModal();
+        return;
+    }
+
+    persistStudentDietLog((dayLog) => {
+        const logItem = ensureDietLogItem(dayLog, foodDetailsState.mealIdx, foodDetailsState.itemIdx);
+        logItem.qty = qtyText;
+        logItem.amount = calc.amount;
+        logItem.unitKey = calc.unit_key;
+        logItem.portionId = calc.portion_id || '';
+        logItem.portionLabel = calc.portion_label || '';
+    });
+    closeFoodDetailsModal();
 }
 
 function renderStudentDietMain() {
@@ -5929,6 +8115,14 @@ function renderStudentDietMain() {
 
     const container = document.getElementById('student-diet-content-main');
     if (!container) return;
+    const actionsInline = document.getElementById('diet-day-actions-inline');
+    if (navigator.onLine === false) {
+        setStudentSyncState('offline', 'Sem conexão');
+    } else if (studentSyncState.status === 'offline') {
+        setStudentSyncState('synced', 'Sincronizado');
+    } else {
+        renderDietSyncStatus();
+    }
 
     if (!student || !student.active || !student.mealBlocks) {
         container.innerHTML = `<div class="empty-state-card" style="margin-top:2rem;">
@@ -5938,87 +8132,14 @@ function renderStudentDietMain() {
                 <p>Seu plano alimentar ainda não foi liberado pelo treinador.</p>
             </div>
         </div>`;
+        if (actionsInline) actionsInline.innerHTML = '';
         return;
     }
 
     if (!studentDietSelectedDateKey) studentDietSelectedDateKey = getTodayDateKey();
     container.innerHTML = renderStudentDietContent(student);
     optimizeMediaElements(container);
-}
-
-async function handleUnifiedLogin() {
-    const code = sanitizeCodeInput(document.getElementById('global-code')?.value, 5);
-    const codeInput = document.getElementById('global-code');
-    if (codeInput) codeInput.value = code;
-    if (code.length !== 5) {
-        alert('Digite o código de 5 dígitos.');
-        return;
-    }
-
-    if (!ENABLE_DEMO_ACCESS) {
-        alert('No lançamento, use e-mail e senha para entrar. O código é usado para conectar aluno ao treinador.');
-        goToStudentArea();
-        return;
-    }
-
-    // 1. Aluno admin fixo
-    if (code === ADMIN_STUDENT_CODE) {
-        ensureAdminStudent();
-        const students = readStorageJSON('trainerStudents', []);
-        const adminStudent = students.find(s => s.id === ADMIN_STUDENT_CODE);
-        openStudentDashboardSession(adminStudent || {
-            id: ADMIN_STUDENT_CODE,
-            name: ADMIN_STUDENT_NAME,
-            trainerCode: '00001'
-        });
-        return;
-    }
-
-    // 1.1 Aluno auto treino (Diego)
-    if (code === SELF_TRAINING_STUDENT_CODE) {
-        ensureSelfTrainingStudent();
-        const students = readStorageJSON('trainerStudents', []);
-        const selfStudent = students.find(s => s.id === SELF_TRAINING_STUDENT_CODE);
-        openStudentDashboardSession(selfStudent || {
-            id: SELF_TRAINING_STUDENT_CODE,
-            name: SELF_TRAINING_STUDENT_NAME,
-            trainerCode: '00001'
-        });
-        return;
-    }
-
-    // 2. Check Trainer (Admin or allTrainers)
-    const trainer = code === '00001'
-        ? { code: '00001', name: 'Admin' }
-        : await resolveTrainerByCode(code);
-
-    if (trainer) {
-        // Redirect to trainer dashboard
-        // Note: For simplicity, we could store 'trainerSessionCode' to auto-login in trainer.html
-        memorySetItem('trainerSessionCode', code);
-        window.location.href = 'trainer.html';
-        return;
-    }
-
-    // 3. Check Student
-    const allStudents = readStorageJSON('trainerStudents', []);
-    let student = allStudents.find(s => s.id === code);
-    if (!student) {
-        const remoteStudent = await getStudentByIdRemote(code);
-        if (remoteStudent) {
-            const merged = allStudents.filter(s => String(s.id) !== String(remoteStudent.id));
-            merged.push(remoteStudent);
-            saveStudentData(merged);
-            student = remoteStudent;
-        }
-    }
-
-    if (student) {
-        openStudentDashboardSession(student);
-        return;
-    }
-
-    alert('Código não encontrado. Se você é novo, use as opções da tela inicial.');
+    if (actionsInline) actionsInline.innerHTML = '';
 }
 
 let pendingTrainerCode = '';
@@ -6042,31 +8163,6 @@ async function connectStudent() {
     if (codeInput) codeInput.value = code;
     if (code.length !== 5) {
         alert('O código deve ter exatamente 5 dígitos.');
-        return;
-    }
-
-    // Demo local: login direto por código fixo
-    if (ENABLE_DEMO_ACCESS && code === ADMIN_STUDENT_CODE) {
-        ensureAdminStudent();
-        const students = readStorageJSON('trainerStudents', []);
-        const adminStudent = students.find(s => s.id === ADMIN_STUDENT_CODE);
-        openStudentDashboardSession(adminStudent || {
-            id: ADMIN_STUDENT_CODE,
-            name: ADMIN_STUDENT_NAME,
-            trainerCode: '00001'
-        });
-        return;
-    }
-
-    if (ENABLE_DEMO_ACCESS && code === SELF_TRAINING_STUDENT_CODE) {
-        ensureSelfTrainingStudent();
-        const students = readStorageJSON('trainerStudents', []);
-        const selfStudent = students.find(s => s.id === SELF_TRAINING_STUDENT_CODE);
-        openStudentDashboardSession(selfStudent || {
-            id: SELF_TRAINING_STUDENT_CODE,
-            name: SELF_TRAINING_STUDENT_NAME,
-            trainerCode: '00001'
-        });
         return;
     }
 
@@ -6099,37 +8195,49 @@ async function connectStudent() {
         }
     }
 
-    // If this device already has a remembered student for this trainer, login instantly.
-    const remembered = readStudentAuthToken();
-    if (remembered && remembered.studentId) {
-        const students = readStorageJSON('trainerStudents', []);
-        const rememberedStudent = students.find(s =>
-            String(s.id) === String(remembered.studentId) &&
-            String(s.trainerCode || '') === String(code)
-        );
-        if (rememberedStudent) {
-            openStudentDashboardSession(rememberedStudent);
-            return;
-        }
-    }
-
     pendingTrainerCode = code;
-    document.getElementById('confirm-trainer-name').innerText = coachName;
-    document.getElementById('confirm-consultoria-name').innerText = consultoriaName;
-
-    hideAllScreens();
-    document.getElementById('student-confirm-screen').classList.add('active');
+    const hint = coachName ? `${coachName} • ${consultoriaName || 'Consultoria'}` : 'Consultoria conectada';
+    alert(`Código validado com sucesso.\n${hint}`);
+    await confirmConnection();
 }
 
-function confirmConnection() {
+async function confirmConnection() {
+    const activeUser = await getSupabaseSessionUser();
+    if (!activeUser) {
+        goToGlobalLogin();
+        return;
+    }
     const onboardingDraft = memoryGetItem('onboardingQuestionnaireDraft');
     const onboardingPending = memoryGetItem('onboardingPendingQuestionnaire') === '1';
     const onboardingStep = memoryGetItem('currentOnboardingStep');
     if ((onboardingPending && onboardingDraft) || onboardingStep === 'trainer_connect') {
-        finalizeStudentOnboardingConnection().catch((err) => {
+        await finalizeStudentOnboardingConnection().catch((err) => {
             console.error('Erro ao finalizar onboarding do aluno', err);
             alert('Não foi possível concluir a conexão com o treinador.');
         });
+        return;
+    }
+
+    const currentStudentId = String(memoryGetItem('currentStudentId') || '');
+    if (currentStudentId && pendingTrainerCode) {
+        const students = readStorageJSON('trainerStudents', []);
+        const sIdx = students.findIndex((s) => String(s.id) === currentStudentId);
+        if (sIdx >= 0) {
+            students[sIdx].trainerCode = pendingTrainerCode;
+            students[sIdx].trainer_code = pendingTrainerCode;
+            students[sIdx].pending = true;
+            students[sIdx].active = false;
+            saveStudentData(students);
+        }
+        await upsertOwnProfile({
+            id: activeUser.id,
+            connected_trainer_code: pendingTrainerCode,
+            onboarding_step: 'done'
+        });
+        await syncStudentConnectionEntity(activeUser.id, pendingTrainerCode, 'pending');
+        memorySetItem('connectedTrainerCode', pendingTrainerCode);
+        showDietRuntimeMessage('Conexão atualizada. Aguardando aprovação do treinador.', 'success');
+        await openStudentDashboardForUser(activeUser.id, pendingTrainerCode);
         return;
     }
 
@@ -6265,6 +8373,7 @@ async function submitQuestionnaire() {
         active: false,
         pending: true,
         trainerCode: pendingTrainerCode,
+        trainer_code: pendingTrainerCode,
         joinedAt: new Date().toISOString(),
         workoutBlocks: getDefaultWorkoutBlocks(),
         mealBlocks: [],
@@ -6291,6 +8400,7 @@ async function submitQuestionnaire() {
     let students = readStorageJSON('trainerStudents', []);
     students.push(newStudent);
     saveStudentData(students);
+    syncStudentProfileEntity(newStudent);
 
     let notifs = readStorageJSON('trainerNotifications', []);
     notifs.unshift({
@@ -6315,6 +8425,7 @@ async function submitQuestionnaire() {
             onboarding_step: 'done',
             anamnesis: questionnairePayload
         });
+        await syncStudentConnectionEntity(activeUser.id, pendingTrainerCode, 'pending');
         memorySetItem('currentOnboardingStep', 'done');
         memoryRemoveItem('onboardingPendingQuestionnaire');
         memoryRemoveItem('onboardingQuestionnaireDraft');
@@ -6385,6 +8496,7 @@ async function finalizeStudentOnboardingConnection() {
         active: false,
         pending: true,
         trainerCode,
+        trainer_code: trainerCode,
         joinedAt: existingStudent?.joinedAt || new Date().toISOString(),
         workoutBlocks: Array.isArray(existingStudent?.workoutBlocks) && existingStudent.workoutBlocks.length > 0
             ? existingStudent.workoutBlocks
@@ -6413,6 +8525,7 @@ async function finalizeStudentOnboardingConnection() {
     students = students.filter((s) => String(s.id) !== String(newStudent.id));
     students.push(newStudent);
     saveStudentData(students);
+    syncStudentProfileEntity(newStudent);
 
     if (isSupabaseReady()) {
         const fallbackName = trainerCode === '00001' ? 'Administrador Teste' : 'Treinador';
@@ -6429,6 +8542,7 @@ async function finalizeStudentOnboardingConnection() {
         onboarding_step: 'done',
         anamnesis: draft
     });
+    await syncStudentConnectionEntity(activeUser.id, trainerCode, 'pending');
 
     memorySetItem('currentOnboardingStep', 'done');
     memoryRemoveItem('onboardingPendingQuestionnaire');
@@ -6698,10 +8812,13 @@ function getStudentData() {
     return { studentId, students, student: students.find(s => s.id === studentId) };
 }
 
-function saveStudentData(students) {
+function saveStudentData(students, options = {}) {
+    const skipSupabaseSync = !!options?.skipSupabaseSync;
     const normalized = normalizeStudentsDietSchema(students || []);
     memorySetItem('trainerStudents', JSON.stringify(normalized));
-    queueSupabaseStudentsSync(normalized);
+    if (!skipSupabaseSync) {
+        queueSupabaseStudentsSync(normalized);
+    }
 }
 
 function updateStudentRecord(studentId, updater) {
@@ -6978,11 +9095,119 @@ function renderStudentPerfil() {
     `;
     }
 
+    const anamnesisSummary = document.getElementById('perfil-anamnesis-summary');
+    if (anamnesisSummary) {
+        const anamnesisView = buildPerfilAnamnesisView(student);
+        anamnesisSummary.innerHTML = anamnesisView;
+    }
+
     // History list
     renderPerfilHistory(student);
 
     // Chart
     renderPerfilChart();
+}
+
+function getStudentAnamnesisSource(student = {}) {
+    if (student?.questionnaire && typeof student.questionnaire === 'object') {
+        return student.questionnaire;
+    }
+    if (student?.anamnesis?.questionnaire && typeof student.anamnesis.questionnaire === 'object') {
+        return student.anamnesis.questionnaire;
+    }
+    const cachedRaw = memoryGetItem('currentAnamnesis');
+    if (cachedRaw) {
+        try {
+            const cached = JSON.parse(cachedRaw);
+            if (cached?.questionnaire && typeof cached.questionnaire === 'object') return cached.questionnaire;
+            if (cached && typeof cached === 'object') return cached;
+        } catch (err) {
+            // noop
+        }
+    }
+    return null;
+}
+
+function buildPerfilAnamnesisView(student = {}) {
+    const anamnesis = getStudentAnamnesisSource(student);
+    if (!anamnesis) {
+        return `
+            <div class="perfil-history-empty">
+                <i class="ph-bold ph-clipboard-text"></i>
+                <p>A anamnese ainda não foi encontrada. Conecte sua conta para concluir o onboarding.</p>
+            </div>
+        `;
+    }
+
+    const summaryItems = [
+        { label: 'Dor / Limitações', value: anamnesis?.saude?.dor === 'sim' ? 'Sim' : 'Não' },
+        { label: 'Uso de medicação', value: anamnesis?.saude?.med === 'sim' ? 'Sim' : 'Não' },
+        { label: 'Horas de sono', value: `${anamnesis?.rotina?.sono || '--'} h` },
+        { label: 'Refeições por dia', value: anamnesis?.nutricao?.refeicoes || '--' },
+        { label: 'Estresse', value: anamnesis?.rotina?.estresse || '--' },
+        { label: 'Duração de treino', value: `${anamnesis?.treino?.duracao || '--'} min` }
+    ];
+
+    return `
+        <p style="margin:0; color:var(--text-muted);">
+            Resumo do seu questionário inicial usado para montar treino e dieta.
+        </p>
+        <div class="perfil-anamnesis-summary-grid">
+            ${summaryItems.map((item) => `
+                <div class="perfil-anamnesis-item">
+                    <span>${escHtml(item.label)}</span>
+                    <strong>${escHtml(String(item.value || '--'))}</strong>
+                </div>
+            `).join('')}
+        </div>
+        <div class="perfil-anamnesis-actions">
+            <button class="btn-secondary" type="button" onclick="openPerfilAnamnesisModal()">
+                <i class="ph-bold ph-eye"></i> Ver completo
+            </button>
+        </div>
+    `;
+}
+
+function openPerfilAnamnesisModal() {
+    const modal = document.getElementById('perfil-anamnesis-modal');
+    const body = document.getElementById('perfil-anamnesis-modal-body');
+    const { student } = getStudentData();
+    if (!modal || !body) return;
+    const anamnesis = getStudentAnamnesisSource(student || {});
+    if (!anamnesis) {
+        body.innerHTML = '<p style="color:var(--text-muted); margin:0;">A anamnese ainda não foi preenchida.</p>';
+    } else {
+        const sections = [
+            { title: 'Saúde', data: anamnesis.saude || {} },
+            { title: 'Nutrição', data: anamnesis.nutricao || {} },
+            { title: 'Rotina', data: anamnesis.rotina || {} },
+            { title: 'Treino', data: anamnesis.treino || {} },
+            { title: 'Metas', data: anamnesis.metas || {} }
+        ];
+        body.innerHTML = `
+            <div class="perfil-anamnesis-details">
+                ${sections.map((section) => `
+                    <div class="perfil-anamnesis-item">
+                        <span>${escHtml(section.title)}</span>
+                        <strong>${escHtml(
+                            Object.entries(section.data || {})
+                                .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : (value || '--')}`)
+                                .join(' | ') || '--'
+                        )}</strong>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+}
+
+function closePerfilAnamnesisModal() {
+    const modal = document.getElementById('perfil-anamnesis-modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => { modal.style.display = 'none'; }, 220);
 }
 
 function renderPerfilHistory(student) {
@@ -7314,6 +9539,7 @@ function savePerfilUpdate() {
         const idx = students.findIndex(s => s.id === studentId);
         if (idx !== -1) students[idx] = student;
         saveStudentData(students);
+        syncStudentProfileEntity(student);
 
         closePerfilUpdateModal();
         renderStudentPerfil();
@@ -7351,16 +9577,8 @@ function goToTrainerCreate() {
 }
 
 async function connectTrainer() {
-    const code = sanitizeCodeInput(document.getElementById('trainer-login-code')?.value, 5);
-    const codeInput = document.getElementById('trainer-login-code');
-    if (codeInput) codeInput.value = code;
-    if (code.length !== 5) {
-        alert('O código deve ter exatamente 5 dígitos.');
-        return;
-    }
-
     const activeUser = await getSupabaseSessionUser();
-    if (!activeUser) {
+    if (!activeUser || !isEmailConfirmed(activeUser)) {
         alert('Faça login com e-mail e senha antes de acessar o painel do treinador.');
         window.location.href = 'index.html';
         return;
@@ -7374,12 +9592,8 @@ async function connectTrainer() {
         return;
     }
 
-    let trainerCode = sanitizeCodeInput(profile?.trainer_code || '', 5);
-    if (trainerCode && trainerCode !== code) {
-        alert('Esse código não pertence ao treinador logado.');
-        return;
-    }
-    if (!trainerCode) trainerCode = code;
+    let trainerCode = sanitizeCodeInput(profile?.trainer_code || memoryGetItem('currentTrainerCode') || '', 5);
+    if (!trainerCode) trainerCode = await generateUniqueTrainerCode();
 
     const trainerName = sanitizeUserInput(profile?.name || activeUser?.user_metadata?.name || activeUser?.email || 'Treinador', { maxLen: 90 }) || 'Treinador';
     memorySetItem('trainerName', trainerName.split(' ')[0]);
@@ -7400,7 +9614,7 @@ async function connectTrainer() {
     hideAllScreens();
     document.getElementById('app').classList.add('wide');
     document.getElementById('trainer-dashboard-screen').classList.add('active');
-    initTrainerDashboard();
+    await initTrainerDashboard();
 }
 
 async function createConsultoria() {
@@ -7481,41 +9695,6 @@ async function initTrainerDashboard() {
         return;
     }
 
-    // If we have a trainerSessionCode from index.html unified login
-    const sessionCode = memoryGetItem('trainerSessionCode');
-    if (sessionCode) {
-        if (sessionCode === '00001') {
-            memorySetItem('trainerName', 'Admin');
-            memorySetItem('currentTrainerCode', '00001');
-        } else {
-            const trainers = readStorageJSON('allTrainers', []);
-            const t = trainers.find(x => x.code === sessionCode);
-            if (t) {
-                memorySetItem('trainerName', t.name.split(' ')[0]);
-                memorySetItem('currentTrainerCode', t.code);
-            } else if (isSupabaseReady()) {
-                getTrainerByCodeRemote(sessionCode).then((remoteTrainer) => {
-                    if (!remoteTrainer) return;
-                    const cached = cacheTrainerLocal({
-                        code: remoteTrainer.code,
-                        name: remoteTrainer.name,
-                        consultoria_name: remoteTrainer.consultoria_name,
-                        services: remoteTrainer.services
-                    });
-                    if (!cached) return;
-                    const first = sanitizeUserInput((cached.name || 'Treinador').split(' ')[0], { maxLen: 30 }) || 'Coach';
-                    memorySetItem('trainerName', first);
-                    memorySetItem('currentTrainerCode', cached.code);
-                    const elName = document.getElementById('dash-trainer-name');
-                    const elCode = document.getElementById('dash-trainer-code');
-                    if (elName) elName.innerText = first;
-                    if (elCode) elCode.innerText = cached.code;
-                }).catch(() => { /* ignore remote bootstrap errors */ });
-            }
-        }
-        memoryRemoveItem('trainerSessionCode'); // Consume it
-    }
-
     const trainerNameResolved = sanitizeUserInput(profile?.name || sessionUser?.user_metadata?.name || memoryGetItem('trainerName') || 'Treinador', { maxLen: 90 }) || 'Treinador';
     let trainerCodeResolved = sanitizeCodeInput(profile?.trainer_code || memoryGetItem('currentTrainerCode') || '', 5);
     if (!trainerCodeResolved) {
@@ -7537,7 +9716,6 @@ async function initTrainerDashboard() {
 
     const trainerName = memoryGetItem('trainerName') || 'Treinador';
     const trainerCode = memoryGetItem('currentTrainerCode') || trainerCodeResolved || '00000';
-    const canAutoEnterDashboard = !!sessionCode || (!!trainerCode && trainerCode !== '00000');
     if (!memoryGetItem('trainerCodeDefault') && trainerCode && trainerCode !== '00000') {
         memorySetItem('trainerCodeDefault', trainerCode);
     }
@@ -7553,14 +9731,12 @@ async function initTrainerDashboard() {
         scheduleFoodsCatalogSync(30);
     }
 
-    if (canAutoEnterDashboard) {
-        const dashboardScreen = document.getElementById('trainer-dashboard-screen');
-        if (dashboardScreen) {
-            hideAllScreens();
-            const app = document.getElementById('app');
-            if (app) app.classList.add('wide');
-            dashboardScreen.classList.add('active');
-        }
+    const dashboardScreen = document.getElementById('trainer-dashboard-screen');
+    if (dashboardScreen) {
+        hideAllScreens();
+        const app = document.getElementById('app');
+        if (app) app.classList.add('wide');
+        dashboardScreen.classList.add('active');
     }
 
     const elDashName = document.getElementById('dash-trainer-name');
@@ -8818,6 +10994,13 @@ function openWhatsAppForStudent(studentIdx, event) {
         if (!phoneRaw) return;
         students[studentIdx].whatsapp = phoneRaw;
         saveStudentData(students);
+        setStudentSyncState('pending', 'Sincronização pendente');
+        syncWorkoutArchiveToEntities(students[sIdx], workoutArchive, workoutState?.sessionId || '')
+            .then(() => setStudentSyncState('synced', 'Sincronizado'))
+            .catch((err) => {
+                console.warn('[entity-sync] Falha ao persistir treino', err);
+                setStudentSyncState('error', 'Falha ao salvar sessão de treino');
+            });
     }
 
     const phone = phoneRaw.replace(/\D/g, '');
@@ -8871,8 +11054,15 @@ function renderPendingRequests() {
 // â”€â”€ Main stats + list renderer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function updateTrainerStats(filterText) {
     let students = readStorageJSON('trainerStudents', []);
-    const activeStudents = students.filter(s => s.active && !s.pending);
-    const pendingStudents = students.filter(s => s.pending);
+    const currentTrainerCode = sanitizeCodeInput(
+        memoryGetItem('currentTrainerCode') || memoryGetItem('trainerCodeDefault') || '',
+        5
+    );
+    const trainerScopedStudents = currentTrainerCode
+        ? students.filter((student) => getStudentTrainerCodeValue(student) === currentTrainerCode)
+        : students;
+    const activeStudents = trainerScopedStudents.filter(s => s.active && !s.pending);
+    const pendingStudents = trainerScopedStudents.filter(s => s.pending);
     const pendingCount = pendingStudents.length;
     const engagedCount = activeStudents.filter((s) => getStudentActivityMeta(s).badgeClass !== 'alert').length;
     const notifications = readStorageJSON('trainerNotifications', []);
@@ -9593,7 +11783,12 @@ function acceptStudent(idx) {
     students[idx].pending = false;
     students[idx].active = true;
     students[idx].acceptedAt = new Date().toISOString();
+    const studentUserId = getStudentUserIdValue(students[idx]);
+    const trainerCode = getStudentTrainerCodeValue(students[idx]);
     saveStudentData(students);
+    if (studentUserId && trainerCode) {
+        syncStudentConnectionEntity(studentUserId, trainerCode, 'approved');
+    }
 
     // Broadcast change
     syncChannel.postMessage({ type: 'STUDENT_ACCEPTED', payload: { studentId: students[idx].id } });
@@ -9620,8 +11815,14 @@ function acceptStudentById(studentId) {
 function rejectStudent(idx) {
     if (!confirm('Tem certeza que deseja recusar esta solicitação?')) return;
     let students = readStorageJSON('trainerStudents', []);
+    const target = students[idx] || null;
     students.splice(idx, 1);
     saveStudentData(students);
+    const studentUserId = getStudentUserIdValue(target);
+    const trainerCode = getStudentTrainerCodeValue(target);
+    if (studentUserId && trainerCode) {
+        syncStudentConnectionEntity(studentUserId, trainerCode, 'rejected');
+    }
 
     // Broadcast change
     syncChannel.postMessage({ type: 'STUDENT_REJECTED' });
@@ -9633,8 +11834,14 @@ function rejectStudentById(studentId) {
     let students = readStorageJSON('trainerStudents', []);
     const idx = students.findIndex(s => String(s.id) === String(studentId));
     if (idx < 0) return;
+    const target = students[idx] || null;
     students.splice(idx, 1);
     saveStudentData(students);
+    const studentUserId = getStudentUserIdValue(target);
+    const trainerCode = getStudentTrainerCodeValue(target);
+    if (studentUserId && trainerCode) {
+        syncStudentConnectionEntity(studentUserId, trainerCode, 'rejected');
+    }
     syncChannel.postMessage({ type: 'STUDENT_REJECTED' });
     updateTrainerStats();
 }
@@ -10501,7 +12708,9 @@ function renderMeals() {
                 <div class="food-table-head"><span>Alimento</span><span>Qtd</span><span>Kcal</span><span>Prot</span><span>Carbo</span><span>Gord</span><span></span></div>
                 ${meal.items.map((item, iIdx) => `
                 <div class="food-row">
-                    <span class="font-medium">${escHtml(item.nome)}</span>
+                    <button type="button" class="diet-food-detail-trigger trainer" onclick="openFoodDetailsFromTrainerItem(${mIdx}, ${iIdx})" title="Clique para ver detalhes nutricionais">
+                        ${escHtml(item.nome)}
+                    </button>
                     <input type="text" class="food-input food-qty-input" value="${escHtml(item.qtd || '')}" placeholder="150g"
                         oninput="updateMealItemField(${mIdx}, ${iIdx}, 'qtd', this.value)">
                     <input type="number" class="food-input" value="${item.kcal ?? ''}" placeholder="0"
@@ -10564,6 +12773,9 @@ function updateMealItemField(mIdx, iIdx, field, value) {
         normalized = Number.isFinite(num) ? num : '';
     } else if (field === 'qtd') {
         normalized = String(value || '');
+        const parsedQty = parseAmountAndUnit(normalized, item.unitKey || item.baseUnit || item.base_unit || 'g');
+        item.amount = Math.max(0.1, parsedQty.amount || item.amount || 1);
+        item.unitKey = normalizeFoodUnitKey(parsedQty.unit || item.unitKey || item.baseUnit || 'g');
     }
 
     item[field] = normalized;
@@ -10730,30 +12942,23 @@ let foodModalFilters = {
     favoritesOnly: false,
     recentOnly: false
 };
-const FOOD_LIBRARY_FALLBACK = [
-    { id: '', name: 'Arroz cozido', brand: '', base_qty: 100, base_unit: 'g', kcal: 130, protein: 2.7, carb: 28, fat: 0.3, source: 'manual' },
-    { id: '', name: 'Feijao cozido', brand: '', base_qty: 100, base_unit: 'g', kcal: 76, protein: 4.8, carb: 13.6, fat: 0.5, source: 'manual' },
-    { id: '', name: 'Frango grelhado', brand: '', base_qty: 100, base_unit: 'g', kcal: 165, protein: 31, carb: 0, fat: 3.6, source: 'manual' },
-    { id: '', name: 'Ovo cozido', brand: '', base_qty: 100, base_unit: 'g', kcal: 155, protein: 13, carb: 1.1, fat: 11, source: 'manual' }
-];
-
 let currentFoodQuantityAmount = 150;
 let currentFoodQuantityUnit = 'g';
 
 function syncFoodQuantityInputText() {
     const qtd = document.getElementById('food-qtd');
-    if (qtd) qtd.value = `${Math.max(1, Math.round(currentFoodQuantityAmount || 1))}${currentFoodQuantityUnit || 'g'}`;
+    if (qtd) qtd.value = formatFoodQuantity(Math.max(1, Math.round(currentFoodQuantityAmount || 1)), currentFoodQuantityUnit || 'g');
 }
 
 function setFoodQuantityControls(amount = 150, unit = 'g') {
     currentFoodQuantityAmount = Math.max(1, Math.round(parseDecimalSafe(amount) || 1));
-    currentFoodQuantityUnit = ['g', 'ml', 'un'].includes(String(unit || '').toLowerCase()) ? String(unit).toLowerCase() : 'g';
+    currentFoodQuantityUnit = normalizeFoodUnitKey(unit || 'g');
     const slider = document.getElementById('food-qty-slider');
     const number = document.getElementById('food-qty-number');
     const unitEl = document.getElementById('food-qty-unit');
     if (slider) slider.value = String(currentFoodQuantityAmount);
     if (number) number.value = String(currentFoodQuantityAmount);
-    if (unitEl) unitEl.textContent = currentFoodQuantityUnit;
+    if (unitEl) unitEl.textContent = getFoodUnitShort(currentFoodQuantityUnit);
     syncFoodQuantityInputText();
 }
 
@@ -10827,7 +13032,7 @@ function updateFoodSelectionPreview() {
         preview.textContent = 'Selecione um alimento para ver a prévia de macros.';
         return;
     }
-    const qtyText = document.getElementById('food-qtd')?.value || `${selectedFoodReference.base_qty}${selectedFoodReference.base_unit}`;
+    const qtyText = document.getElementById('food-qtd')?.value || formatFoodQuantity(selectedFoodReference.base_qty, selectedFoodReference.base_unit);
     const parsed = parseAmountAndUnit(qtyText, selectedFoodReference.base_unit || 'g');
     const safeAmount = parsed.amount > 0 ? parsed.amount : (selectedFoodReference.base_qty || 100);
     const unit = parsed.unit || selectedFoodReference.base_unit || 'g';
@@ -10841,7 +13046,7 @@ function updateFoodSelectionPreview() {
         fat: selectedFoodReference.fatBase
     }, safeAmount, unit);
     preview.innerHTML = `
-        <div class="food-quick-preview-title">${escHtml(selectedFoodReference.nome)} · ${safeAmount}${unit}</div>
+        <div class="food-quick-preview-title">${escHtml(selectedFoodReference.nome)} · ${escHtml(formatFoodQuantity(safeAmount, unit))}</div>
         <div class="food-quick-preview-kcal" onclick="copyFoodPreviewValue('Kcal', '${Math.round(calc.kcal)} kcal')">${Math.round(calc.kcal)} <small>kcal</small></div>
         <div class="food-quick-preview-macros">
             <button type="button" onclick="copyFoodPreviewValue('Proteína', 'P ${calc.protein}g')">P ${calc.protein}g</button>
@@ -10893,7 +13098,16 @@ function inferFoodMeal(item) {
 
 function applyFoodFilters(items, filters, prefs = null) {
     const list = Array.isArray(items) ? items : [];
-    const activeFilters = filters || foodModalFilters;
+    const sourceFilters = (filters && typeof filters === 'object') ? filters : (foodModalFilters || {});
+    const activeFilters = {
+        macro: 'all',
+        kcal: 'all',
+        type: 'all',
+        meal: 'all',
+        favoritesOnly: false,
+        recentOnly: false,
+        ...sourceFilters
+    };
     const currentPrefs = prefs || readFoodModalPrefs();
     const favoritesSet = new Set(currentPrefs.favorites || []);
     const recentsSet = new Set(currentPrefs.recents || []);
@@ -10994,7 +13208,7 @@ function renderFoodSearchResults() {
                 </button>
                 <div class="food-quick-item-content">
                     <div class="food-quick-item-head">${foodTypeIconMarkup(inferFoodType(item))}${escHtml(item.nome)}${item.brand ? ` - ${escHtml(item.brand)}` : ''}</div>
-                    <small>${Math.round(item.kcal)}kcal · P ${item.prot}g · C ${item.carb}g · G ${item.fat}g · ${item.base_qty}${item.base_unit}</small>
+                    <small>${Math.round(item.kcal)}kcal · P ${item.prot}g · C ${item.carb}g · G ${item.fat}g · ${formatFoodQuantity(item.base_qty, item.base_unit)}</small>
                 </div>
             </div>`;
         }).join('')}
@@ -11004,7 +13218,7 @@ function renderFoodSearchResults() {
 
 function renderSimpleFoodLibrary(query = '') {
     const q = normalizeText(query);
-    const sourceList = (foodCatalogCache && foodCatalogCache.length > 0) ? foodCatalogCache : FOOD_LIBRARY_FALLBACK;
+    const sourceList = getEffectiveFoodCatalog();
     const prefs = readFoodModalPrefs();
     const recentKeys = Array.isArray(prefs.recents) ? prefs.recents : [];
     const recentItems = q
@@ -11032,7 +13246,8 @@ function renderSimpleFoodLibrary(query = '') {
         base_qty: item.base_qty,
         base_unit: item.base_unit,
         foodId: item.id,
-        source: item.source || 'catalog'
+        source: item.source || 'catalog',
+        portions: getFoodPortions(item)
     }));
     applyFoodModalFiltersAndRender();
 }
@@ -11122,7 +13337,8 @@ function searchFoodAPI(query) {
                     base_qty: item.base_qty,
                     base_unit: item.base_unit,
                     foodId: item.id,
-                    source: item.source || 'catalog'
+                    source: item.source || 'catalog',
+                    portions: getFoodPortions(item)
                 }));
                 applyFoodModalFiltersAndRender();
                 return;
@@ -11145,7 +13361,8 @@ function searchFoodAPI(query) {
                             fat: p.nutriments?.fat_100g || 0,
                             base_qty: 100,
                             base_unit: 'g',
-                            source: 'openfoodfacts'
+                            source: 'openfoodfacts',
+                            portions: getFallbackFoodPortions({ id: '', name, base_unit: 'g' })
                         };
                     });
                     applyFoodModalFiltersAndRender();
@@ -11166,7 +13383,9 @@ function searchFoodAPI(query) {
 
 function selectFoodFromAPI(data) {
     const baseQty = Math.max(0.1, parseDecimalSafe(data.base_qty) || 100);
-    const baseUnit = ['g', 'ml', 'un'].includes(String(data.base_unit || '').toLowerCase()) ? String(data.base_unit).toLowerCase() : 'g';
+    const baseUnit = normalizeFoodUnitKey(data.base_unit || 'g');
+    const portions = getFoodPortions({ ...data, base_unit: baseUnit, base_qty: baseQty });
+    const defaultPortion = portions.find((portion) => portion.is_default) || portions[0] || null;
     selectedFoodReference = {
         nome: data.nome,
         brand: data.brand || '',
@@ -11177,7 +13396,9 @@ function selectFoodFromAPI(data) {
         kcalBase: parseDecimalSafe(data.kcal),
         protBase: parseDecimalSafe(data.prot),
         carbBase: parseDecimalSafe(data.carb),
-        fatBase: parseDecimalSafe(data.fat)
+        fatBase: parseDecimalSafe(data.fat),
+        portions,
+        selectedPortionId: String(defaultPortion?.id || '')
     };
 
     const summary = getDietPlannerSummary();
@@ -11202,7 +13423,7 @@ function selectFoodFromAPI(data) {
 
 function recalculateFoodFromQuantity() {
     if (!selectedFoodReference) return;
-    const qtyText = document.getElementById('food-qtd')?.value || `${selectedFoodReference.base_qty}${selectedFoodReference.base_unit}`;
+    const qtyText = document.getElementById('food-qtd')?.value || formatFoodQuantity(selectedFoodReference.base_qty, selectedFoodReference.base_unit);
     const parsed = parseAmountAndUnit(qtyText, selectedFoodReference.base_unit);
     const amount = parsed.amount > 0 ? parsed.amount : selectedFoodReference.base_qty;
     const calc = computeMacrosByAmount({
@@ -11212,14 +13433,16 @@ function recalculateFoodFromQuantity() {
         kcal: selectedFoodReference.kcalBase,
         protein: selectedFoodReference.protBase,
         carb: selectedFoodReference.carbBase,
-        fat: selectedFoodReference.fatBase
-    }, amount, parsed.unit);
+        fat: selectedFoodReference.fatBase,
+        portions: selectedFoodReference.portions || []
+    }, amount, parsed.unit, selectedFoodReference.selectedPortionId || '');
     const kcal = calc.kcal;
     const prot = calc.protein;
     const carb = calc.carb;
     const fat = calc.fat;
     const parsedRoundedAmount = parsed.amount > 0 ? parsed.amount : amount;
-    setFoodQuantityControls(parsedRoundedAmount, parsed.unit || selectedFoodReference.base_unit);
+    setFoodQuantityControls(parsedRoundedAmount, calc.unit_key || parsed.unit || selectedFoodReference.base_unit);
+    selectedFoodReference.selectedPortionId = String(calc.portion_id || selectedFoodReference.selectedPortionId || '');
     document.getElementById('food-kcal').value = String(kcal);
     document.getElementById('food-prot').value = String(prot);
     document.getElementById('food-carb').value = String(carb);
@@ -11255,7 +13478,9 @@ async function saveCurrentFoodToCatalog() {
             kcalBase: inserted.kcal,
             protBase: inserted.protein,
             carbBase: inserted.carb,
-            fatBase: inserted.fat
+            fatBase: inserted.fat,
+            portions: getFoodPortions(inserted),
+            selectedPortionId: ''
         };
         const hintEl = document.getElementById('food-target-hint');
         if (hintEl) hintEl.textContent = `${inserted.name} salvo no banco global.`;
@@ -11322,17 +13547,26 @@ function buildFoodModalItemPayload() {
     const kcal = kcalInput > 0 ? kcalInput : Math.round((prot * 4) + (carb * 4) + (gord * 9));
 
     if (!nome.trim()) return null;
+    const parsedQty = parseAmountAndUnit(qtd || `${selectedFoodReference?.base_qty || 100}${selectedFoodReference?.base_unit || 'g'}`, selectedFoodReference?.base_unit || 'g');
+    const amount = Math.max(0.1, parseDecimalSafe(parsedQty.amount) || parseDecimalSafe(currentFoodQuantityAmount) || 1);
+    const unitKey = normalizeFoodUnitKey(parsedQty.unit || currentFoodQuantityUnit || selectedFoodReference?.base_unit || 'g');
+    const qtyFormatted = formatFoodQuantity(amount, unitKey);
     return {
         nome: nome.trim(),
-        qtd: qtd || '100g',
+        qtd: qtyFormatted,
         kcal,
         prot,
         carb,
         gord,
         foodId: selectedFoodReference?.foodId || '',
-        baseQty: selectedFoodReference?.base_qty || parseAmountAndUnit(qtd || '100g', 'g').amount || 100,
-        baseUnit: selectedFoodReference?.base_unit || parseAmountAndUnit(qtd || '100g', 'g').unit || 'g',
-        source: selectedFoodReference?.source || 'manual'
+        baseQty: selectedFoodReference?.base_qty || amount || 100,
+        baseUnit: normalizeFoodUnitKey(selectedFoodReference?.base_unit || unitKey || 'g'),
+        source: selectedFoodReference?.source || 'manual',
+        amount,
+        unitKey,
+        portionId: String(selectedFoodReference?.selectedPortionId || ''),
+        portionLabel: selectedFoodReference?.portions?.find((portion) => String(portion.id || '') === String(selectedFoodReference?.selectedPortionId || ''))?.label
+            || getFoodUnitLabel(unitKey, amount)
     };
 }
 
@@ -11376,8 +13610,8 @@ function adjustFoodQuantityBy(delta = 0) {
     if (!qtyField) return;
     const parsed = parseAmountAndUnit(qtyField.value || `${selectedFoodReference?.base_qty || 100}g`, selectedFoodReference?.base_unit || 'g');
     const nextAmount = Math.max(1, Math.round((parsed.amount || 0) + Number(delta || 0)));
-    const unit = parsed.unit || selectedFoodReference?.base_unit || 'g';
-    qtyField.value = `${nextAmount}${unit}`;
+    const unit = normalizeFoodUnitKey(parsed.unit || selectedFoodReference?.base_unit || 'g');
+    qtyField.value = formatFoodQuantity(nextAmount, unit);
     recalculateFoodFromQuantity();
 }
 
@@ -11573,7 +13807,7 @@ function resumeWorkoutBackup() {
     // Resume Timer
     if (workoutTimerInterval) clearInterval(workoutTimerInterval);
     workoutTimerInterval = setInterval(updateWorkoutTimer, 1000);
-    renderWorkoutLog();
+    renderWorkoutLogWithStatePreserved();
     return true;
 }
 
@@ -11832,7 +14066,7 @@ function startWorkoutSession(blockIdx = 0) {
     if (workoutTimerInterval) clearInterval(workoutTimerInterval);
     workoutTimerInterval = setInterval(updateWorkoutTimer, 1000);
 
-    renderWorkoutLog();
+    renderWorkoutLogWithStatePreserved();
 }
 
 function updateWorkoutTimer() {
@@ -11842,6 +14076,46 @@ function updateWorkoutTimer() {
     const secs = (elapsed % 60).toString().padStart(2, '0');
     const timerEl = document.getElementById('log-workout-timer');
     if (timerEl) timerEl.innerText = `${mins}:${secs}`;
+}
+
+function captureWorkoutRenderState() {
+    const scroller = document.getElementById('view-student-log-workout');
+    const activeEl = document.activeElement;
+    const focusKey = activeEl?.getAttribute?.('data-workout-focus') || '';
+    return {
+        scrollTop: scroller ? scroller.scrollTop : window.scrollY,
+        focusKey,
+        selectionStart: typeof activeEl?.selectionStart === 'number' ? activeEl.selectionStart : null,
+        selectionEnd: typeof activeEl?.selectionEnd === 'number' ? activeEl.selectionEnd : null
+    };
+}
+
+function restoreWorkoutRenderState(state) {
+    if (!state) return;
+    const scroller = document.getElementById('view-student-log-workout');
+    if (scroller) {
+        scroller.scrollTop = Number(state.scrollTop || 0);
+    } else {
+        window.scrollTo(0, Number(state.scrollTop || 0));
+    }
+    if (!state.focusKey) return;
+    const nextFocus = document.querySelector(`[data-workout-focus="${state.focusKey}"]`);
+    if (nextFocus && typeof nextFocus.focus === 'function') {
+        nextFocus.focus({ preventScroll: true });
+        if (
+            typeof state.selectionStart === 'number'
+            && typeof state.selectionEnd === 'number'
+            && typeof nextFocus.setSelectionRange === 'function'
+        ) {
+            nextFocus.setSelectionRange(state.selectionStart, state.selectionEnd);
+        }
+    }
+}
+
+function renderWorkoutLogWithStatePreserved() {
+    const renderState = captureWorkoutRenderState();
+    renderWorkoutLog();
+    restoreWorkoutRenderState(renderState);
 }
 
 function renderWorkoutLog() {
@@ -11949,6 +14223,7 @@ function renderWorkoutLog() {
                         <div class="set-value-stack">
                             <div class="set-input-row">
                                 <input type="number" inputmode="decimal" pattern="[0-9]*" min="0" step="0.5" class="set-input log-input-tactile compact-value" value="${set.weight}" 
+                                    data-workout-focus="weight-${exIdx}-${setIdx}"
                                     placeholder="KG" oninput="updateSetData(${exIdx}, ${setIdx}, 'weight', this.value)"
                                     ${set.completed ? 'disabled' : ''}>
                                 <span class="set-progress-flag ${weightUp ? 'up' : ''}" aria-hidden="true">
@@ -11960,6 +14235,7 @@ function renderWorkoutLog() {
                         <div class="set-value-stack">
                             <div class="set-input-row">
                                 <input type="number" inputmode="decimal" pattern="[0-9]*" min="0" step="1" class="set-input log-input-tactile compact-value" value="${set.reps}" 
+                                    data-workout-focus="reps-${exIdx}-${setIdx}"
                                     placeholder="REPS" oninput="updateSetData(${exIdx}, ${setIdx}, 'reps', this.value)"
                                     ${set.completed ? 'disabled' : ''}>
                                 <span class="set-progress-flag ${repsUp ? 'up' : ''}" aria-hidden="true">
@@ -12289,7 +14565,7 @@ function toggleSetCompletion(exIdx, setIdx) {
     }
 
     saveWorkoutBackup();
-    renderWorkoutLog();
+    renderWorkoutLogWithStatePreserved();
 }
 
 function computeSupersetGroups(exercises) {
@@ -12436,7 +14712,7 @@ function selectSetType(exIdx, setIdx, type) {
     const prevSets = workoutState.exercises?.[exIdx]?.prevSets || null;
     set.prev = pickPreviousSet(prevSets, setIdx, set.type);
     saveWorkoutBackup();
-    renderWorkoutLog();
+    renderWorkoutLogWithStatePreserved();
     closeSetTypePopover();
 }
 // â”€â”€â”€ REST TIMER LOGIC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -12623,7 +14899,7 @@ function addSetToExercise(exIdx) {
         prev: pickPreviousSet(prevSets, nextIdx, nextType)
     });
     saveWorkoutBackup();
-    renderWorkoutLog();
+    renderWorkoutLogWithStatePreserved();
 }
 
 function removeSetFromExercise(exIdx, setIdx) {
@@ -12641,7 +14917,7 @@ function removeSetFromExercise(exIdx, setIdx) {
     ex.sets.splice(setIdx, 1);
     updateExercisePRs(exIdx);
     saveWorkoutBackup();
-    renderWorkoutLog();
+    renderWorkoutLogWithStatePreserved();
 }
 
 function removeSetFromPopover(exIdx, setIdx) {
@@ -12653,7 +14929,7 @@ function removeExerciseFromLog(exIdx) {
     if (!workoutState || !confirm('Remover exercício do log?')) return;
     workoutState.exercises.splice(exIdx, 1);
     saveWorkoutBackup();
-    renderWorkoutLog();
+    renderWorkoutLogWithStatePreserved();
 }
 
 function toggleLogSubstitutes(exIdx) {
@@ -12661,7 +14937,7 @@ function toggleLogSubstitutes(exIdx) {
     const ex = workoutState.exercises?.[exIdx];
     if (!ex) return;
     ex.showSubstitutes = !ex.showSubstitutes;
-    renderWorkoutLog();
+    renderWorkoutLogWithStatePreserved();
 }
 
 function applyExerciseSubstitute(exIdx, substituteName) {
@@ -12671,7 +14947,7 @@ function applyExerciseSubstitute(exIdx, substituteName) {
     ex.nome = substituteName;
     ex.showSubstitutes = false;
     saveWorkoutBackup();
-    renderWorkoutLog();
+    renderWorkoutLogWithStatePreserved();
 }
 
 function applyExerciseSubstituteEncoded(exIdx, encodedName) {
@@ -13263,7 +15539,7 @@ function setSetPse(exIdx, setIdx, pse) {
     set.intensityLevel = mapped.intensityLevel;
 
     saveWorkoutBackup();
-    renderWorkoutLog();
+    renderWorkoutLogWithStatePreserved();
 }
 
 function setSetExecution(exIdx, setIdx, execValue) {
@@ -13273,8 +15549,10 @@ function setSetExecution(exIdx, setIdx, execValue) {
     const normalized = Math.min(5, Math.max(1, Number(execValue) || 0));
     set.execucao = normalized || 0;
     saveWorkoutBackup();
-    renderWorkoutLog();
+    renderWorkoutLogWithStatePreserved();
 }
+
+
 
 
 

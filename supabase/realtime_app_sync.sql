@@ -42,6 +42,23 @@ create table if not exists public.app_foods (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.app_food_portions (
+  id uuid primary key default gen_random_uuid(),
+  food_id uuid not null references public.app_foods(id) on delete cascade,
+  label text not null,
+  amount numeric not null default 1,
+  unit_key text not null,
+  base_qty_equivalent numeric not null,
+  is_default boolean not null default false,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint app_food_portions_unit_key_check
+    check (unit_key in ('g', 'ml', 'un', 'slice', 'tbsp', 'tsp', 'cup', 'glass', 'ladle')),
+  constraint app_food_portions_amount_check check (amount > 0),
+  constraint app_food_portions_base_qty_equivalent_check check (base_qty_equivalent > 0)
+);
+
 with food_seed(name, brand, base_qty, base_unit, kcal, protein, carb, fat, source) as (
     values
     ('Frango grelhado', null, 100, 'g', 165, 31, 0, 3.6, 'manual'),
@@ -231,11 +248,180 @@ where not exists (
       and af.base_unit = fs.base_unit
 );
 
+-- Porções padrão para medidas inteligentes (idempotente)
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select
+  f.id,
+  case
+    when f.base_unit = 'ml' then 'mililitro (ml)'
+    when f.base_unit = 'un' then 'unidade'
+    else 'grama (g)'
+  end as label,
+  1 as amount,
+  case
+    when f.base_unit = 'ml' then 'ml'
+    when f.base_unit = 'un' then 'un'
+    else 'g'
+  end as unit_key,
+  1 as base_qty_equivalent,
+  true as is_default,
+  0 as sort_order
+from public.app_foods f
+where not exists (
+  select 1
+  from public.app_food_portions p
+  where p.food_id = f.id
+    and lower(p.label) = lower(
+      case
+        when f.base_unit = 'ml' then 'mililitro (ml)'
+        when f.base_unit = 'un' then 'unidade'
+        else 'grama (g)'
+      end
+    )
+);
+
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select f.id, 'colher de chá', 1, 'tsp', 5, false, 10
+from public.app_foods f
+where f.base_unit = 'ml'
+  and not exists (
+    select 1 from public.app_food_portions p
+    where p.food_id = f.id and lower(p.label) = lower('colher de chá')
+  );
+
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select f.id, 'colher de sopa', 1, 'tbsp', 15, false, 20
+from public.app_foods f
+where f.base_unit = 'ml'
+  and not exists (
+    select 1 from public.app_food_portions p
+    where p.food_id = f.id and lower(p.label) = lower('colher de sopa')
+  );
+
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select f.id, 'xícara', 1, 'cup', 240, false, 30
+from public.app_foods f
+where f.base_unit = 'ml'
+  and not exists (
+    select 1 from public.app_food_portions p
+    where p.food_id = f.id and lower(p.label) = lower('xícara')
+  );
+
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select f.id, 'copo', 1, 'glass', 200, false, 40
+from public.app_foods f
+where f.base_unit = 'ml'
+  and not exists (
+    select 1 from public.app_food_portions p
+    where p.food_id = f.id and lower(p.label) = lower('copo')
+  );
+
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select f.id, 'concha', 1, 'ladle', 100, false, 50
+from public.app_foods f
+where f.base_unit = 'ml'
+  and not exists (
+    select 1 from public.app_food_portions p
+    where p.food_id = f.id and lower(p.label) = lower('concha')
+  );
+
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select f.id, 'fatia', 1, 'slice', 25, false, 15
+from public.app_foods f
+where lower(f.name) like '%pao%'
+  and not exists (
+    select 1 from public.app_food_portions p
+    where p.food_id = f.id and lower(p.label) = lower('fatia')
+  );
+
+-- Unidade para ovos e frutas principais
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select
+  f.id,
+  'unidade',
+  1,
+  'un',
+  case
+    when lower(f.name) like '%ovo%' then 50
+    when lower(f.name) like '%banana%' then 90
+    when lower(f.name) like '%maca%' then 130
+    when lower(f.name) like '%pera%' then 140
+    when lower(f.name) like '%laranja%' then 130
+    when lower(f.name) like '%tangerina%' then 120
+    when lower(f.name) like '%kiwi%' then 75
+    when lower(f.name) like '%abacate%' then 150
+    when lower(f.name) like '%manga%' then 150
+    else greatest(1, coalesce(f.base_qty, 100))
+  end as base_qty_equivalent,
+  false,
+  12
+from public.app_foods f
+where f.base_unit = 'g'
+  and lower(f.name) ~ '(ovo|banana|maca|pera|laranja|tangerina|kiwi|abacate|manga|goiaba)'
+  and not exists (
+    select 1 from public.app_food_portions p
+    where p.food_id = f.id and lower(p.label) = lower('unidade')
+  );
+
+-- Colheres/xicara/concha para carboidratos e leguminosas cozidas
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select f.id, 'colher de sopa', 1, 'tbsp', 15, false, 20
+from public.app_foods f
+where f.base_unit = 'g'
+  and lower(f.name) ~ '(arroz|feijao|lentilha|grao de bico|ervilha|macarrao|quinoa|cuscuz|aveia|granola|farofa)'
+  and not exists (
+    select 1 from public.app_food_portions p
+    where p.food_id = f.id and lower(p.label) = lower('colher de sopa')
+  );
+
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select f.id, 'xicara', 1, 'cup', 160, false, 25
+from public.app_foods f
+where f.base_unit = 'g'
+  and lower(f.name) ~ '(arroz|feijao|lentilha|grao de bico|ervilha|macarrao|quinoa|cuscuz|aveia|granola|farofa)'
+  and not exists (
+    select 1 from public.app_food_portions p
+    where p.food_id = f.id and lower(p.label) = lower('xicara')
+  );
+
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select f.id, 'concha', 1, 'ladle', 100, false, 30
+from public.app_foods f
+where f.base_unit = 'g'
+  and lower(f.name) ~ '(feijao|lentilha|grao de bico|ervilha|sopa|caldo)'
+  and not exists (
+    select 1 from public.app_food_portions p
+    where p.food_id = f.id and lower(p.label) = lower('concha')
+  );
+
+-- Medidas de colher para gorduras e cremes
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select f.id, 'colher de cha', 1, 'tsp', 5, false, 10
+from public.app_foods f
+where f.base_unit = 'g'
+  and lower(f.name) ~ '(azeite|oleo|manteiga|margarina|pasta de amendoim|maionese|requeijao|cream cheese)'
+  and not exists (
+    select 1 from public.app_food_portions p
+    where p.food_id = f.id and lower(p.label) = lower('colher de cha')
+  );
+
+insert into public.app_food_portions(food_id, label, amount, unit_key, base_qty_equivalent, is_default, sort_order)
+select f.id, 'colher de sopa', 1, 'tbsp', 15, false, 20
+from public.app_foods f
+where f.base_unit = 'g'
+  and lower(f.name) ~ '(azeite|oleo|manteiga|margarina|pasta de amendoim|maionese|requeijao|cream cheese)'
+  and not exists (
+    select 1 from public.app_food_portions p
+    where p.food_id = f.id and lower(p.label) = lower('colher de sopa')
+  );
+
 
 create extension if not exists pg_trgm;
 
 create unique index if not exists app_foods_name_brand_unit_uniq
   on public.app_foods ((lower(name)), (coalesce(lower(brand), '')), base_unit);
+create unique index if not exists app_food_portions_food_label_uniq
+  on public.app_food_portions (food_id, (lower(label)));
 create index if not exists app_trainers_owner_id_idx on public.app_trainers(owner_id);
 create index if not exists app_students_trainer_code_idx on public.app_students(trainer_code);
 create index if not exists app_students_updated_at_idx on public.app_students(updated_at desc);
@@ -243,10 +429,13 @@ create index if not exists app_foods_name_idx on public.app_foods(name);
 create index if not exists app_foods_name_trgm_idx on public.app_foods using gin (name gin_trgm_ops);
 create index if not exists app_foods_source_idx on public.app_foods(source);
 create index if not exists app_foods_created_at_idx on public.app_foods(created_at desc);
+create index if not exists app_food_portions_food_id_idx on public.app_food_portions(food_id);
+create index if not exists app_food_portions_unit_key_idx on public.app_food_portions(unit_key);
 
 alter table public.app_trainers enable row level security;
 alter table public.app_students enable row level security;
 alter table public.app_foods enable row level security;
+alter table public.app_food_portions enable row level security;
 
 drop policy if exists app_trainers_select_all on public.app_trainers;
 drop policy if exists app_trainers_insert_all on public.app_trainers;
@@ -268,6 +457,9 @@ drop policy if exists app_foods_update_all on public.app_foods;
 drop policy if exists app_foods_select_auth on public.app_foods;
 drop policy if exists app_foods_insert_auth on public.app_foods;
 drop policy if exists app_foods_update_auth on public.app_foods;
+drop policy if exists app_food_portions_select_auth on public.app_food_portions;
+drop policy if exists app_food_portions_insert_auth on public.app_food_portions;
+drop policy if exists app_food_portions_update_auth on public.app_food_portions;
 
 -- Production policies: authenticated-only access + scoped ownership.
 create policy app_trainers_select_auth on public.app_trainers
@@ -359,6 +551,14 @@ create policy app_foods_update_auth on public.app_foods
   for update using (auth.role() = 'authenticated')
   with check (auth.role() = 'authenticated');
 
+create policy app_food_portions_select_auth on public.app_food_portions
+  for select using (auth.role() = 'authenticated');
+create policy app_food_portions_insert_auth on public.app_food_portions
+  for insert with check (auth.role() = 'authenticated');
+create policy app_food_portions_update_auth on public.app_food_portions
+  for update using (auth.role() = 'authenticated')
+  with check (auth.role() = 'authenticated');
+
 do $$
 begin
   if not exists (
@@ -385,9 +585,19 @@ begin
     select 1
     from pg_publication_tables
     where pubname = 'supabase_realtime'
-      and schemaname = 'public'
-      and tablename = 'app_foods'
+    and schemaname = 'public'
+    and tablename = 'app_foods'
   ) then
     alter publication supabase_realtime add table public.app_foods;
+  end if;
+
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'app_food_portions'
+  ) then
+    alter publication supabase_realtime add table public.app_food_portions;
   end if;
 end $$;

@@ -48,28 +48,18 @@
             </button>
 
             <div class="student-login-container" style="margin-top: 2rem;">
-                <h2>Acesso do Treinador</h2>
-                <p class="subtitle" style="text-align: center; margin-bottom: 2rem;">Entre com seu código ou crie sua
-                    consultoria.</p>
-
-                <form class="login-form" onsubmit="event.preventDefault(); connectTrainer();">
-                    <div class="input-group">
-                        <label for="trainer-login-code">CÓDIGO DA CONSULTORIA (5 dígitos)</label>
-                        <input type="tel" id="trainer-login-code" placeholder="00000" maxlength="5" autocomplete="off"
-                            inputmode="numeric"
-                            style="letter-spacing:0.4em; font-size:1.5rem; text-align:center; font-family:monospace;"
-                            oninput="this.value=this.value.replace(/[^0-9]/g,'').substring(0,5)">
-                        <span id="trainer-code-hint"
-                            style="font-size:0.75rem; color:var(--text-muted); text-align:center; display:block; margin-top:0.4rem;"></span>
-                    </div>
-                    <button type="submit" class="btn-primary">Entrar</button>
-                </form>
+                <h2>Painel do Treinador</h2>
+                <p class="subtitle" style="text-align: center; margin-bottom: 2rem;">
+                    Acesso protegido por e-mail e senha. O código agora é usado apenas para vincular alunos.
+                </p>
+                <button class="btn-primary" onclick="connectTrainer()">Entrar com minha conta</button>
 
                 <div class="divider">
                     <span>OU</span>
                 </div>
 
-                <button class="btn-secondary" onclick="goToTrainerCreate()">Criar Nova Consultoria</button>
+                <button class="btn-secondary" onclick="window.location.href='index.html'">Fazer login / cadastro</button>
+                <button class="btn-secondary" onclick="goToTrainerCreate()">Configurar consultoria</button>
             </div>
         </div>
 

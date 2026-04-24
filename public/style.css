@@ -3468,33 +3468,46 @@ body {
 .diet-food-picker-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.58);
+    background: rgba(0, 0, 0, 0.62);
+    backdrop-filter: blur(4px);
     z-index: 980;
-    display: none;
+    display: block;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 220ms ease;
 }
 
 .diet-food-picker-overlay.active {
-    display: block;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
 }
 
 .diet-food-picker-modal {
     position: fixed;
     top: 50%;
     left: 50%;
-    transform: translate(-50%, -50%) scale(0.98);
+    transform: translate(-50%, -48%) scale(0.97);
     width: min(880px, 95vw);
     max-height: min(86dvh, 900px);
-    background: #101010;
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: linear-gradient(160deg, rgba(16, 16, 16, 0.95), rgba(12, 13, 11, 0.92));
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 16px;
     z-index: 981;
-    display: none;
-    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(163, 230, 53, 0.05);
+    transition: opacity 220ms ease, transform 260ms cubic-bezier(.2, .8, .2, 1), visibility 220ms ease;
 }
 
 .diet-food-picker-modal.active {
-    display: flex;
-    flex-direction: column;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
     transform: translate(-50%, -50%) scale(1);
 }
 
@@ -3510,9 +3523,41 @@ body {
     background: #101010;
 }
 
+.diet-food-picker-header-main {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
 .diet-food-picker-header h3 {
     font-size: 1rem;
     font-weight: 700;
+}
+
+.diet-food-picker-back-btn {
+    display: none;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.04);
+    color: #d4d4d8;
+    border-radius: 9px;
+    padding: 0.3rem 0.52rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    min-height: 32px;
+    transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.diet-food-picker-back-btn.active {
+    display: inline-flex;
+}
+
+.diet-food-picker-back-btn:hover {
+    border-color: rgba(163, 230, 53, 0.5);
+    color: #ecfccb;
+    background: rgba(163, 230, 53, 0.12);
+    transform: translateY(-1px);
 }
 
 .diet-food-picker-close {
@@ -3530,12 +3575,102 @@ body {
     flex-direction: column;
     gap: 0.55rem;
     overflow: hidden;
+    position: relative;
+}
+
+.diet-food-picker-context {
+    display: none;
+    border: 1px solid rgba(163, 230, 53, 0.28);
+    border-radius: 10px;
+    background: rgba(163, 230, 53, 0.08);
+    color: #d9f99d;
+    font-size: 0.78rem;
+    padding: 0.5rem 0.62rem;
+}
+
+.diet-food-picker-context.active {
+    display: block;
+}
+
+.diet-food-picker-context strong {
+    color: #ecfccb;
+    margin-right: 0.35rem;
+}
+
+.diet-food-picker-context span {
+    color: rgba(236, 252, 203, 0.75);
+}
+
+.diet-food-picker-view {
+    width: 100%;
+    min-width: 0;
+}
+
+.diet-food-picker-list-view {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.diet-food-picker-detail-view {
+    display: none;
+}
+
+.diet-food-picker-modal.is-list-view .diet-food-picker-list-view {
+    display: flex;
+    animation: dietPickerStageIn 220ms ease;
+}
+
+.diet-food-picker-modal.is-list-view .diet-food-picker-detail-view {
+    display: none;
+}
+
+.diet-food-picker-modal.is-detail-view .diet-food-picker-list-view {
+    display: none;
+}
+
+.diet-food-picker-modal.is-detail-view .diet-food-picker-detail-view {
+    display: block;
+    animation: dietPickerStageIn 220ms ease;
 }
 
 .diet-food-picker-filters {
     display: flex;
     flex-wrap: wrap;
     gap: 0.35rem;
+}
+
+.diet-food-picker-search-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 38px;
+    gap: 0.42rem;
+    align-items: center;
+}
+
+.diet-food-picker-search-clear {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(255, 255, 255, 0.55);
+    transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.diet-food-picker-search-clear.is-active {
+    border-color: rgba(163, 230, 53, 0.36);
+    color: #d9f99d;
+}
+
+.diet-food-picker-search-clear:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: rgba(163, 230, 53, 0.52);
+    color: #ecfccb;
+}
+
+.diet-food-picker-search-clear:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .diet-food-picker-filter-chip {
@@ -3564,34 +3699,66 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.02);
-    min-height: 190px;
-    max-height: min(44dvh, 460px);
+    min-height: 240px;
+    max-height: min(52dvh, 580px);
     overflow-y: auto;
     padding: 0.35rem;
+}
+
+.diet-food-picker-modal.is-list-view .diet-food-picker-results {
+    min-height: min(54dvh, 560px);
+    max-height: min(60dvh, 660px);
+}
+
+.diet-food-picker-results-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(163, 230, 53, 0.9);
+    font-weight: 700;
 }
 
 .diet-food-picker-item {
     width: 100%;
     text-align: left;
-    border: 1px solid transparent;
-    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.02);
     color: #f5f5f5;
     border-radius: 10px;
-    padding: 0.52rem 0.6rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.18rem;
+    padding: 0.6rem 0.7rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.25;
+    transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+    animation: dietPickerItemIn 180ms ease both;
 }
 
 .diet-food-picker-item span {
-    font-size: 0.72rem;
-    color: #a3abb6;
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.diet-food-picker-mark {
+    background: rgba(163, 230, 53, 0.2);
+    color: #f5fce5;
+    padding: 0 0.08rem;
+    border-radius: 4px;
+}
+
+.diet-food-picker-item:focus-visible {
+    outline: none;
+    border-color: rgba(163, 230, 53, 0.72);
+    box-shadow: 0 0 0 2px rgba(163, 230, 53, 0.28);
 }
 
 .diet-food-picker-item:hover,
 .diet-food-picker-item.active {
     border-color: rgba(163, 230, 53, 0.45);
     background: rgba(163, 230, 53, 0.12);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 16px rgba(14, 25, 9, 0.3);
 }
 
 .diet-food-picker-item.is-highlight {
@@ -3599,43 +3766,31 @@ body {
     box-shadow: inset 0 0 0 1px rgba(163, 230, 53, 0.2);
 }
 
-.diet-food-picker-item-wrap {
-    border: 1px solid transparent;
-    border-radius: 10px;
-    padding: 0.35rem;
-    display: grid;
-    grid-template-columns: 38px 1fr;
-    gap: 0.35rem;
-    align-items: center;
-    cursor: pointer;
-}
-
-.diet-food-picker-item-wrap.active,
-.diet-food-picker-item-wrap.is-highlight,
-.diet-food-picker-item-wrap:hover {
-    border-color: rgba(163, 230, 53, 0.35);
-    background: rgba(163, 230, 53, 0.08);
-}
-
-.diet-food-picker-fav {
-    width: 34px;
-    height: 34px;
-    border-radius: 9px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.03);
-    color: #d4d4d8;
-}
-
-.diet-food-picker-fav.active {
-    border-color: rgba(250, 204, 21, 0.55);
-    color: #facc15;
-    background: rgba(250, 204, 21, 0.15);
-}
-
 .diet-food-picker-empty {
     font-size: 0.82rem;
     color: var(--text-muted);
     padding: 1rem 0.8rem;
+}
+
+.diet-food-picker-reset-link {
+    border: none;
+    background: transparent;
+    color: #d9f99d;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-decoration: underline;
+    text-decoration-color: rgba(163, 230, 53, 0.5);
+    text-underline-offset: 3px;
+    margin-left: 0.3rem;
+}
+
+.diet-food-picker-detail {
+    border: 1px solid rgba(163, 230, 53, 0.22);
+    border-radius: 12px;
+    background: rgba(163, 230, 53, 0.06);
+    padding: 0.55rem;
+    display: grid;
+    gap: 0.48rem;
 }
 
 .diet-food-picker-preview {
@@ -3645,10 +3800,118 @@ body {
     padding: 0.6rem;
 }
 
+.diet-food-picker-qty-row {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) 40px;
+    gap: 0.45rem;
+    align-items: center;
+}
+
+.diet-food-picker-step-btn {
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.03);
+    color: #f3f4f6;
+    font-size: 1.05rem;
+    font-weight: 700;
+    transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.diet-food-picker-step-btn:hover {
+    border-color: rgba(163, 230, 53, 0.52);
+    color: #d9f99d;
+    transform: translateY(-1px);
+}
+
+.diet-food-picker-portions {
+    display: grid;
+    gap: 0.32rem;
+}
+
+.diet-food-picker-portions-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(163, 230, 53, 0.86);
+    font-weight: 700;
+}
+
+.diet-food-picker-portions-list {
+    display: flex;
+    gap: 0.32rem;
+    flex-wrap: wrap;
+}
+
+.diet-food-picker-portion-chip {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.03);
+    color: #f4f4f5;
+    border-radius: 10px;
+    padding: 0.34rem 0.5rem;
+    font-size: 0.72rem;
+    display: inline-flex;
+    flex-direction: column;
+    gap: 0.12rem;
+    transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.diet-food-picker-portion-chip strong {
+    font-weight: 700;
+    font-size: 0.74rem;
+}
+
+.diet-food-picker-portion-chip span {
+    color: #a3abb6;
+    font-size: 0.66rem;
+}
+
+.diet-food-picker-portion-chip:hover {
+    border-color: rgba(163, 230, 53, 0.45);
+    transform: translateY(-1px);
+}
+
+.diet-food-picker-portion-chip.active {
+    border-color: rgba(163, 230, 53, 0.65);
+    background: rgba(163, 230, 53, 0.16);
+}
+
 .diet-food-picker-preview-title {
     margin-bottom: 0.35rem;
     font-size: 0.78rem;
     color: #d9f99d;
+}
+
+.diet-food-picker-preview-food {
+    font-size: 0.98rem;
+    font-weight: 800;
+    color: #f4f4f5;
+    margin-bottom: 0.2rem;
+}
+
+.diet-food-picker-preview-base {
+    font-size: 0.72rem;
+    color: #a3abb6;
+    margin-bottom: 0.28rem;
+}
+
+.diet-food-picker-feedback {
+    min-height: 1rem;
+    font-size: 0.72rem;
+    color: #a3abb6;
+    line-height: 1.3;
+}
+
+.diet-food-picker-feedback.is-info {
+    color: #93c5fd;
+}
+
+.diet-food-picker-feedback.is-warning {
+    color: #facc15;
+}
+
+.diet-food-picker-feedback.is-success {
+    color: #86efac;
 }
 
 .diet-food-picker-footer {
@@ -3663,6 +3926,20 @@ body {
     background: #101010;
 }
 
+.diet-food-picker-modal.is-list-view #diet-food-picker-confirm {
+    display: none;
+}
+
+#diet-food-picker-confirm[disabled] {
+    opacity: 0.55;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+body.diet-food-picker-open {
+    overflow: hidden;
+}
+
 @media (max-width: 680px) {
     .diet-food-picker-modal {
         width: min(96vw, 560px);
@@ -3670,12 +3947,43 @@ body {
         top: auto;
         left: 50%;
         bottom: 0.4rem;
-        transform: translate(-50%, 0);
+        transform: translate(-50%, 12px);
         border-radius: 16px 16px 12px 12px;
+    }
+
+    .diet-food-picker-modal.active {
+        transform: translate(-50%, 0);
     }
 
     .diet-food-picker-results {
         max-height: min(46dvh, 420px);
+    }
+
+    .diet-food-picker-modal.is-list-view .diet-food-picker-results {
+        min-height: min(56dvh, 500px);
+        max-height: min(60dvh, 540px);
+    }
+}
+
+@keyframes dietPickerItemIn {
+    0% {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes dietPickerStageIn {
+    0% {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
     }
 }
 
@@ -12834,8 +13142,20 @@ body {
 }
 
 #view-student-log-workout .set-history-line {
-    font-size: 0.56rem;
-    letter-spacing: 0.01rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.012rem;
+    color: rgba(148, 163, 184, 0.9);
+    font-weight: 600;
+}
+
+#view-student-log-workout .set-value-stack .compact-value {
+    border-color: rgba(255, 255, 255, 0.16);
+    background: rgba(10, 10, 12, 0.86);
+}
+
+#view-student-log-workout .set-value-stack .compact-value:focus {
+    border-color: rgba(163, 230, 53, 0.52);
+    box-shadow: 0 0 0 2px rgba(163, 230, 53, 0.2);
 }
 
 #view-student-log-workout .set-progress-flag {
@@ -14695,6 +15015,23 @@ body {
     padding: 1rem 1.1rem;
     background: linear-gradient(115deg, rgba(20, 20, 20, 0.96), rgba(33, 33, 33, 0.88));
     margin-bottom: 1rem;
+    position: sticky;
+    top: 0.65rem;
+    z-index: 3;
+    backdrop-filter: blur(6px);
+    overflow: hidden;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.26);
+    transition: border-color 220ms ease, box-shadow 220ms ease, transform 220ms ease;
+}
+
+.diet-modern-summary-card::before {
+    content: '';
+    position: absolute;
+    inset: -30% 15% auto -30%;
+    height: 170px;
+    background: radial-gradient(circle, rgba(163, 230, 53, 0.14), transparent 65%);
+    pointer-events: none;
+    animation: dietSurfacePulse 8s ease-in-out infinite;
 }
 
 .diet-modern-summary-title {
@@ -14704,6 +15041,36 @@ body {
     color: var(--primary-color);
     font-weight: 700;
     margin-bottom: 0.8rem;
+}
+
+.diet-modern-summary-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+    margin-bottom: 0.6rem;
+}
+
+.diet-modern-day-status {
+    border-radius: 999px;
+    padding: 0.18rem 0.55rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    color: #e5e7eb;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.diet-modern-day-status.done {
+    color: #86efac;
+    border-color: rgba(74, 222, 128, 0.45);
+    background: rgba(74, 222, 128, 0.14);
+}
+
+.diet-modern-day-status.pending {
+    color: #fde68a;
+    border-color: rgba(251, 191, 36, 0.45);
+    background: rgba(251, 191, 36, 0.12);
 }
 
 .diet-modern-date-controls {
@@ -14728,12 +15095,63 @@ body {
     color: var(--text-muted);
 }
 
+.diet-modern-day-actions {
+    margin-top: 0.8rem;
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+}
+
+.diet-modern-cta-btn,
+.diet-modern-ghost-btn {
+    border-radius: 10px;
+    padding: 0.52rem 0.75rem;
+    font-size: 0.76rem;
+    font-weight: 700;
+    transition: 0.2s ease;
+}
+
+.diet-modern-cta-btn {
+    border: 1px solid rgba(163, 230, 53, 0.48);
+    background: linear-gradient(120deg, rgba(163, 230, 53, 0.3), rgba(163, 230, 53, 0.1), rgba(163, 230, 53, 0.24));
+    background-size: 200% 200%;
+    color: #d9f99d;
+    box-shadow: 0 10px 24px rgba(163, 230, 53, 0.16);
+    animation: dietCtaGlow 3.8s ease-in-out infinite;
+}
+
+.diet-modern-cta-btn.done {
+    border-color: rgba(74, 222, 128, 0.48);
+    background: linear-gradient(120deg, rgba(74, 222, 128, 0.22), rgba(74, 222, 128, 0.08));
+    color: #86efac;
+}
+
+.diet-modern-ghost-btn {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.03);
+    color: #d1d5db;
+}
+
+.diet-modern-ghost-btn:hover,
+.diet-modern-cta-btn:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.05);
+}
+
 .diet-modern-weekly-card {
     border: 1px solid var(--border-color);
     border-radius: 14px;
     padding: 0.8rem 0.9rem;
     background: rgba(16, 16, 16, 0.92);
     margin-bottom: 1rem;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
+    transition: border-color 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+}
+
+.diet-modern-weekly-card:hover {
+    transform: translateY(-1px);
+    border-color: rgba(163, 230, 53, 0.24);
+    box-shadow: 0 18px 34px rgba(0, 0, 0, 0.32);
 }
 
 .diet-modern-weekly-title {
@@ -14781,6 +15199,13 @@ body {
     padding: 0.18rem 0.5rem;
     font-size: 0.68rem;
     color: var(--text-muted);
+    transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease;
+}
+
+.diet-week-day:hover {
+    border-color: rgba(163, 230, 53, 0.42);
+    color: #d9f99d;
+    background: rgba(163, 230, 53, 0.08);
 }
 
 .diet-modern-meal-card {
@@ -14789,6 +15214,14 @@ body {
     overflow: hidden;
     background: rgba(13, 13, 13, 0.95);
     margin-bottom: 1rem;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+    transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.diet-modern-meal-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(163, 230, 53, 0.28);
+    box-shadow: 0 20px 36px rgba(0, 0, 0, 0.35);
 }
 
 .diet-modern-meal-header {
@@ -14797,6 +15230,13 @@ body {
     justify-content: space-between;
     padding: 0.9rem 1rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.diet-modern-meal-title-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.14rem;
+    min-width: 0;
 }
 
 .diet-modern-meal-card.tone-0 .diet-modern-meal-header {
@@ -14818,9 +15258,17 @@ body {
     font-weight: 700;
 }
 
+.diet-modern-meal-meta {
+    font-size: 0.7rem;
+    color: rgba(227, 232, 224, 0.76);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
 .diet-modern-meal-actions {
     display: flex;
     gap: 0.5rem;
+    align-items: center;
 }
 
 .diet-modern-icon-btn {
@@ -14833,11 +15281,43 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    transition: border-color 180ms ease, color 180ms ease, background-color 180ms ease, transform 180ms ease;
+}
+
+.diet-modern-icon-btn:hover {
+    border-color: rgba(163, 230, 53, 0.45);
+    color: #d9f99d;
+    transform: translateY(-1px);
 }
 
 .diet-modern-icon-btn.done {
     color: #4ade80;
     border-color: rgba(74, 222, 128, 0.45);
+}
+
+.diet-modern-check-all-btn {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(0, 0, 0, 0.22);
+    color: rgba(255, 255, 255, 0.85);
+    border-radius: 999px;
+    padding: 0.35rem 0.62rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: border-color 180ms ease, color 180ms ease, background-color 180ms ease, transform 180ms ease;
+}
+
+.diet-modern-check-all-btn:hover {
+    border-color: rgba(163, 230, 53, 0.42);
+    color: #d9f99d;
+    transform: translateY(-1px);
+}
+
+.diet-modern-check-all-btn.done {
+    border-color: rgba(74, 222, 128, 0.45);
+    color: #86efac;
+    background: rgba(74, 222, 128, 0.14);
 }
 
 .diet-modern-food-list {
@@ -14852,11 +15332,19 @@ body {
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.02);
     padding: 0.75rem;
+    transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
+}
+
+.diet-modern-food-row:hover {
+    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.04);
+    transform: translateY(-1px);
 }
 
 .diet-modern-food-row.is-checked {
     border-color: rgba(74, 222, 128, 0.45);
     background: rgba(74, 222, 128, 0.09);
+    box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.22);
 }
 
 .diet-modern-food-main {
@@ -14871,6 +15359,10 @@ body {
     align-items: center;
     font-size: 1rem;
     font-weight: 700;
+}
+
+.diet-modern-check input[type="checkbox"] {
+    accent-color: #84cc16;
 }
 
 .diet-modern-base-qty {
@@ -14904,6 +15396,14 @@ body {
     padding: 0.5rem 0.62rem;
     font-size: 0.82rem;
     min-width: 130px;
+    transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.diet-modern-input:focus {
+    border-color: rgba(163, 230, 53, 0.62);
+    box-shadow: 0 0 0 3px rgba(163, 230, 53, 0.14);
+    background: rgba(25, 25, 25, 0.72);
+    outline: none;
 }
 
 .diet-modern-sub-btn,
@@ -14913,6 +15413,7 @@ body {
     padding: 0.5rem 0.7rem;
     font-size: 0.77rem;
     font-weight: 600;
+    transition: transform 160ms ease, filter 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
 }
 
 .diet-modern-sub-btn {
@@ -14925,6 +15426,13 @@ body {
     border-color: rgba(251, 191, 36, 0.6);
     background: rgba(251, 191, 36, 0.12);
     color: #fde68a;
+}
+
+.diet-modern-sub-btn:hover,
+.diet-modern-save-btn:hover,
+.diet-modern-cancel-btn:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.06);
 }
 
 .diet-modern-substitute-box,
@@ -15021,6 +15529,12 @@ body {
     padding: 0.2rem 0.45rem;
     font-size: 0.72rem;
     background: rgba(255, 255, 255, 0.03);
+    transition: transform 150ms ease, border-color 150ms ease;
+}
+
+.diet-modern-chip:hover {
+    transform: translateY(-1px);
+    border-color: rgba(163, 230, 53, 0.36);
 }
 
 .diet-modern-chip.kcal {
@@ -15039,7 +15553,126 @@ body {
     color: #facc15;
 }
 
+.diet-sync-pill {
+    border-radius: 999px;
+    padding: 0.24rem 0.62rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.04);
+    color: #d4d4d8;
+}
+
+.diet-sync-pill.is-synced {
+    color: #86efac;
+    border-color: rgba(74, 222, 128, 0.45);
+    background: rgba(74, 222, 128, 0.1);
+}
+
+.diet-sync-pill.is-pending {
+    color: #fcd34d;
+    border-color: rgba(251, 191, 36, 0.4);
+    background: rgba(251, 191, 36, 0.09);
+}
+
+.diet-sync-pill.is-offline,
+.diet-sync-pill.is-error {
+    color: #fda4af;
+    border-color: rgba(248, 113, 113, 0.4);
+    background: rgba(248, 113, 113, 0.08);
+}
+
+.diet-day-actions-inline {
+    margin-bottom: 0.8rem;
+}
+
+@keyframes dietSurfacePulse {
+    0% {
+        transform: translate3d(0, 0, 0) scale(1);
+        opacity: 0.85;
+    }
+    50% {
+        transform: translate3d(8%, 2%, 0) scale(1.06);
+        opacity: 1;
+    }
+    100% {
+        transform: translate3d(0, 0, 0) scale(1);
+        opacity: 0.85;
+    }
+}
+
+@keyframes dietCtaGlow {
+    0% {
+        background-position: 0% 50%;
+        box-shadow: 0 10px 24px rgba(163, 230, 53, 0.14);
+    }
+    50% {
+        background-position: 100% 50%;
+        box-shadow: 0 12px 28px rgba(163, 230, 53, 0.22);
+    }
+    100% {
+        background-position: 0% 50%;
+        box-shadow: 0 10px 24px rgba(163, 230, 53, 0.14);
+    }
+}
+
+.perfil-anamnesis-card {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    padding: 0.9rem 1rem;
+    background: linear-gradient(120deg, rgba(20, 20, 24, 0.95), rgba(16, 16, 16, 0.9));
+}
+
+.perfil-anamnesis-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+    margin-top: 0.5rem;
+}
+
+.perfil-anamnesis-item {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 0.55rem 0.62rem;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.perfil-anamnesis-item span {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(148, 163, 184, 0.95);
+}
+
+.perfil-anamnesis-item strong {
+    display: block;
+    margin-top: 0.22rem;
+    font-size: 0.9rem;
+    color: #f8fafc;
+}
+
+.perfil-anamnesis-actions {
+    margin-top: 0.75rem;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.perfil-anamnesis-details {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+}
+
+.perfil-anamnesis-details .perfil-anamnesis-item {
+    min-height: 92px;
+}
+
 @media (max-width: 860px) {
+    .diet-modern-summary-card {
+        top: 0.35rem;
+    }
+
     .diet-modern-add-food-box {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -15071,6 +15704,21 @@ body {
     }
 
     .diet-modern-weekly-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .diet-modern-day-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .diet-modern-day-actions .diet-modern-ghost-btn,
+    .diet-modern-day-actions .diet-modern-cta-btn {
+        width: 100%;
+    }
+
+    .perfil-anamnesis-summary-grid,
+    .perfil-anamnesis-details {
         grid-template-columns: 1fr;
     }
 }
@@ -16900,9 +17548,18 @@ body {
         border-radius: 20px;
     }
 
-    .auth-screen .auth-secondary-actions {
+.auth-screen .auth-secondary-actions {
         grid-template-columns: 1fr;
     }
+}
+
+/* Student dashboard cleanup: hide middle text blocks */
+#student-dashboard-screen .student-goals,
+#student-dashboard-screen .student-notes,
+#student-dashboard-screen .student-last-workout,
+#student-dashboard-screen .student-diet-summary,
+#student-dashboard-screen .student-habits {
+    display: none !important;
 }
 
 @media (max-width: 640px) {
@@ -17082,6 +17739,30 @@ body {
     color: #71717a;
 }
 
+.auth-screen .auth-input-shell input:-webkit-autofill,
+.auth-screen .auth-input-shell input:-webkit-autofill:hover,
+.auth-screen .auth-input-shell input:-webkit-autofill:focus,
+.auth-screen .auth-input-shell input:-webkit-autofill:active {
+    -webkit-text-fill-color: #f4f7f3 !important;
+    caret-color: #f4f7f3;
+    border: 0;
+    -webkit-box-shadow: 0 0 0 1000px rgba(24, 24, 27, 0.68) inset !important;
+    box-shadow: 0 0 0 1000px rgba(24, 24, 27, 0.68) inset !important;
+    transition: background-color 9999s ease-out, color 9999s ease-out;
+}
+
+.auth-input-shell input:-webkit-autofill,
+.auth-input-shell input:-webkit-autofill:hover,
+.auth-input-shell input:-webkit-autofill:focus,
+.auth-input-shell input:-webkit-autofill:active {
+    -webkit-text-fill-color: #f4f7f3 !important;
+    caret-color: #f4f7f3;
+    border: 0;
+    -webkit-box-shadow: 0 0 0 1000px rgba(24, 24, 27, 0.68) inset !important;
+    box-shadow: 0 0 0 1000px rgba(24, 24, 27, 0.68) inset !important;
+    transition: background-color 9999s ease-out, color 9999s ease-out;
+}
+
 .auth-screen .auth-input-shell .auth-pass-toggle {
     right: 0.55rem;
 }
@@ -17118,6 +17799,22 @@ body {
 .auth-screen .auth-alt-btn:hover {
     border-color: rgba(163, 230, 53, 0.5);
     box-shadow: 0 0 0 2px rgba(163, 230, 53, 0.14);
+}
+
+.auth-screen .auth-alt-btn-wide {
+    grid-column: 1 / -1;
+}
+
+.auth-screen .auth-alt-btn-test {
+    border-color: rgba(163, 230, 53, 0.45);
+    background: linear-gradient(140deg, rgba(163, 230, 53, 0.14), rgba(24, 24, 27, 0.92));
+    color: #e7ffd0;
+}
+
+.auth-screen .auth-alt-btn-test:hover {
+    border-color: rgba(163, 230, 53, 0.75);
+    box-shadow: 0 0 0 2px rgba(163, 230, 53, 0.2), 0 10px 24px rgba(163, 230, 53, 0.16);
+    transform: translateY(-1px);
 }
 
 .auth-screen .auth-footer {
@@ -17180,5 +17877,210 @@ body {
     }
     to {
         opacity: 1;
+    }
+}
+
+.diet-food-detail-trigger {
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+    transition: color 0.2s ease;
+}
+
+.diet-food-detail-trigger:hover {
+    color: var(--primary-color);
+}
+
+.diet-food-detail-trigger.student {
+    text-decoration: underline;
+    text-decoration-color: rgba(163, 230, 53, 0.45);
+    text-underline-offset: 2px;
+}
+
+.food-details-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.68);
+    backdrop-filter: blur(10px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    z-index: 1800;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease;
+}
+
+.food-details-overlay.active {
+    display: flex;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.food-details-modal {
+    width: min(560px, 100%);
+    background: linear-gradient(160deg, rgba(16, 16, 18, 0.94), rgba(8, 8, 10, 0.98));
+    border: 1px solid rgba(163, 230, 53, 0.24);
+    border-radius: 20px;
+    box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+    transform: translateY(14px) scale(0.99);
+    opacity: 0;
+    transition: transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 220ms ease;
+    max-height: min(86vh, 760px);
+    display: flex;
+    flex-direction: column;
+}
+
+.food-details-overlay.active .food-details-modal {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+}
+
+.food-details-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 1rem 1.1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.food-details-header h3 {
+    margin: 0;
+    font-size: 1.05rem;
+}
+
+.food-details-header small {
+    color: var(--text-muted);
+}
+
+.food-details-close {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--text-main);
+    cursor: pointer;
+}
+
+.food-details-body {
+    padding: 1rem 1.1rem;
+    display: grid;
+    gap: 0.75rem;
+    overflow: auto;
+}
+
+.food-details-field {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.food-details-amount-control {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    gap: 0.45rem;
+    align-items: center;
+}
+
+.food-details-step-btn {
+    height: 42px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-main);
+    font-size: 1.15rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 160ms ease;
+}
+
+.food-details-step-btn:hover {
+    border-color: rgba(163, 230, 53, 0.52);
+    color: var(--primary-color);
+    transform: translateY(-1px);
+}
+
+.food-details-field label {
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.food-details-base {
+    padding: 0.62rem 0.72rem;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    color: #d0d5cd;
+    font-size: 0.82rem;
+}
+
+.food-details-qty {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.food-details-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.food-details-chip {
+    padding: 0.4rem 0.62rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.8rem;
+    color: var(--text-main);
+}
+
+.food-details-chip.kcal {
+    border-color: rgba(163, 230, 53, 0.34);
+    color: var(--primary-color);
+}
+
+.food-details-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    padding: 0.9rem 1.1rem 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+body.food-details-open {
+    overflow: hidden;
+}
+
+@media (max-width: 640px) {
+    .food-details-overlay {
+        padding: 0.7rem;
+        align-items: flex-end;
+    }
+
+    .food-details-modal {
+        width: 100%;
+        border-radius: 18px 18px 14px 14px;
+        max-height: min(88vh, 760px);
+    }
+
+    .food-details-footer {
+        justify-content: stretch;
+        gap: 0.5rem;
+    }
+
+    .food-details-footer .diet-modern-cancel-btn,
+    .food-details-footer .diet-modern-save-btn {
+        flex: 1;
     }
 }
