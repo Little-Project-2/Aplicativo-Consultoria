@@ -17834,9 +17834,35 @@ body {
     border-bottom-color: #c9ff74;
 }
 
+.auth-screen .auth-link-btn {
+    align-self: flex-end;
+    border: 0;
+    background: transparent;
+    color: #b8ff4a;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: -0.1rem;
+    margin-bottom: 0.15rem;
+    padding: 0.1rem 0.2rem;
+}
+
+.auth-screen .auth-link-btn:hover {
+    color: #d2ff8c;
+    text-decoration: underline;
+}
+
+.auth-screen .auth-recovery-form {
+    margin-top: -0.2rem;
+}
+
 @media (max-width: 640px) {
     .auth-screen .auth-secondary-actions {
         grid-template-columns: 1fr;
+    }
+
+    .auth-screen .auth-input-shell input {
+        font-size: 16px;
     }
 }
 

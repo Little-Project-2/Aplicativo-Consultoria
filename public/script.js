@@ -3097,6 +3097,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (event === 'SIGNED_OUT') {
                 clearAuthRuntimeContext();
                 goToGlobalLogin();
+                return;
+            }
+            if (event === 'PASSWORD_RECOVERY') {
+                goToGlobalLogin().then(() => {
+                    setLoginRecoveryMode(true);
+                    setAuthInlineFeedback('login-inline-feedback', 'Recuperação validada. Defina sua nova senha para continuar.', 'info');
+                });
             }
         });
     }
@@ -3343,6 +3350,7 @@ async function goToGlobalLogin() {
     if (testButton) {
         testButton.style.display = ENABLE_DEMO_ACCESS ? '' : 'none';
     }
+    setLoginRecoveryMode(isSupabaseRecoveryFlowActive());
     activateScreen('global-login-screen', { animate: true });
 }
 
@@ -3381,6 +3389,32 @@ async function openTrainerArea() {
 function toggleElement(id) {
     const el = document.getElementById(id);
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+let authRecoveryMode = false;
+
+function setLoginRecoveryMode(enabled = false) {
+    authRecoveryMode = !!enabled;
+    const loginForm = document.querySelector('#global-login-screen .auth-form');
+    const recoveryForm = document.getElementById('login-recovery-form');
+    const divider = document.querySelector('#global-login-screen .auth-divider');
+    const secondaryActions = document.querySelector('#global-login-screen .auth-secondary-actions');
+    const helper = document.querySelector('#global-login-screen .auth-helper');
+    const footer = document.querySelector('#global-login-screen .auth-footer');
+
+    if (loginForm) loginForm.style.display = authRecoveryMode ? 'none' : '';
+    if (recoveryForm) recoveryForm.style.display = authRecoveryMode ? '' : 'none';
+    if (divider) divider.style.display = authRecoveryMode ? 'none' : '';
+    if (secondaryActions) secondaryActions.style.display = authRecoveryMode ? 'none' : '';
+    if (helper) helper.style.display = authRecoveryMode ? 'none' : '';
+    if (footer) footer.style.display = authRecoveryMode ? 'none' : '';
+}
+
+function isSupabaseRecoveryFlowActive() {
+    const hash = String(window.location.hash || '').replace(/^#/, '');
+    const params = new URLSearchParams(hash);
+    const type = String(params.get('type') || '').toLowerCase();
+    return type === 'recovery' && !!params.get('access_token');
 }
 
 // â”€â”€â”€ Authentication Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -3840,6 +3874,86 @@ async function handleEmailLogin() {
     }
 }
 
+async function startPasswordRecoveryFromLogin() {
+    const email = sanitizeEmailInput(document.getElementById('login-email')?.value);
+    const showLoginFeedback = (message, type = 'error') => {
+        const hasInline = setAuthInlineFeedback('login-inline-feedback', message, type);
+        if (!hasInline && message) alert(message);
+    };
+
+    if (!EMAIL_REGEX.test(email)) {
+        showLoginFeedback('Digite seu e-mail para recuperar a senha.', 'error');
+        return;
+    }
+    if (typeof window.supabase?.auth?.resetPasswordForEmail !== 'function') {
+        showLoginFeedback('Recuperação indisponível no momento.', 'error');
+        return;
+    }
+
+    const redirectTo = `${window.location.origin}${window.location.pathname}`;
+    const { error } = await window.supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) {
+        showLoginFeedback(error.message || 'Não foi possível enviar o e-mail de recuperação.', 'error');
+        return;
+    }
+
+    showLoginFeedback('Enviamos o link de recuperação. Abra no celular/computador para redefinir sua senha.', 'success');
+}
+
+async function completePasswordRecovery() {
+    const newPass = document.getElementById('recovery-new-pass')?.value || '';
+    const confirmPass = document.getElementById('recovery-confirm-pass')?.value || '';
+    const showLoginFeedback = (message, type = 'error') => {
+        const hasInline = setAuthInlineFeedback('login-inline-feedback', message, type);
+        if (!hasInline && message) alert(message);
+    };
+
+    const hasLetter = /[A-Za-z]/.test(newPass);
+    const hasNumber = /\d/.test(newPass);
+    if (newPass.length < 8 || !hasLetter || !hasNumber) {
+        showLoginFeedback('A nova senha deve ter ao menos 8 caracteres, com letras e números.', 'error');
+        return;
+    }
+    if (newPass !== confirmPass) {
+        showLoginFeedback('A confirmação da nova senha não confere.', 'error');
+        return;
+    }
+    if (typeof window.supabase?.auth?.updateUser !== 'function') {
+        showLoginFeedback('Atualização de senha indisponível no momento.', 'error');
+        return;
+    }
+
+    setAuthSubmitLoading({
+        buttonId: 'recovery-submit-btn',
+        textId: 'recovery-btn-text',
+        spinnerId: 'recovery-btn-spinner',
+        loadingText: 'Salvando...'
+    }, true);
+
+    try {
+        const { error } = await window.supabase.auth.updateUser({ password: newPass });
+        if (error) {
+            showLoginFeedback(error.message || 'Não foi possível atualizar sua senha.', 'error');
+            return;
+        }
+        showLoginFeedback('Senha atualizada com sucesso. Faça login novamente.', 'success');
+        await window.supabase.auth.signOut();
+        document.getElementById('recovery-new-pass').value = '';
+        document.getElementById('recovery-confirm-pass').value = '';
+        setLoginRecoveryMode(false);
+        if (window.location.hash) {
+            history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+        }
+    } finally {
+        setAuthSubmitLoading({
+            buttonId: 'recovery-submit-btn',
+            textId: 'recovery-btn-text',
+            spinnerId: 'recovery-btn-spinner',
+            loadingText: 'Salvando...'
+        }, false);
+    }
+}
+
 function handleTestLogin() {
     const showLoginFeedback = (message, type = 'info') => {
         const hasInline = setAuthInlineFeedback('login-inline-feedback', message, type);
@@ -4088,6 +4202,8 @@ if (typeof window !== 'undefined') {
         goToGlobalLogin,
         goToProfileCreate,
         handleEmailLogin,
+        startPasswordRecoveryFromLogin,
+        completePasswordRecovery,
         handleGoogleLogin,
         resendVerificationEmailFromLogin,
         handleProfileCreation,
@@ -15551,11 +15667,6 @@ function setSetExecution(exIdx, setIdx, execValue) {
     saveWorkoutBackup();
     renderWorkoutLogWithStatePreserved();
 }
-
-
-
-
-
 
 
 
