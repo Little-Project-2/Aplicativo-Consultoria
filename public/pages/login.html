@@ -25,7 +25,7 @@
                     <label class="auth-field-label" for="login-email">E-mail</label>
                     <div class="auth-input-shell">
                         <i class="ph-bold ph-envelope auth-field-icon"></i>
-                        <input type="email" id="login-email" placeholder="seu@email.com" required autocomplete="email">
+                        <input type="email" id="login-email" placeholder="seu@email.com" required autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="email" enterkeyhint="next">
                     </div>
                 </div>
 
@@ -33,16 +33,48 @@
                     <label class="auth-field-label" for="login-pass">Senha</label>
                     <div class="auth-input-shell">
                         <i class="ph-bold ph-lock auth-field-icon"></i>
-                        <input type="password" id="login-pass" placeholder="Sua senha" required autocomplete="current-password">
+                        <input type="password" id="login-pass" placeholder="Sua senha" required autocomplete="current-password" enterkeyhint="go">
                         <button type="button" class="auth-pass-toggle" id="toggle-pass-btn" onclick="togglePasswordVisibility('login-pass', this)" aria-label="Mostrar senha">
                             <i class="ph-bold ph-eye" id="toggle-pass-icon"></i>
                         </button>
                     </div>
                 </div>
 
+                <button type="button" class="auth-link-btn" onclick="startPasswordRecoveryFromLogin()">
+                    Esqueci minha senha
+                </button>
+
                 <button type="submit" class="btn-primary auth-submit" id="login-submit-btn">
                     <span id="login-btn-text">Entrar</span>
                     <span id="login-btn-spinner" class="auth-btn-spinner" style="display:none;"></span>
+                </button>
+            </form>
+
+            <form class="auth-form auth-recovery-form" id="login-recovery-form" style="display:none;" onsubmit="event.preventDefault(); completePasswordRecovery();">
+                <p class="auth-helper">Defina sua nova senha para concluir a recuperação de acesso.</p>
+                <div class="auth-field">
+                    <label class="auth-field-label" for="recovery-new-pass">Nova senha</label>
+                    <div class="auth-input-shell">
+                        <i class="ph-bold ph-lock-key auth-field-icon"></i>
+                        <input type="password" id="recovery-new-pass" placeholder="Mínimo 8 caracteres" autocomplete="new-password" enterkeyhint="next">
+                        <button type="button" class="auth-pass-toggle" onclick="togglePasswordVisibility('recovery-new-pass', this)" aria-label="Mostrar senha">
+                            <i class="ph-bold ph-eye"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="auth-field">
+                    <label class="auth-field-label" for="recovery-confirm-pass">Confirmar nova senha</label>
+                    <div class="auth-input-shell">
+                        <i class="ph-bold ph-shield-check auth-field-icon"></i>
+                        <input type="password" id="recovery-confirm-pass" placeholder="Repita a nova senha" autocomplete="new-password" enterkeyhint="done">
+                        <button type="button" class="auth-pass-toggle" onclick="togglePasswordVisibility('recovery-confirm-pass', this)" aria-label="Mostrar senha">
+                            <i class="ph-bold ph-eye"></i>
+                        </button>
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary auth-submit" id="recovery-submit-btn">
+                    <span id="recovery-btn-text">Salvar nova senha</span>
+                    <span id="recovery-btn-spinner" class="auth-btn-spinner" style="display:none;"></span>
                 </button>
             </form>
 
