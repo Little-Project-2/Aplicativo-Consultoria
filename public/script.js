@@ -4,7 +4,7 @@
         screen.classList.remove('active', 'auth-screen-enter');
     });
     const app = document.getElementById('app');
-    if (app) app.classList.remove('wide');
+    if (app) app.classList.remove('wide', 'auth-mode');
 }
 
 function activateScreen(screenId, options = {}) {
@@ -12,6 +12,10 @@ function activateScreen(screenId, options = {}) {
     if (!screen) return false;
     hideAllScreens();
     screen.classList.add('active');
+    const app = document.getElementById('app');
+    if (app && screen.classList.contains('auth-screen')) {
+        app.classList.add('auth-mode');
+    }
 
     if (options.animate) {
         screen.classList.remove('auth-screen-enter');
@@ -1386,6 +1390,143 @@ function normalizeStudentRow(row) {
     return normalizeStudentDietSchema(student);
 }
 
+const FOOD_VARIANT_FAMILIES = {
+    rice: {
+        label: 'Arroz',
+        variants: { white: 'Branco', brown: 'Integral' },
+        order: ['white', 'brown']
+    },
+    beans: {
+        label: 'Feijão',
+        variants: { carioca: 'Carioca', black: 'Preto' },
+        order: ['carioca', 'black']
+    },
+    milk: {
+        label: 'Leite',
+        variants: { whole: 'Integral', semi: 'Semi', skim: 'Desnatado' },
+        order: ['whole', 'semi', 'skim']
+    },
+    soda: {
+        label: 'Refrigerante',
+        variants: { regular: 'Normal', zero: 'Zero' },
+        order: ['regular', 'zero']
+    },
+    water: {
+        label: 'Água',
+        variants: { still: 'Sem gás', sparkling: 'Com gás' },
+        order: ['still', 'sparkling']
+    },
+    yogurt: {
+        label: 'Iogurte',
+        variants: { natural: 'Natural', greek: 'Grego', skim: 'Desnatado' },
+        order: ['natural', 'greek', 'skim']
+    },
+    bread: {
+        label: 'Pão',
+        variants: { french: 'Francês', whole: 'Integral' },
+        order: ['french', 'whole']
+    },
+    cheese: {
+        label: 'Queijo',
+        variants: { mozzarella: 'Muçarela', minas: 'Minas', cottage: 'Cottage' },
+        order: ['mozzarella', 'minas', 'cottage']
+    },
+    juice: {
+        label: 'Suco',
+        variants: { natural: 'Natural', integral: 'Integral', zero: 'Zero' },
+        order: ['natural', 'integral', 'zero']
+    },
+    hot_drink: {
+        label: 'Café/Chá',
+        variants: { coffee_black: 'Café sem açúcar', coffee_milk: 'Café com leite', tea_unsweetened: 'Chá sem açúcar' },
+        order: ['coffee_black', 'coffee_milk', 'tea_unsweetened']
+    }
+};
+
+function inferFoodFamilyKey(name = '', baseUnit = 'g') {
+    const text = normalizeText(name);
+    if (!text) return '';
+    if (text.includes('cafe') || text.includes('cha')) return 'hot_drink';
+    if (text.includes('suco')) return 'juice';
+    if (text.includes('iogurte')) return 'yogurt';
+    if (text.includes('queijo') || text.includes('ricota') || text.includes('cottage')) return 'cheese';
+    if (text.includes('pao') || text.includes('torrada')) return 'bread';
+    if (text.includes('leite')) return 'milk';
+    if (text.includes('refrigerante') || text.includes('refri')) return 'soda';
+    if (text.includes('agua') && (normalizeFoodUnitKey(baseUnit) === 'ml' || normalizeFoodUnitKey(baseUnit) === 'l')) return 'water';
+    if (text.includes('arroz')) return 'rice';
+    if (text.includes('feijao')) return 'beans';
+    return '';
+}
+
+function inferFoodVariantKey(familyKey = '', name = '') {
+    const text = normalizeText(name);
+    if (!familyKey || !text) return '';
+    if (familyKey === 'milk') {
+        if (text.includes('desnat')) return 'skim';
+        if (text.includes('semi')) return 'semi';
+        if (text.includes('integral')) return 'whole';
+        return '';
+    }
+    if (familyKey === 'rice') {
+        if (text.includes('integral')) return 'brown';
+        if (text.includes('branco')) return 'white';
+        return '';
+    }
+    if (familyKey === 'beans') {
+        if (text.includes('carioca')) return 'carioca';
+        if (text.includes('preto')) return 'black';
+        return '';
+    }
+    if (familyKey === 'soda') {
+        if (text.includes('zero') || text.includes('diet') || text.includes('light')) return 'zero';
+        if (text.includes('normal') || text.includes('tradicional')) return 'regular';
+        return '';
+    }
+    if (familyKey === 'water') {
+        if (text.includes('com gas')) return 'sparkling';
+        if (text.includes('sem gas') || text.includes('mineral')) return 'still';
+        return '';
+    }
+    if (familyKey === 'yogurt') {
+        if (text.includes('grego')) return 'greek';
+        if (text.includes('desnat')) return 'skim';
+        if (text.includes('natural')) return 'natural';
+        return '';
+    }
+    if (familyKey === 'bread') {
+        if (text.includes('integral')) return 'whole';
+        if (text.includes('frances') || text.includes('francês') || text.includes('pao')) return 'french';
+        return '';
+    }
+    if (familyKey === 'cheese') {
+        if (text.includes('mucarela') || text.includes('mozarela') || text.includes('mozzarella')) return 'mozzarella';
+        if (text.includes('minas')) return 'minas';
+        if (text.includes('cottage')) return 'cottage';
+        return '';
+    }
+    if (familyKey === 'juice') {
+        if (text.includes('zero') || text.includes('sem acucar') || text.includes('sem açúcar')) return 'zero';
+        if (text.includes('integral')) return 'integral';
+        if (text.includes('natural')) return 'natural';
+        return '';
+    }
+    if (familyKey === 'hot_drink') {
+        if (text.includes('cafe com leite') || text.includes('café com leite')) return 'coffee_milk';
+        if (text.includes('cha') || text.includes('chá')) return 'tea_unsweetened';
+        if (text.includes('cafe') || text.includes('café')) return 'coffee_black';
+        return '';
+    }
+    return '';
+}
+
+function getFoodVariantLabel(familyKey = '', variantKey = '', fallbackLabel = '') {
+    const cleanFallback = sanitizeUserInput(fallbackLabel || '', { maxLen: 50 });
+    const family = FOOD_VARIANT_FAMILIES[familyKey];
+    if (!family) return cleanFallback;
+    return family.variants?.[variantKey] || cleanFallback;
+}
+
 function normalizeFoodCatalogRow(row) {
     if (!row) return null;
     const name = sanitizeUserInput(row.name || row.nome || '', { maxLen: 140 });
@@ -1393,6 +1534,15 @@ function normalizeFoodCatalogRow(row) {
     const baseUnit = normalizeFoodUnitKey(row.base_unit || row.baseUnit || 'g');
     const portionsInput = Array.isArray(row.portions) ? row.portions : [];
     const normalizedPortions = portionsInput.map(normalizeFoodPortionRow).filter(Boolean);
+    const rawFamily = sanitizeUserInput(row.family_key || row.familyKey || '', { maxLen: 40 }).toLowerCase();
+    const familyKey = rawFamily || inferFoodFamilyKey(name, baseUnit);
+    const rawVariant = sanitizeUserInput(row.variant_key || row.variantKey || '', { maxLen: 40 }).toLowerCase();
+    const variantKey = rawVariant || inferFoodVariantKey(familyKey, name);
+    const variantLabel = getFoodVariantLabel(
+        familyKey,
+        variantKey,
+        row.variant_label || row.variantLabel || ''
+    );
     return {
         id: String(row.id || ''),
         name,
@@ -1405,6 +1555,9 @@ function normalizeFoodCatalogRow(row) {
         fat: Math.max(0, parseDecimalSafe(row.fat || row.gord)),
         source: sanitizeUserInput(row.source || 'manual', { maxLen: 40 }) || 'manual',
         created_by: sanitizeUserInput(row.created_by || '', { maxLen: 80 }),
+        family_key: familyKey,
+        variant_key: variantKey,
+        variant_label: variantLabel,
         portions: normalizedPortions
     };
 }
@@ -1416,10 +1569,11 @@ function getCurrentFoodCreatorId() {
         || 'anon';
 }
 
-const FOOD_UNIT_KEYS = ['g', 'ml', 'un', 'slice', 'tbsp', 'tsp', 'cup', 'glass', 'ladle'];
+const FOOD_UNIT_KEYS = ['g', 'ml', 'l', 'un', 'slice', 'tbsp', 'tsp', 'cup', 'glass', 'ladle'];
 const FOOD_UNIT_LABELS = {
     g: { single: 'grama', plural: 'gramas', short: 'g' },
     ml: { single: 'mililitro', plural: 'mililitros', short: 'ml' },
+    l: { single: 'litro', plural: 'litros', short: 'l' },
     un: { single: 'unidade', plural: 'unidades', short: 'un' },
     slice: { single: 'fatia', plural: 'fatias', short: 'fatia' },
     tbsp: { single: 'colher de sopa', plural: 'colheres de sopa', short: 'cs' },
@@ -1431,6 +1585,7 @@ const FOOD_UNIT_LABELS = {
 const FOOD_UNIT_ALIASES = {
     g: ['g', 'gr', 'grama', 'gramas'],
     ml: ['ml', 'mililitro', 'mililitros'],
+    l: ['l', 'lt', 'lts', 'litro', 'litros'],
     un: ['un', 'und', 'unid', 'unidade', 'unidades'],
     slice: ['fatia', 'fatias', 'slice', 'slices'],
     tbsp: ['colher de sopa', 'colher sopa', 'colheres de sopa', 'tbsp', 'cs'],
@@ -1463,13 +1618,39 @@ function formatFoodQuantity(amountValue, unitKey, { compact = false } = {}) {
     const safeUnit = normalizeFoodUnitKey(unitKey);
     const numericAmount = Math.max(0.1, parseDecimalSafe(amountValue) || 0);
     const roundedAmount = Number.isInteger(numericAmount) ? numericAmount : Math.round(numericAmount * 10) / 10;
-    if (safeUnit === 'g' || safeUnit === 'ml') {
+    if (safeUnit === 'g' || safeUnit === 'ml' || safeUnit === 'l') {
         return `${roundedAmount}${safeUnit}`;
     }
     if (compact) {
         return `${roundedAmount}${getFoodUnitShort(safeUnit)}`;
     }
     return `${roundedAmount} ${getFoodUnitLabel(safeUnit, roundedAmount)}`;
+}
+
+function isLikelyLiquidFoodName(foodName = '') {
+    const name = normalizeText(foodName);
+    if (!name) return false;
+    const liquidTerms = [
+        'suco',
+        'refrigerante',
+        'refri',
+        'agua',
+        'água',
+        'cha',
+        'chá',
+        'cafe',
+        'café',
+        'leite',
+        'iogurte liquido',
+        'isotonico',
+        'isotônico',
+        'energetico',
+        'energético',
+        'vitamina',
+        'bebida',
+        'drink'
+    ];
+    return liquidTerms.some((term) => name.includes(normalizeText(term)));
 }
 
 function normalizeFoodPortionRow(row) {
@@ -1527,8 +1708,9 @@ function getFallbackFoodPortions(foodLike = {}) {
     const baseQty = Math.max(0.1, parseDecimalSafe(food.base_qty) || 100);
     const foodId = String(food.id || '');
     const foodName = normalizeText(food.name || '');
-    if (baseUnit === 'ml') {
+    if (baseUnit === 'ml' || baseUnit === 'l') {
         addFallbackPortion(defaultPortions, foodId, { label: 'mililitro (ml)', amount: 1, unit_key: 'ml', base_qty_equivalent: 1, is_default: true, sort_order: 0 });
+        addFallbackPortion(defaultPortions, foodId, { label: 'litro (l)', amount: 1, unit_key: 'l', base_qty_equivalent: 1000, is_default: false, sort_order: 5 });
         addFallbackPortion(defaultPortions, foodId, { label: 'colher de chá', amount: 1, unit_key: 'tsp', base_qty_equivalent: 5, is_default: false, sort_order: 10 });
         addFallbackPortion(defaultPortions, foodId, { label: 'colher de sopa', amount: 1, unit_key: 'tbsp', base_qty_equivalent: 15, is_default: false, sort_order: 20 });
         addFallbackPortion(defaultPortions, foodId, { label: 'xícara', amount: 1, unit_key: 'cup', base_qty_equivalent: 240, is_default: false, sort_order: 30 });
@@ -1540,7 +1722,8 @@ function getFallbackFoodPortions(foodLike = {}) {
         addFallbackPortion(defaultPortions, foodId, { label: 'grama (g)', amount: 1, unit_key: 'g', base_qty_equivalent: 1, is_default: true, sort_order: 0 });
     }
 
-    if (foodName.includes('pao')) {
+    const sliceFriendlyTerms = ['pao', 'pão', 'pizza', 'bolo', 'torta', 'queijo', 'presunto', 'peito de peru', 'torrada'];
+    if (sliceFriendlyTerms.some((term) => foodName.includes(normalizeText(term)))) {
         addFallbackPortion(defaultPortions, foodId, {
             label: 'fatia',
             amount: 1,
@@ -1569,6 +1752,12 @@ function getFallbackFoodPortions(foodLike = {}) {
         addFallbackPortion(defaultPortions, foodId, { label: 'colher de sopa', amount: 1, unit_key: 'tbsp', base_qty_equivalent: 15, is_default: false, sort_order: 20 });
         addFallbackPortion(defaultPortions, foodId, { label: 'xícara', amount: 1, unit_key: 'cup', base_qty_equivalent: 160, is_default: false, sort_order: 25 });
         addFallbackPortion(defaultPortions, foodId, { label: 'concha', amount: 1, unit_key: 'ladle', base_qty_equivalent: 100, is_default: false, sort_order: 30 });
+    }
+
+    if (baseUnit === 'g' && isLikelyLiquidFoodName(food.name || '')) {
+        addFallbackPortion(defaultPortions, foodId, { label: 'mililitro (ml)', amount: 1, unit_key: 'ml', base_qty_equivalent: 1, is_default: false, sort_order: 8 });
+        addFallbackPortion(defaultPortions, foodId, { label: 'litro (l)', amount: 1, unit_key: 'l', base_qty_equivalent: 1000, is_default: false, sort_order: 9 });
+        addFallbackPortion(defaultPortions, foodId, { label: 'copo', amount: 1, unit_key: 'glass', base_qty_equivalent: 200, is_default: false, sort_order: 22 });
     }
 
     return defaultPortions.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
@@ -1696,10 +1885,10 @@ async function fetchFoodPortionsByFoodIds(foodIds = []) {
 }
 
 const BASELINE_FOOD_LIBRARY_SEED = [
-    { name: 'Arroz branco cozido', base_qty: 100, base_unit: 'g', kcal: 130, protein: 2.7, carb: 28.0, fat: 0.3, source: 'baseline' },
-    { name: 'Arroz integral cozido', base_qty: 100, base_unit: 'g', kcal: 124, protein: 2.6, carb: 25.8, fat: 1.0, source: 'baseline' },
-    { name: 'Feijao carioca cozido', base_qty: 100, base_unit: 'g', kcal: 76, protein: 4.8, carb: 13.6, fat: 0.5, source: 'baseline' },
-    { name: 'Feijao preto cozido', base_qty: 100, base_unit: 'g', kcal: 77, protein: 4.5, carb: 14.0, fat: 0.5, source: 'baseline' },
+    { name: 'Arroz branco cozido', base_qty: 100, base_unit: 'g', kcal: 128, protein: 2.5, carb: 28.1, fat: 0.2, source: 'baseline', family_key: 'rice', variant_key: 'white', variant_label: 'Branco' },
+    { name: 'Arroz integral cozido', base_qty: 100, base_unit: 'g', kcal: 124, protein: 2.6, carb: 25.8, fat: 1.0, source: 'baseline', family_key: 'rice', variant_key: 'brown', variant_label: 'Integral' },
+    { name: 'Feijao carioca cozido', base_qty: 100, base_unit: 'g', kcal: 76, protein: 4.8, carb: 13.6, fat: 0.5, source: 'baseline', family_key: 'beans', variant_key: 'carioca', variant_label: 'Carioca' },
+    { name: 'Feijao preto cozido', base_qty: 100, base_unit: 'g', kcal: 77, protein: 4.5, carb: 14.0, fat: 0.5, source: 'baseline', family_key: 'beans', variant_key: 'black', variant_label: 'Preto' },
     { name: 'Lentilha cozida', base_qty: 100, base_unit: 'g', kcal: 93, protein: 6.3, carb: 16.3, fat: 0.4, source: 'baseline' },
     { name: 'Grao de bico cozido', base_qty: 100, base_unit: 'g', kcal: 164, protein: 8.9, carb: 27.4, fat: 2.6, source: 'baseline' },
     { name: 'Macarrao cozido', base_qty: 100, base_unit: 'g', kcal: 157, protein: 5.8, carb: 30.9, fat: 0.9, source: 'baseline' },
@@ -1709,8 +1898,8 @@ const BASELINE_FOOD_LIBRARY_SEED = [
     { name: 'Inhame cozido', base_qty: 100, base_unit: 'g', kcal: 96, protein: 2.1, carb: 23.0, fat: 0.2, source: 'baseline' },
     { name: 'Aveia em flocos', base_qty: 100, base_unit: 'g', kcal: 394, protein: 13.9, carb: 66.6, fat: 8.5, source: 'baseline' },
     { name: 'Tapioca (goma)', base_qty: 100, base_unit: 'g', kcal: 331, protein: 0.6, carb: 82.0, fat: 0.2, source: 'baseline' },
-    { name: 'Pao frances', base_qty: 100, base_unit: 'g', kcal: 300, protein: 8.0, carb: 58.6, fat: 3.1, source: 'baseline' },
-    { name: 'Pao integral', base_qty: 100, base_unit: 'g', kcal: 253, protein: 9.4, carb: 43.0, fat: 3.4, source: 'baseline' },
+    { name: 'Pao frances', base_qty: 100, base_unit: 'g', kcal: 300, protein: 8.0, carb: 58.6, fat: 3.1, source: 'baseline', family_key: 'bread', variant_key: 'french', variant_label: 'Francês' },
+    { name: 'Pao integral', base_qty: 100, base_unit: 'g', kcal: 253, protein: 9.4, carb: 43.0, fat: 3.4, source: 'baseline', family_key: 'bread', variant_key: 'whole', variant_label: 'Integral' },
     { name: 'Torrada integral', base_qty: 100, base_unit: 'g', kcal: 418, protein: 12.0, carb: 72.0, fat: 8.0, source: 'baseline' },
     { name: 'Cuscuz nordestino cozido', base_qty: 100, base_unit: 'g', kcal: 112, protein: 2.2, carb: 25.3, fat: 0.7, source: 'baseline' },
     { name: 'Milho verde cozido', base_qty: 100, base_unit: 'g', kcal: 98, protein: 3.2, carb: 17.1, fat: 2.0, source: 'baseline' },
@@ -1726,9 +1915,22 @@ const BASELINE_FOOD_LIBRARY_SEED = [
     { name: 'Morango', base_qty: 100, base_unit: 'g', kcal: 30, protein: 0.9, carb: 6.8, fat: 0.3, source: 'baseline' },
     { name: 'Abacate', base_qty: 100, base_unit: 'g', kcal: 96, protein: 1.2, carb: 6.0, fat: 8.4, source: 'baseline' },
     { name: 'Manga', base_qty: 100, base_unit: 'g', kcal: 60, protein: 0.8, carb: 15.0, fat: 0.4, source: 'baseline' },
-    { name: 'Iogurte natural desnatado', base_qty: 100, base_unit: 'g', kcal: 42, protein: 3.8, carb: 5.2, fat: 0.1, source: 'baseline' },
-    { name: 'Leite desnatado', base_qty: 100, base_unit: 'ml', kcal: 34, protein: 3.4, carb: 4.9, fat: 0.1, source: 'baseline' },
-    { name: 'Leite integral', base_qty: 100, base_unit: 'ml', kcal: 61, protein: 3.2, carb: 4.7, fat: 3.3, source: 'baseline' },
+    { name: 'Iogurte natural', base_qty: 100, base_unit: 'g', kcal: 61, protein: 3.5, carb: 4.7, fat: 3.3, source: 'baseline', family_key: 'yogurt', variant_key: 'natural', variant_label: 'Natural' },
+    { name: 'Iogurte grego natural', base_qty: 100, base_unit: 'g', kcal: 97, protein: 9.0, carb: 4.0, fat: 5.0, source: 'baseline', family_key: 'yogurt', variant_key: 'greek', variant_label: 'Grego' },
+    { name: 'Iogurte natural desnatado', base_qty: 100, base_unit: 'g', kcal: 42, protein: 3.8, carb: 5.2, fat: 0.1, source: 'baseline', family_key: 'yogurt', variant_key: 'skim', variant_label: 'Desnatado' },
+    { name: 'Leite desnatado', base_qty: 100, base_unit: 'ml', kcal: 34, protein: 3.4, carb: 5.0, fat: 0.1, source: 'baseline', family_key: 'milk', variant_key: 'skim', variant_label: 'Desnatado' },
+    { name: 'Leite semidesnatado', base_qty: 100, base_unit: 'ml', kcal: 45, protein: 3.2, carb: 4.8, fat: 1.5, source: 'baseline', family_key: 'milk', variant_key: 'semi', variant_label: 'Semi' },
+    { name: 'Leite integral', base_qty: 100, base_unit: 'ml', kcal: 61, protein: 3.2, carb: 4.7, fat: 3.3, source: 'baseline', family_key: 'milk', variant_key: 'whole', variant_label: 'Integral' },
+    { name: 'Agua mineral sem gas', base_qty: 100, base_unit: 'ml', kcal: 0, protein: 0, carb: 0, fat: 0, source: 'baseline', family_key: 'water', variant_key: 'still', variant_label: 'Sem gás' },
+    { name: 'Agua mineral com gas', base_qty: 100, base_unit: 'ml', kcal: 0, protein: 0, carb: 0, fat: 0, source: 'baseline', family_key: 'water', variant_key: 'sparkling', variant_label: 'Com gás' },
+    { name: 'Refrigerante normal', base_qty: 100, base_unit: 'ml', kcal: 42, protein: 0, carb: 10.6, fat: 0, source: 'baseline', family_key: 'soda', variant_key: 'regular', variant_label: 'Normal' },
+    { name: 'Refrigerante zero', base_qty: 100, base_unit: 'ml', kcal: 1, protein: 0, carb: 0, fat: 0, source: 'baseline', family_key: 'soda', variant_key: 'zero', variant_label: 'Zero' },
+    { name: 'Suco de laranja natural', base_qty: 100, base_unit: 'ml', kcal: 45, protein: 0.7, carb: 10.4, fat: 0.2, source: 'baseline', family_key: 'juice', variant_key: 'natural', variant_label: 'Natural' },
+    { name: 'Suco integral de uva', base_qty: 100, base_unit: 'ml', kcal: 60, protein: 0.4, carb: 14.5, fat: 0.1, source: 'baseline', family_key: 'juice', variant_key: 'integral', variant_label: 'Integral' },
+    { name: 'Suco zero', base_qty: 100, base_unit: 'ml', kcal: 2, protein: 0, carb: 0, fat: 0, source: 'baseline', family_key: 'juice', variant_key: 'zero', variant_label: 'Zero' },
+    { name: 'Cafe sem acucar', base_qty: 100, base_unit: 'ml', kcal: 2, protein: 0.3, carb: 0, fat: 0, source: 'baseline', family_key: 'hot_drink', variant_key: 'coffee_black', variant_label: 'Café sem açúcar' },
+    { name: 'Cafe com leite', base_qty: 100, base_unit: 'ml', kcal: 41, protein: 2.0, carb: 4.0, fat: 1.5, source: 'baseline', family_key: 'hot_drink', variant_key: 'coffee_milk', variant_label: 'Café com leite' },
+    { name: 'Cha sem acucar', base_qty: 100, base_unit: 'ml', kcal: 1, protein: 0, carb: 0.2, fat: 0, source: 'baseline', family_key: 'hot_drink', variant_key: 'tea_unsweetened', variant_label: 'Chá sem açúcar' },
     { name: 'Whey protein concentrado', base_qty: 30, base_unit: 'g', kcal: 120, protein: 23.0, carb: 3.0, fat: 2.0, source: 'baseline' },
     { name: 'Ovo cozido', base_qty: 100, base_unit: 'g', kcal: 155, protein: 13.0, carb: 1.1, fat: 11.0, source: 'baseline' },
     { name: 'Ovo mexido', base_qty: 100, base_unit: 'g', kcal: 167, protein: 11.0, carb: 1.6, fat: 12.3, source: 'baseline' },
@@ -1740,10 +1942,10 @@ const BASELINE_FOOD_LIBRARY_SEED = [
     { name: 'Sardinha em lata', base_qty: 100, base_unit: 'g', kcal: 208, protein: 24.0, carb: 0.0, fat: 11.0, source: 'baseline' },
     { name: 'Atum em agua', base_qty: 100, base_unit: 'g', kcal: 116, protein: 25.0, carb: 0.0, fat: 1.0, source: 'baseline' },
     { name: 'Salmao grelhado', base_qty: 100, base_unit: 'g', kcal: 206, protein: 22.0, carb: 0.0, fat: 12.0, source: 'baseline' },
-    { name: 'Queijo minas frescal', base_qty: 100, base_unit: 'g', kcal: 264, protein: 17.0, carb: 3.2, fat: 20.0, source: 'baseline' },
-    { name: 'Queijo muçarela', base_qty: 100, base_unit: 'g', kcal: 300, protein: 22.6, carb: 3.0, fat: 22.0, source: 'baseline' },
+    { name: 'Queijo minas frescal', base_qty: 100, base_unit: 'g', kcal: 264, protein: 17.0, carb: 3.2, fat: 20.0, source: 'baseline', family_key: 'cheese', variant_key: 'minas', variant_label: 'Minas' },
+    { name: 'Queijo muçarela', base_qty: 100, base_unit: 'g', kcal: 300, protein: 22.6, carb: 3.0, fat: 22.0, source: 'baseline', family_key: 'cheese', variant_key: 'mozzarella', variant_label: 'Muçarela' },
     { name: 'Ricota', base_qty: 100, base_unit: 'g', kcal: 140, protein: 11.0, carb: 3.0, fat: 8.0, source: 'baseline' },
-    { name: 'Cottage', base_qty: 100, base_unit: 'g', kcal: 98, protein: 11.0, carb: 3.4, fat: 4.3, source: 'baseline' },
+    { name: 'Cottage', base_qty: 100, base_unit: 'g', kcal: 98, protein: 11.0, carb: 3.4, fat: 4.3, source: 'baseline', family_key: 'cheese', variant_key: 'cottage', variant_label: 'Cottage' },
     { name: 'Peito de peru', base_qty: 100, base_unit: 'g', kcal: 95, protein: 16.0, carb: 2.0, fat: 2.0, source: 'baseline' },
     { name: 'Tofu firme', base_qty: 100, base_unit: 'g', kcal: 76, protein: 8.0, carb: 1.9, fat: 4.8, source: 'baseline' },
     { name: 'Azeite de oliva', base_qty: 100, base_unit: 'ml', kcal: 884, protein: 0.0, carb: 0.0, fat: 100.0, source: 'baseline' },
@@ -3684,6 +3886,32 @@ function setAuthInlineFeedback(elementId, message = '', type = 'info') {
     return true;
 }
 
+function getSupabaseUnavailableMessage(mode = 'login') {
+    const status = window.__SUPABASE_STATUS__ || {};
+    const isSignup = mode === 'signup';
+    const actionLabel = isSignup ? 'Cadastro' : 'Login';
+    const defaultMessage = `${actionLabel} indisponivel. Configure o Supabase primeiro.`;
+    const reason = String(status.reason || '').toLowerCase();
+
+    if (reason === 'missing_config') {
+        return `${actionLabel} indisponivel. Crie o arquivo public/app-config.js com supabaseUrl e supabaseAnonKey.`;
+    }
+    if (reason === 'missing_url') {
+        return `${actionLabel} indisponivel. Defina supabaseUrl no arquivo public/app-config.js.`;
+    }
+    if (reason === 'invalid_url') {
+        return `${actionLabel} indisponivel. A supabaseUrl esta invalida no public/app-config.js.`;
+    }
+    if (reason === 'missing_anon_key') {
+        return `${actionLabel} indisponivel. Defina supabaseAnonKey no arquivo public/app-config.js.`;
+    }
+    if (reason === 'sdk_missing') {
+        return `${actionLabel} indisponivel. O SDK do Supabase nao carregou corretamente.`;
+    }
+
+    return defaultMessage;
+}
+
 function setAuthSubmitLoading(config = {}, isLoading = false) {
     const button = document.getElementById(config.buttonId || '');
     if (!button) return;
@@ -3828,7 +4056,7 @@ async function handleEmailLogin() {
     }
 
     if (typeof window.supabase?.auth?.signInWithPassword !== 'function') {
-        showLoginFeedback('Login indisponivel. Configure o Supabase primeiro.', 'error');
+        showLoginFeedback(getSupabaseUnavailableMessage('login'), 'error');
         return;
     }
 
@@ -4059,7 +4287,7 @@ async function handleProfileCreation() {
     }
 
     if (typeof window.supabase?.auth?.signUp !== 'function') {
-        showSignupFeedback('Cadastro indisponivel. Configure o Supabase primeiro.', 'error');
+        showSignupFeedback(getSupabaseUnavailableMessage('signup'), 'error');
         return;
     }
 
@@ -6155,19 +6383,32 @@ function computeDietConsumedMacros(baseItem, logEntry) {
     }
 
     const base = getDietItemBaseMacros(baseItem);
+    const hasLogFoodOverride = !!(
+        logEntry?.foodId
+        || logEntry?.name
+        || logEntry?.familyKey
+        || logEntry?.family_key
+        || logEntry?.variantKey
+        || logEntry?.variant_key
+    );
     const parsedQty = parseAmountAndUnit(logEntry?.qty || '', logEntry?.unitKey || logEntry?.unit_key || baseItem?.unitKey || baseItem?.baseUnit || baseItem?.base_unit || 'g');
     const amount = Math.max(0.1, parseDecimalSafe(logEntry?.amount) || parsedQty.amount || parseDecimalSafe(baseItem?.amount) || parseQuantityNumeric(baseItem?.qtd) || 1);
     const unitKey = normalizeFoodUnitKey(logEntry?.unitKey || logEntry?.unit_key || parsedQty.unit || baseItem?.unitKey || baseItem?.baseUnit || baseItem?.base_unit || 'g');
-    const foodFromCache = (foodCatalogCache || []).find((item) => String(item.id || '') === String(baseItem?.foodId || ''));
+    const overrideFoodId = String(logEntry?.foodId || '').trim();
+    const baseFoodId = String(baseItem?.foodId || '').trim();
+    const foodFromCache = (foodCatalogCache || []).find((item) => String(item.id || '') === (overrideFoodId || baseFoodId));
     const foodPayload = {
-        id: baseItem?.foodId || '',
-        name: baseItem?.nome || baseItem?.name || foodFromCache?.name || 'Alimento',
-        base_qty: Math.max(0.1, parseDecimalSafe(baseItem?.baseQty) || parseQuantityNumeric(baseItem?.qtd) || 1),
-        base_unit: normalizeFoodUnitKey(baseItem?.baseUnit || baseItem?.base_unit || foodFromCache?.base_unit || 'g'),
-        kcal: base.kcal,
-        protein: base.prot,
-        carb: base.carb,
-        fat: base.gord,
+        id: overrideFoodId || baseFoodId,
+        name: logEntry?.name || baseItem?.nome || baseItem?.name || foodFromCache?.name || 'Alimento',
+        base_qty: Math.max(0.1, parseDecimalSafe(logEntry?.baseQty || logEntry?.base_qty || baseItem?.baseQty) || parseQuantityNumeric(baseItem?.qtd) || 1),
+        base_unit: normalizeFoodUnitKey(logEntry?.baseUnit || logEntry?.base_unit || baseItem?.baseUnit || baseItem?.base_unit || foodFromCache?.base_unit || 'g'),
+        kcal: hasLogFoodOverride ? parseDecimalSafe(logEntry?.kcal) || base.kcal : base.kcal,
+        protein: hasLogFoodOverride ? parseDecimalSafe(logEntry?.prot || logEntry?.protein) || base.prot : base.prot,
+        carb: hasLogFoodOverride ? parseDecimalSafe(logEntry?.carb) || base.carb : base.carb,
+        fat: hasLogFoodOverride ? parseDecimalSafe(logEntry?.gord || logEntry?.fat) || base.gord : base.gord,
+        family_key: logEntry?.familyKey || logEntry?.family_key || baseItem?.familyKey || baseItem?.family_key || foodFromCache?.family_key || '',
+        variant_key: logEntry?.variantKey || logEntry?.variant_key || baseItem?.variantKey || baseItem?.variant_key || foodFromCache?.variant_key || '',
+        variant_label: logEntry?.variantLabel || logEntry?.variant_label || baseItem?.variantLabel || baseItem?.variant_label || foodFromCache?.variant_label || '',
         portions: getFoodPortions(foodFromCache || baseItem || {})
     };
     const calc = computeMacrosByAmount(foodPayload, amount, unitKey, logEntry?.portionId || logEntry?.portion_id || baseItem?.portionId || baseItem?.portion_id || '');
@@ -7938,6 +8179,8 @@ let foodDetailsState = {
     mealIdx: null,
     itemIdx: null,
     food: null,
+    variantCandidates: [],
+    selectedVariantId: '',
     amount: 1,
     unitKey: 'g',
     portionId: '',
@@ -7959,11 +8202,43 @@ function resolveFoodReferenceForItem(item = {}) {
         carb: parseDecimalSafe(item.carb) || parseDecimalSafe(cacheMatch?.carb),
         fat: parseDecimalSafe(item.gord || item.fat) || parseDecimalSafe(cacheMatch?.fat),
         source: item.source || cacheMatch?.source || 'manual',
+        family_key: item.familyKey || item.family_key || cacheMatch?.family_key || '',
+        variant_key: item.variantKey || item.variant_key || cacheMatch?.variant_key || '',
+        variant_label: item.variantLabel || item.variant_label || cacheMatch?.variant_label || '',
         portions: Array.isArray(item.portions) && item.portions.length
             ? item.portions
             : (cacheMatch?.portions || [])
     };
     return normalizeFoodCatalogRow(cacheMatch ? { ...cacheMatch, ...fallback } : fallback);
+}
+
+function getFoodVariantCandidates(foodLike = {}) {
+    const normalized = normalizeFoodCatalogRow(foodLike);
+    if (!normalized) return [];
+    const familyKey = String(normalized.family_key || '').trim();
+    if (!familyKey) return [normalized];
+
+    const familyDefinition = FOOD_VARIANT_FAMILIES[familyKey] || null;
+    const fromCatalog = getEffectiveFoodCatalog()
+        .filter((item) => String(item.family_key || '') === familyKey)
+        .map(normalizeFoodCatalogRow)
+        .filter(Boolean);
+    const candidateList = [...fromCatalog, normalized];
+    const dedup = new Map();
+    candidateList.forEach((item) => {
+        const key = String(item.variant_key || item.id || item.name || '').trim().toLowerCase() || String(item.id || '').trim();
+        if (!key || dedup.has(key)) return;
+        dedup.set(key, item);
+    });
+    const candidates = Array.from(dedup.values());
+    if (!familyDefinition?.order?.length) return candidates;
+    return candidates.sort((a, b) => {
+        const aIndex = familyDefinition.order.indexOf(a.variant_key || '');
+        const bIndex = familyDefinition.order.indexOf(b.variant_key || '');
+        const safeA = aIndex >= 0 ? aIndex : 99;
+        const safeB = bIndex >= 0 ? bIndex : 99;
+        return safeA - safeB;
+    });
 }
 
 function ensureFoodDetailsModal() {
@@ -8001,6 +8276,10 @@ function ensureFoodDetailsModal() {
                 <label>Medida</label>
                 <select id="food-details-unit" class="diet-modern-input" onchange="selectFoodDetailsPortion(this.value)"></select>
             </div>
+            <div class="food-details-field" id="food-details-variant-field" style="display:none;">
+                <label>Tipo do alimento</label>
+                <select id="food-details-variant" class="diet-modern-input" onchange="selectFoodDetailsVariant(this.value)"></select>
+            </div>
             <div id="food-details-base" class="food-details-base"></div>
             <div id="food-details-qty" class="food-details-qty"></div>
             <div id="food-details-preview" class="food-details-preview"></div>
@@ -8033,7 +8312,12 @@ function handleFoodDetailsKeydown(event) {
 function openFoodDetailsModal(state = {}) {
     const food = resolveFoodReferenceForItem(state.food || {});
     if (!food) return;
-    const portions = getFoodPortions(food);
+    const variantCandidates = getFoodVariantCandidates(food);
+    const selectedVariant = variantCandidates.find((candidate) =>
+        String(candidate.id || '') === String(food.id || '')
+        || (candidate.variant_key && String(candidate.variant_key) === String(food.variant_key || ''))
+    ) || food;
+    const portions = getFoodPortions(selectedVariant);
     const parsedQty = parseAmountAndUnit(state.qty || '', state.unitKey || food.base_unit || 'g');
     const initialAmount = Math.max(0.1, parseDecimalSafe(state.amount) || parsedQty.amount || parseDecimalSafe(portions[0]?.amount) || 1);
     let selectedPortionIndex = portions.findIndex((portion) => String(portion.id || '') === String(state.portionId || ''));
@@ -8048,7 +8332,9 @@ function openFoodDetailsModal(state = {}) {
         mode: state.mode || 'student',
         mealIdx: Number.isFinite(Number(state.mealIdx)) ? Number(state.mealIdx) : null,
         itemIdx: Number.isFinite(Number(state.itemIdx)) ? Number(state.itemIdx) : null,
-        food,
+        food: selectedVariant,
+        variantCandidates,
+        selectedVariantId: String(selectedVariant.id || selectedVariant.variant_key || ''),
         portions,
         selectedPortionIndex,
         amount: initialAmount,
@@ -8066,10 +8352,12 @@ function renderFoodDetailsModal() {
     const subtitle = document.getElementById('food-details-subtitle');
     const amountInput = document.getElementById('food-details-amount');
     const unitSelect = document.getElementById('food-details-unit');
+    const variantField = document.getElementById('food-details-variant-field');
+    const variantSelect = document.getElementById('food-details-variant');
     const baseEl = document.getElementById('food-details-base');
     const qtyEl = document.getElementById('food-details-qty');
     const preview = document.getElementById('food-details-preview');
-    if (!overlay || !title || !subtitle || !amountInput || !unitSelect || !baseEl || !qtyEl || !preview) return;
+    if (!overlay || !title || !subtitle || !amountInput || !unitSelect || !baseEl || !qtyEl || !preview || !variantField || !variantSelect) return;
 
     overlay.classList.toggle('active', !!foodDetailsState.open);
     document.body.classList.toggle('food-details-open', !!foodDetailsState.open);
@@ -8081,6 +8369,25 @@ function renderFoodDetailsModal() {
     const selectedPortion = portions[selectedIndex] || portions[0] || null;
     title.textContent = foodDetailsState.mode === 'trainer' ? 'Editar alimento do plano' : 'Ajustar consumo do alimento';
     subtitle.textContent = `${food.name || 'Alimento'}${food.brand ? ` · ${food.brand}` : ''}`;
+
+    const variantCandidates = Array.isArray(foodDetailsState.variantCandidates) ? foodDetailsState.variantCandidates : [];
+    if (variantCandidates.length > 1) {
+        variantField.style.display = 'grid';
+        variantSelect.innerHTML = variantCandidates.map((candidate) => {
+            const family = FOOD_VARIANT_FAMILIES[candidate.family_key] || null;
+            const typeLabel = candidate.variant_label
+                || getFoodVariantLabel(candidate.family_key || '', candidate.variant_key || '')
+                || candidate.name;
+            const familyPrefix = family?.label ? `${family.label} · ` : '';
+            const optionLabel = `${familyPrefix}${typeLabel}`;
+            const optionValue = String(candidate.id || candidate.variant_key || candidate.name);
+            const isSelected = optionValue === String(foodDetailsState.selectedVariantId || '');
+            return `<option value="${escHtml(optionValue)}" ${isSelected ? 'selected' : ''}>${escHtml(optionLabel)}</option>`;
+        }).join('');
+    } else {
+        variantField.style.display = 'none';
+        variantSelect.innerHTML = '';
+    }
 
     amountInput.value = String(Math.max(0.1, parseDecimalSafe(foodDetailsState.amount) || 1));
     unitSelect.innerHTML = portions.map((portion, index) => {
@@ -8135,6 +8442,50 @@ function selectFoodDetailsPortion(indexValue) {
     renderFoodDetailsModal();
 }
 
+function selectFoodDetailsVariant(variantValue) {
+    const candidates = Array.isArray(foodDetailsState.variantCandidates) ? foodDetailsState.variantCandidates : [];
+    if (!candidates.length) return;
+    const selected = candidates.find((candidate) =>
+        String(candidate.id || candidate.variant_key || candidate.name) === String(variantValue || '')
+    );
+    if (!selected) return;
+
+    const currentResolved = resolveFoodQuantity(
+        foodDetailsState.food || {},
+        foodDetailsState.amount,
+        foodDetailsState.unitKey,
+        foodDetailsState.portionId
+    );
+    const targetFood = normalizeFoodCatalogRow(selected) || selected;
+    const targetPortions = getFoodPortions(targetFood);
+    const fallbackPortion = targetPortions.find((portion) => normalizeFoodUnitKey(portion.unit_key || '') === normalizeFoodUnitKey(foodDetailsState.unitKey || ''))
+        || targetPortions.find((portion) => !!portion.is_default)
+        || targetPortions[0]
+        || null;
+
+    let nextAmount = Math.max(0.1, parseDecimalSafe(foodDetailsState.amount) || 1);
+    let nextUnitKey = normalizeFoodUnitKey(foodDetailsState.unitKey || targetFood.base_unit || 'g');
+    let nextPortionId = '';
+    if (fallbackPortion) {
+        const equivalentPerAmount = Math.max(0.0001, parseDecimalSafe(fallbackPortion.base_qty_equivalent) || 1)
+            / Math.max(0.0001, parseDecimalSafe(fallbackPortion.amount) || 1);
+        nextAmount = Math.max(0.1, Math.round((Math.max(0.1, parseDecimalSafe(currentResolved.baseEquivalent) || 1) / equivalentPerAmount) * 10) / 10);
+        nextUnitKey = normalizeFoodUnitKey(fallbackPortion.unit_key || targetFood.base_unit || nextUnitKey);
+        nextPortionId = String(fallbackPortion.id || '');
+    }
+
+    foodDetailsState.food = targetFood;
+    foodDetailsState.selectedVariantId = String(targetFood.id || targetFood.variant_key || targetFood.name || '');
+    foodDetailsState.portions = targetPortions;
+    foodDetailsState.selectedPortionIndex = fallbackPortion
+        ? Math.max(0, targetPortions.findIndex((portion) => String(portion.id || '') === String(fallbackPortion.id || '')))
+        : 0;
+    foodDetailsState.amount = nextAmount;
+    foodDetailsState.unitKey = nextUnitKey;
+    foodDetailsState.portionId = nextPortionId;
+    renderFoodDetailsModal();
+}
+
 function updateFoodDetailsAmount(value) {
     const next = Math.max(0.1, parseDecimalSafe(value) || 0.1);
     foodDetailsState.amount = next;
@@ -8175,7 +8526,20 @@ function openFoodDetailsFromStudentItem(mealIdx, itemIdx) {
         mode: 'student',
         mealIdx,
         itemIdx,
-        food: item,
+        food: {
+            ...item,
+            foodId: logItem.foodId || item.foodId || '',
+            name: logItem.name || item.nome || item.name || '',
+            baseQty: logItem.baseQty || logItem.base_qty || item.baseQty || item.base_qty || 100,
+            baseUnit: logItem.baseUnit || logItem.base_unit || item.baseUnit || item.base_unit || 'g',
+            kcal: logItem.kcal || item.kcal || 0,
+            prot: logItem.prot || logItem.protein || item.prot || item.protein || 0,
+            carb: logItem.carb || item.carb || 0,
+            gord: logItem.gord || logItem.fat || item.gord || item.fat || 0,
+            familyKey: logItem.familyKey || logItem.family_key || item.familyKey || item.family_key || '',
+            variantKey: logItem.variantKey || logItem.variant_key || item.variantKey || item.variant_key || '',
+            variantLabel: logItem.variantLabel || logItem.variant_label || item.variantLabel || item.variant_label || ''
+        },
         amount: parseDecimalSafe(logItem.amount) || parseAmountAndUnit(logItem.qty || item.qtd || '', logItem.unitKey || item.unitKey || item.baseUnit || 'g').amount || 1,
         unitKey: logItem.unitKey || parseAmountAndUnit(logItem.qty || item.qtd || '', item.unitKey || item.baseUnit || 'g').unit || item.unitKey || item.baseUnit || 'g',
         portionId: logItem.portionId || item.portionId || '',
@@ -8194,14 +8558,19 @@ function confirmFoodDetailsModal() {
         const item = meal?.items?.[foodDetailsState.itemIdx];
         if (!item) return;
         item.qtd = qtyText;
+        item.nome = food.name || item.nome;
         item.kcal = calc.kcal;
         item.prot = calc.protein;
         item.carb = calc.carb;
         item.gord = calc.fat;
-        item.foodId = item.foodId || food.id || '';
+        item.foodId = food.id || item.foodId || '';
         item.baseQty = Math.max(0.1, parseDecimalSafe(food.base_qty) || parseDecimalSafe(item.baseQty) || 100);
         item.baseUnit = normalizeFoodUnitKey(food.base_unit || item.baseUnit || 'g');
         item.source = food.source || item.source || 'catalog';
+        item.familyKey = food.family_key || item.familyKey || '';
+        item.variantKey = food.variant_key || item.variantKey || '';
+        item.variantLabel = food.variant_label || item.variantLabel || '';
+        item.portions = getFoodPortions(food);
         item.amount = calc.amount;
         item.unitKey = calc.unit_key;
         item.portionId = calc.portion_id || '';
@@ -8220,6 +8589,17 @@ function confirmFoodDetailsModal() {
         logItem.unitKey = calc.unit_key;
         logItem.portionId = calc.portion_id || '';
         logItem.portionLabel = calc.portion_label || '';
+        logItem.foodId = food.id || '';
+        logItem.name = food.name || '';
+        logItem.baseQty = Math.max(0.1, parseDecimalSafe(food.base_qty) || 100);
+        logItem.baseUnit = normalizeFoodUnitKey(food.base_unit || 'g');
+        logItem.kcal = parseDecimalSafe(food.kcal) || 0;
+        logItem.prot = parseDecimalSafe(food.protein) || 0;
+        logItem.carb = parseDecimalSafe(food.carb) || 0;
+        logItem.gord = parseDecimalSafe(food.fat) || 0;
+        logItem.familyKey = food.family_key || '';
+        logItem.variantKey = food.variant_key || '';
+        logItem.variantLabel = food.variant_label || '';
     });
     closeFoodDetailsModal();
 }
@@ -13362,6 +13742,9 @@ function renderSimpleFoodLibrary(query = '') {
         base_qty: item.base_qty,
         base_unit: item.base_unit,
         foodId: item.id,
+        family_key: item.family_key || '',
+        variant_key: item.variant_key || '',
+        variant_label: item.variant_label || '',
         source: item.source || 'catalog',
         portions: getFoodPortions(item)
     }));
@@ -13453,6 +13836,9 @@ function searchFoodAPI(query) {
                     base_qty: item.base_qty,
                     base_unit: item.base_unit,
                     foodId: item.id,
+                    family_key: item.family_key || '',
+                    variant_key: item.variant_key || '',
+                    variant_label: item.variant_label || '',
                     source: item.source || 'catalog',
                     portions: getFoodPortions(item)
                 }));
@@ -13468,6 +13854,8 @@ function searchFoodAPI(query) {
                     foodModalSearchLabel = 'Open Food Facts';
                     foodModalSearchBaseResults = data.products.map((p) => {
                         const name = p.product_name || 'Desconhecido';
+                        const inferredBaseUnit = isLikelyLiquidFoodName(name) ? 'ml' : 'g';
+                        const inferredFamily = inferFoodFamilyKey(name, inferredBaseUnit);
                         return {
                             nome: name,
                             brand: p.brands || '',
@@ -13476,9 +13864,12 @@ function searchFoodAPI(query) {
                             carb: p.nutriments?.carbohydrates_100g || 0,
                             fat: p.nutriments?.fat_100g || 0,
                             base_qty: 100,
-                            base_unit: 'g',
+                            base_unit: inferredBaseUnit,
+                            family_key: inferredFamily,
+                            variant_key: inferFoodVariantKey(inferredFamily, name),
+                            variant_label: '',
                             source: 'openfoodfacts',
-                            portions: getFallbackFoodPortions({ id: '', name, base_unit: 'g' })
+                            portions: getFallbackFoodPortions({ id: '', name, base_unit: inferredBaseUnit })
                         };
                     });
                     applyFoodModalFiltersAndRender();
@@ -13506,6 +13897,9 @@ function selectFoodFromAPI(data) {
         nome: data.nome,
         brand: data.brand || '',
         foodId: data.foodId || '',
+        family_key: data.family_key || '',
+        variant_key: data.variant_key || '',
+        variant_label: data.variant_label || '',
         source: data.source || 'manual',
         base_qty: baseQty,
         base_unit: baseUnit,
@@ -13588,6 +13982,9 @@ async function saveCurrentFoodToCatalog() {
             nome: inserted.name,
             brand: inserted.brand || '',
             foodId: inserted.id,
+            family_key: inserted.family_key || '',
+            variant_key: inserted.variant_key || '',
+            variant_label: inserted.variant_label || '',
             source: inserted.source || 'manual',
             base_qty: inserted.base_qty,
             base_unit: inserted.base_unit,
@@ -13678,6 +14075,9 @@ function buildFoodModalItemPayload() {
         baseQty: selectedFoodReference?.base_qty || amount || 100,
         baseUnit: normalizeFoodUnitKey(selectedFoodReference?.base_unit || unitKey || 'g'),
         source: selectedFoodReference?.source || 'manual',
+        familyKey: selectedFoodReference?.family_key || '',
+        variantKey: selectedFoodReference?.variant_key || '',
+        variantLabel: selectedFoodReference?.variant_label || '',
         amount,
         unitKey,
         portionId: String(selectedFoodReference?.selectedPortionId || ''),

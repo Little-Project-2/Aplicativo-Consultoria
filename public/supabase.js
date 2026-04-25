@@ -5,6 +5,34 @@ const appConfig = window.__APP_CONFIG__ || {};
 const supabaseUrl = String(appConfig.supabaseUrl || '').trim();
 const supabaseKey = String(appConfig.supabaseAnonKey || '').trim();
 
+const supabaseStatus = {
+    ready: false,
+    reason: 'unknown',
+    message: '',
+    details: {
+        hasConfigObject: !!window.__APP_CONFIG__,
+        hasUrl: !!supabaseUrl,
+        hasAnonKey: !!supabaseKey
+    }
+};
+
+function setSupabaseStatus(reason, message) {
+    supabaseStatus.ready = reason === 'ok';
+    supabaseStatus.reason = reason;
+    supabaseStatus.message = message;
+    window.__SUPABASE_STATUS__ = supabaseStatus;
+}
+
+function isLikelyValidSupabaseUrl(value) {
+    if (!value) return false;
+    try {
+        const parsed = new URL(value);
+        return (parsed.protocol === 'https:' || parsed.protocol === 'http:') && !!parsed.hostname;
+    } catch (err) {
+        return false;
+    }
+}
+
 // Supabase.createClient e injetado globalmente pela CDN
 const supabaseStorage = (() => {
     const memoryStore = new Map();
@@ -46,17 +74,41 @@ const supabaseStorage = (() => {
 const supabaseFactory = window.supabase;
 let supabaseClient = null;
 
-if (!supabaseUrl || !supabaseKey) {
-    console.warn('Supabase indisponivel: configure window.__APP_CONFIG__.supabaseUrl e supabaseAnonKey.');
+if (!window.__APP_CONFIG__) {
+    const message = 'Supabase indisponivel: arquivo de configuracao ausente (public/app-config.js).';
+    console.warn(message);
+    setSupabaseStatus('missing_config', message);
+} else if (!supabaseUrl) {
+    const message = 'Supabase indisponivel: supabaseUrl nao foi configurada em window.__APP_CONFIG__.';
+    console.warn(message);
+    setSupabaseStatus('missing_url', message);
+} else if (!isLikelyValidSupabaseUrl(supabaseUrl)) {
+    const message = 'Supabase indisponivel: supabaseUrl invalida. Use uma URL completa (https://...).';
+    console.warn(message);
+    setSupabaseStatus('invalid_url', message);
+} else if (!supabaseKey) {
+    const message = 'Supabase indisponivel: supabaseAnonKey nao foi configurada em window.__APP_CONFIG__.';
+    console.warn(message);
+    setSupabaseStatus('missing_anon_key', message);
+} else if (!supabaseFactory || typeof supabaseFactory.createClient !== 'function') {
+    const message = 'Supabase indisponivel: SDK do Supabase nao foi carregado antes da inicializacao.';
+    console.warn(message);
+    setSupabaseStatus('sdk_missing', message);
 } else if (supabaseFactory && typeof supabaseFactory.createClient === 'function') {
-    supabaseClient = supabaseFactory.createClient(supabaseUrl, supabaseKey, {
-        auth: {
-            persistSession: true,
-            autoRefreshToken: true,
-            detectSessionInUrl: true,
-            storage: supabaseStorage
-        }
-    });
+    try {
+        supabaseClient = supabaseFactory.createClient(supabaseUrl, supabaseKey, {
+            auth: {
+                persistSession: true,
+                autoRefreshToken: true,
+                detectSessionInUrl: true,
+                storage: supabaseStorage
+            }
+        });
+    } catch (error) {
+        const message = `Supabase indisponivel: falha ao criar cliente (${error?.message || 'erro desconhecido'}).`;
+        console.warn(message);
+        setSupabaseStatus('init_failed', message);
+    }
 } else if (window.supabase && typeof window.supabase.from === 'function') {
     // Ja existe uma instancia ativa (carregamento duplicado).
     supabaseClient = window.supabase;
@@ -65,7 +117,12 @@ if (!supabaseUrl || !supabaseKey) {
 window.supabase = supabaseClient;
 
 if (!supabaseClient) {
-    console.warn('Supabase indisponivel: cliente nao inicializado.');
+    if (supabaseStatus.reason === 'unknown') {
+        const message = 'Supabase indisponivel: cliente nao inicializado.';
+        console.warn(message);
+        setSupabaseStatus('client_not_initialized', message);
+    }
 } else {
+    setSupabaseStatus('ok', 'Supabase inicializado com sucesso.');
     console.log('Supabase inicializado com sucesso!', window.supabase);
 }

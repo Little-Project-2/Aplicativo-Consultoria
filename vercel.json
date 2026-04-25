@@ -1,5 +1,5 @@
 {
-  "buildCommand": "echo \"skip build\"",
+  "buildCommand": "npm run generate:app-config",
   "outputDirectory": "public",
   "routes": [
     { "handle": "filesystem" },
