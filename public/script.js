@@ -27,6 +27,41 @@ function activateScreen(screenId, options = {}) {
     return true;
 }
 
+const MOBILE_DASHBOARD_BREAKPOINT = 900;
+const MOBILE_DASHBOARD_COARSE_MAX_WIDTH = 1100;
+let mobileDashboardModeRaf = 0;
+
+function isMobileDashboardMode() {
+    const width = Number(window.innerWidth || 0);
+    const screenWidth = Number(window.screen?.width || width || 0);
+    const narrowByWidth = width > 0 ? width <= MOBILE_DASHBOARD_BREAKPOINT : false;
+    const hasCoarsePointer = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    const coarseWidthAllowed = Math.min(width || screenWidth, screenWidth || width) <= MOBILE_DASHBOARD_COARSE_MAX_WIDTH;
+    return narrowByWidth || (hasCoarsePointer && coarseWidthAllowed);
+}
+
+function applyMobileDashboardMode(force = false) {
+    const body = document.body;
+    if (!body) return false;
+    const nextMode = isMobileDashboardMode();
+    const prevMode = body.classList.contains('mobile-dashboard-mode');
+    if (nextMode) body.classList.add('mobile-dashboard-mode');
+    else body.classList.remove('mobile-dashboard-mode');
+    return force ? nextMode : (nextMode !== prevMode ? nextMode : prevMode);
+}
+
+function scheduleApplyMobileDashboardMode() {
+    if (mobileDashboardModeRaf) cancelAnimationFrame(mobileDashboardModeRaf);
+    mobileDashboardModeRaf = requestAnimationFrame(() => {
+        mobileDashboardModeRaf = 0;
+        applyMobileDashboardMode();
+    });
+}
+
+window.addEventListener('resize', scheduleApplyMobileDashboardMode, { passive: true });
+window.addEventListener('orientationchange', scheduleApplyMobileDashboardMode);
+window.addEventListener('pageshow', () => applyMobileDashboardMode());
+
 
 const appStorage = (() => {
     const memoryStore = new Map();
@@ -120,6 +155,13 @@ let profileSetupState = {
     ctaUrl: '',
     headline: ''
 };
+let currentTrainerIdentity = null;
+let trainerProfileDraftMedia = { profilePhoto: '', profileCover: '', brandLogo: '' };
+let trainerProfileDraftSpecialties = [];
+let trainerProfileDraftBaseSnapshot = '';
+let trainerProfileDraftDirty = false;
+let trainerProfileDraftHasRemoteError = false;
+let trainerProfileStudioSyncLock = false;
 
 function getMigrationDoneKey(userId = '') {
     const safeId = String(userId || '').trim();
@@ -185,6 +227,7 @@ function extractExplicitRoles(rolesLike, legacyRole = '') {
 function clearAuthRuntimeContext() {
     authLastProcessedUserId = '';
     suppressSignedOutRedirectToHome = false;
+    currentTrainerIdentity = null;
     memoryRemoveItem('currentUserId');
     memoryRemoveItem('currentUserEmail');
     memoryRemoveItem('currentUserName');
@@ -1281,6 +1324,9 @@ const MAX_STUDENT_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_STUDENT_VIDEO_BYTES = 30 * 1024 * 1024;
 
 let supabaseStudentsSyncTimer = null;
+let batchedStudentsSyncTimer = null;
+let batchedStudentsSyncPayload = null;
+const BATCHED_STUDENTS_SYNC_DEFAULT_DELAY_MS = 2200;
 let supabaseFoodsChannel = null;
 let supabaseFoodsSyncTimer = null;
 let foodCatalogCache = [];
@@ -2585,6 +2631,169 @@ async function ensureTrainerExistsRemote(code, fallbackName = 'Treinador', fallb
     return row;
 }
 
+function getTrainerServicesLabel(value = '') {
+    const serviceMap = { treino: 'Treino', dieta: 'Nutrição', ambos: 'Treino + Dieta' };
+    const normalized = normalizeTrainerServices(value);
+    return serviceMap[normalized] || 'Serviços gerais';
+}
+
+function normalizeTrainerIdentity(trainerLike = {}, fallback = {}) {
+    const safeCode = sanitizeCodeInput(trainerLike?.code || fallback?.code || memoryGetItem('currentTrainerCode') || '', 5) || '00000';
+    const safeName = sanitizeUserInput(
+        trainerLike?.displayName || trainerLike?.display_name || trainerLike?.name || fallback?.name || memoryGetItem('trainerName') || 'Treinador',
+        { maxLen: 90 }
+    ) || 'Treinador';
+    const firstName = sanitizeUserInput(safeName.split(' ')[0], { maxLen: 30 }) || 'Treinador';
+    const consultoriaName = sanitizeUserInput(
+        trainerLike?.consultoriaName || trainerLike?.consultoria_name || fallback?.consultoriaName || `Consultoria de ${firstName}`,
+        { maxLen: 120 }
+    ) || `Consultoria de ${firstName}`;
+    const handle = normalizeTrainerHandle(trainerLike?.handle || fallback?.handle || '');
+    return {
+        code: safeCode,
+        name: safeName,
+        displayName: safeName,
+        consultoriaName,
+        services: normalizeTrainerServices(trainerLike?.services || fallback?.services || 'treino'),
+        headline: sanitizeUserInput(trainerLike?.headline || fallback?.headline || '', { maxLen: 120 }),
+        bio: sanitizeUserInput(trainerLike?.bio || fallback?.bio || '', { allowNewlines: true, maxLen: 500 }),
+        avatarUrl: sanitizeUserInput(trainerLike?.avatarUrl || trainerLike?.avatar_url || fallback?.avatarUrl || '', { maxLen: 320 }),
+        coverUrl: sanitizeUserInput(trainerLike?.coverUrl || trainerLike?.cover_url || fallback?.coverUrl || '', { maxLen: 320 }),
+        specialties: normalizeTrainerSpecialtiesList(trainerLike?.specialties || fallback?.specialties || []),
+        socialLinks: normalizeTrainerSocialLinks(trainerLike?.socialLinks || trainerLike?.social_links || fallback?.socialLinks || {}),
+        handle,
+        ctaLabel: sanitizeUserInput(trainerLike?.ctaLabel || trainerLike?.cta_label || fallback?.ctaLabel || '', { maxLen: 80 }),
+        ctaUrl: sanitizeStrictUrl(trainerLike?.ctaUrl || trainerLike?.cta_url || fallback?.ctaUrl || '', { maxLen: 320 }),
+        themePreset: normalizeTrainerThemePreset(trainerLike?.themePreset || trainerLike?.theme_preset || fallback?.themePreset || '')
+    };
+}
+
+function renderTrainerProfileSpecialties(specialties = []) {
+    const container = document.getElementById('dash-trainer-specialties');
+    if (!container) return;
+    if (!Array.isArray(specialties) || !specialties.length) {
+        container.innerHTML = '<span class="settings-empty">Sem especialidades cadastradas.</span>';
+        return;
+    }
+    container.innerHTML = specialties
+        .map((tag) => `<span class="settings-tag">${escapeHTML(tag)}</span>`)
+        .join('');
+}
+
+function renderTrainerProfileSocialLinks(links = {}) {
+    const container = document.getElementById('dash-trainer-social-links');
+    if (!container) return;
+    const entries = [];
+    const ig = sanitizeUserInput(links.instagram || '', { maxLen: 220 });
+    const wa = sanitizeUserInput(links.whatsapp || '', { maxLen: 220 });
+    const web = sanitizeUserInput(links.website || '', { maxLen: 220 });
+    if (ig) entries.push({ icon: 'ph-thin ph-instagram-logo', label: ig });
+    if (wa) entries.push({ icon: 'ph-thin ph-whatsapp-logo', label: wa });
+    if (web) entries.push({ icon: 'ph-thin ph-globe', label: web });
+    if (!entries.length) {
+        container.innerHTML = '<span class="settings-empty">Sem links cadastrados.</span>';
+        return;
+    }
+    container.innerHTML = entries
+        .map((item) => `<span class="trainer-profile-social-chip"><i class="${item.icon}"></i>${escapeHTML(item.label)}</span>`)
+        .join('');
+}
+
+function applyTrainerIdentityToUI(identity) {
+    if (!identity) return;
+    const code = sanitizeCodeInput(identity.code, 5) || '00000';
+    const displayName = sanitizeUserInput(identity.displayName || identity.name || 'Treinador', { maxLen: 90 }) || 'Treinador';
+    const consultoriaName = sanitizeUserInput(identity.consultoriaName || `Consultoria de ${displayName.split(' ')[0]}`, { maxLen: 120 }) || `Consultoria de ${displayName.split(' ')[0]}`;
+    const handle = normalizeTrainerHandle(identity.handle || '');
+    const handleText = handle ? `@${handle}` : '@treinador';
+    const bioText = sanitizeUserInput(identity.bio || '', { allowNewlines: true, maxLen: 500 }) || 'Complete seu perfil para aparecer para os alunos.';
+
+    const sidebarConsultoria = document.getElementById('sidebar-consultoria-name');
+    if (sidebarConsultoria) sidebarConsultoria.textContent = consultoriaName;
+    const sidebarTrainer = document.getElementById('sidebar-trainer-name');
+    if (sidebarTrainer) sidebarTrainer.textContent = displayName;
+    const sidebarCode = document.getElementById('sidebar-trainer-code');
+    if (sidebarCode) sidebarCode.textContent = code;
+
+    const mobileTopbarTitle = document.getElementById('mobile-topbar-title');
+    if (mobileTopbarTitle) mobileTopbarTitle.textContent = consultoriaName;
+
+    const dashName = document.getElementById('dash-trainer-name');
+    if (dashName) dashName.textContent = displayName;
+    const dashConsultoria = document.getElementById('dash-trainer-consultoria');
+    if (dashConsultoria) dashConsultoria.textContent = consultoriaName;
+    const dashHandle = document.getElementById('dash-trainer-handle');
+    if (dashHandle) dashHandle.textContent = handleText;
+    const dashBio = document.getElementById('dash-trainer-bio');
+    if (dashBio) dashBio.textContent = bioText;
+    const dashCode = document.getElementById('dash-trainer-code');
+    if (dashCode) dashCode.textContent = code;
+
+    const servicesLabel = document.getElementById('trainer-services-label');
+    if (servicesLabel) servicesLabel.textContent = getTrainerServicesLabel(identity.services);
+
+    renderTrainerProfileSpecialties(identity.specialties || []);
+    renderTrainerProfileSocialLinks(identity.socialLinks || {});
+}
+
+async function setCurrentTrainerIdentity(trainerLike = {}, fallback = {}) {
+    const normalized = normalizeTrainerIdentity(trainerLike, fallback);
+    const avatarPreview = await resolveStorageRefUrl(normalized.avatarUrl, 3600);
+    const coverPreview = await resolveStorageRefUrl(normalized.coverUrl, 3600);
+    currentTrainerIdentity = {
+        ...normalized,
+        avatarPreview: avatarPreview || '',
+        coverPreview: coverPreview || ''
+    };
+    memorySetItem('trainerName', sanitizeUserInput(currentTrainerIdentity.displayName.split(' ')[0], { maxLen: 30 }) || 'Treinador');
+    if (currentTrainerIdentity.code && currentTrainerIdentity.code !== '00000') {
+        memorySetItem('currentTrainerCode', currentTrainerIdentity.code);
+        if (!memoryGetItem('trainerCodeDefault')) memorySetItem('trainerCodeDefault', currentTrainerIdentity.code);
+    }
+    applyTrainerIdentityToUI(currentTrainerIdentity);
+    applyTrainerBranding(loadTrainerSettings());
+    return currentTrainerIdentity;
+}
+
+async function resolveCurrentTrainerIdentity({ sessionUser = null, trainerCode = '', fallbackName = 'Treinador' } = {}) {
+    const code = sanitizeCodeInput(trainerCode, 5);
+    let resolved = null;
+
+    if (isSupabaseReady() && sessionUser?.id) {
+        const ownerTrainer = await getTrainerByOwnerRemote(sessionUser.id);
+        if (ownerTrainer) resolved = cacheTrainerLocal(ownerTrainer);
+    }
+
+    if (!resolved && code && isSupabaseReady()) {
+        const remoteByCode = await getTrainerByCodeRemote(code);
+        if (remoteByCode) resolved = cacheTrainerLocal(remoteByCode);
+    }
+
+    if (!resolved && code) {
+        const trainers = readStorageJSON('allTrainers', []);
+        const localTrainer = trainers.find((entry) => String(entry?.code || '') === String(code));
+        if (localTrainer) resolved = cacheTrainerLocal(localTrainer);
+    }
+
+    if (!resolved && code) {
+        const fallbackConsultoria = `Consultoria de ${(fallbackName || 'Treinador').split(' ')[0]}`;
+        const ensured = await ensureTrainerExistsRemote(code, fallbackName || 'Treinador', fallbackConsultoria, {
+            ownerId: sessionUser?.id || '',
+            displayName: fallbackName || 'Treinador',
+            consultoriaName: fallbackConsultoria,
+            services: 'treino',
+            onboardingComplete: true
+        });
+        if (ensured) resolved = cacheTrainerLocal(ensured);
+    }
+
+    if (!resolved) {
+        resolved = normalizeTrainerIdentity({}, { code: code || '00000', name: fallbackName || 'Treinador' });
+    }
+
+    return resolved;
+}
+
 function getStudentTrainerCodeValue(studentLike = {}) {
     const rawCode =
         studentLike?.trainerCode
@@ -2786,6 +2995,27 @@ function startSupabaseRealtimeSync(trainerCode) {
                 ensureSupabaseStudentsPolling(code);
             }
         });
+}
+
+function scheduleBatchedStudentsSync(students, delayMs = BATCHED_STUDENTS_SYNC_DEFAULT_DELAY_MS) {
+    if (!isSupabaseReady()) return;
+    batchedStudentsSyncPayload = normalizeStudentsDietSchema(JSON.parse(JSON.stringify(students || [])));
+    const safeDelay = Math.max(450, parseInt(delayMs, 10) || BATCHED_STUDENTS_SYNC_DEFAULT_DELAY_MS);
+    if (batchedStudentsSyncTimer) clearTimeout(batchedStudentsSyncTimer);
+
+    if (navigator.onLine === false) {
+        setStudentSyncState('offline', 'Sem conexão');
+        return;
+    }
+
+    setStudentSyncState('pending', 'Alterações locais pendentes');
+    batchedStudentsSyncTimer = setTimeout(() => {
+        const payload = batchedStudentsSyncPayload;
+        batchedStudentsSyncTimer = null;
+        batchedStudentsSyncPayload = null;
+        if (!payload || !Array.isArray(payload)) return;
+        queueSupabaseStudentsSync(payload);
+    }, safeDelay);
 }
 
 function queueSupabaseStudentsSync(students) {
@@ -3432,6 +3662,7 @@ async function ensureScreenElement(screenId, pagePath) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+    applyMobileDashboardMode(true);
     await loadSPAComponents();
     setupClientSideFormProtection();
     migrateStoredStudentsDietSchema({ syncRemote: false });
@@ -3454,6 +3685,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     document.addEventListener('keydown', (event) => {
+        const exerciseModal = document.getElementById('ex-modal');
+        if (exerciseModal?.classList.contains('active') && event.key === 'Escape') {
+            event.preventDefault();
+            closeExModal('escape');
+            return;
+        }
         const foodModal = document.getElementById('food-modal');
         if (foodModal?.classList.contains('active')) {
             if (event.key === 'Escape') {
@@ -3483,28 +3720,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     optimizeMediaElements(document);
 
     bindSupabaseAuthStateListener();
-
-    const activeUser = await getSupabaseSessionUser();
-    if (activeUser) {
-        if (isEmailConfirmed(activeUser)) {
-            await routeAuthenticatedSessionUser(activeUser, { force: true });
-            return;
-        }
-        const pendingEmail = sanitizeEmailInput(activeUser?.email || '');
-        if (pendingEmail) memorySetItem('pendingVerificationEmail', pendingEmail);
-        if (typeof window.supabase?.auth?.signOut === 'function') {
-            suppressSignedOutRedirectToHome = true;
-            await window.supabase.auth.signOut();
-        }
-        await goToGlobalLogin();
-        setAuthInlineFeedback(
-            'login-inline-feedback',
-            'Seu e-mail ainda não foi verificado. Use "Reenviar verificacao de e-mail".',
-            'warning'
-        );
-        return;
-    }
-
     clearAuthRuntimeContext();
 
     const home = document.getElementById('home-screen');
@@ -3658,6 +3873,10 @@ function copySidebarAdminCode(event) {
 
 function toggleTrainerProfileMenu(event) {
     if (event) event.stopPropagation();
+    if (isMobileDashboardMode()) {
+        switchDashView('config', { focusProfileStudio: true });
+        return;
+    }
     const overlay = document.getElementById('trainer-profile-sheet-overlay');
     const menu = document.getElementById('trainer-profile-menu');
     if (!overlay || !menu) return;
@@ -3667,6 +3886,11 @@ function toggleTrainerProfileMenu(event) {
         closeTrainerProfileMenu();
         return;
     }
+
+    if (currentTrainerIdentity) {
+        applyTrainerIdentityToUI(currentTrainerIdentity);
+    }
+    applyTrainerBranding(loadTrainerSettings());
 
     overlay.style.display = 'block';
     menu.style.display = 'block';
@@ -3691,17 +3915,15 @@ function closeTrainerProfileMenu() {
 
 function logoutTrainerFromMenu() {
     stopSupabaseRealtimeSync();
+    currentTrainerIdentity = null;
     memoryRemoveItem('trainerName');
     memoryRemoveItem('currentTrainerCode');
     window.location.href = 'index.html';
 }
 
 function editTrainerProfile() {
-    const trainerName = memoryGetItem('trainerName') || 'Treinador';
-    const trainerCode = memoryGetItem('currentTrainerCode') || '00001';
-
-    alert(`?? Editar Perfil\n\nNome: ${trainerName}\nCódigo: ${trainerCode}\n\nEsta funcionalidade será implementada em breve.`);
     closeTrainerProfileMenu();
+    switchDashView('config', { focusProfileStudio: true });
 }
 
 function viewTrainerStats() {
@@ -3907,17 +4129,19 @@ async function handleSupabaseAuthStateEvent(event, session) {
     if (!['INITIAL_SESSION', 'SIGNED_IN'].includes(normalizedEvent)) return;
 
     const sessionUser = session?.user || await getSupabaseSessionUser();
-    if (!sessionUser) {
-        if (normalizedEvent === 'INITIAL_SESSION') {
-            authLastProcessedUserId = '';
-            clearAuthRuntimeContext();
-            const hasHome = !!document.getElementById('home-screen');
-            if (hasHome) {
-                goToHome();
-            } else {
-                await goToGlobalLogin();
-            }
+    if (normalizedEvent === 'INITIAL_SESSION') {
+        authLastProcessedUserId = '';
+        clearAuthRuntimeContext();
+        const hasHome = !!document.getElementById('home-screen');
+        if (hasHome) {
+            goToHome();
+        } else {
+            await goToGlobalLogin();
         }
+        return;
+    }
+
+    if (!sessionUser) {
         return;
     }
 
@@ -3984,6 +4208,12 @@ function rolesFromChoice(choice) {
     return ['student'];
 }
 
+function prioritizeTrainerRoles(rolesLike, legacyRole = '') {
+    const normalized = normalizeAppRoles(rolesLike, legacyRole);
+    if (!normalized.includes('trainer')) return normalized;
+    return ['trainer', ...normalized.filter((role) => role !== 'trainer')];
+}
+
 function hasAppRole(rolesLike, role) {
     return normalizeAppRoles(rolesLike).includes(role);
 }
@@ -4002,7 +4232,7 @@ function mapOnboardingStep(profile, roles) {
     if (currentStep === 'pending_verification') return 'profile_setup';
     if (!profile?.profile_complete) return 'profile_setup';
     if (hasTrainer && (!hasTrainerCode || currentStep === 'profile_setup')) return 'profile_setup';
-    if (hasTrainer && !hasStudent && currentStep && currentStep !== 'done') return 'profile_setup';
+    if (hasTrainer) return 'done';
     if (hasStudent && !profile?.anamnesis) return 'profile_setup';
     if (hasStudent && !sanitizeCodeInput(profile?.connected_trainer_code || '', 5)) return 'trainer_connect';
     return 'done';
@@ -4647,11 +4877,14 @@ async function openStudentConnectFromDashboard() {
 }
 
 async function routeByOnboarding(user, profile, roles) {
-    const onboardingStep = mapOnboardingStep(profile, roles);
-    cacheAuthenticatedContext(user, profile, roles, onboardingStep);
+    const normalizedRoles = normalizeAppRoles(roles, profile?.role);
+    const hasTrainer = normalizedRoles.includes('trainer');
+    const hasStudent = normalizedRoles.includes('student');
+    const onboardingStep = mapOnboardingStep(profile, normalizedRoles);
+    cacheAuthenticatedContext(user, profile, normalizedRoles, onboardingStep);
 
     if (onboardingStep === 'profile_setup') {
-        const shouldContinueStudentQuestionnaire = roles.includes('student') && !!profile?.profile_complete && !profile?.anamnesis;
+        const shouldContinueStudentQuestionnaire = !hasTrainer && hasStudent && !!profile?.profile_complete && !profile?.anamnesis;
         if ((profile?.onboarding_step || '') !== 'profile_setup') {
             await upsertOwnProfile({ id: user.id, onboarding_step: 'profile_setup' });
         }
@@ -4660,7 +4893,20 @@ async function routeByOnboarding(user, profile, roles) {
             openStudentQuestionnaireScreen(profile?.name || memoryGetItem('currentUserName') || '');
             return;
         }
-        await showProfileSetupScreen(profile, roles, user);
+        await showProfileSetupScreen(profile, normalizedRoles, user);
+        return;
+    }
+
+    if (hasTrainer) {
+        if ((profile?.onboarding_step || '') !== 'done' || !profile?.profile_complete) {
+            await upsertOwnProfile({
+                id: user.id,
+                onboarding_step: 'done',
+                profile_complete: true
+            });
+            memorySetItem('currentOnboardingStep', 'done');
+        }
+        window.location.href = 'trainer.html';
         return;
     }
 
@@ -4672,24 +4918,12 @@ async function routeByOnboarding(user, profile, roles) {
         return;
     }
 
-    if (roles.includes('student')) {
+    if (hasStudent) {
         const connectedCode = sanitizeCodeInput(profile?.connected_trainer_code || '', 5);
         if (await openStudentDashboardForUser(user.id, connectedCode)) return;
         showTrainerConnectScreen();
         return;
     }
-
-    // Fluxo de treinador: marca onboarding como concluido para evitar loops.
-    if ((profile?.onboarding_step || '') !== 'done' || !profile?.profile_complete) {
-        await upsertOwnProfile({
-            id: user.id,
-            onboarding_step: 'done',
-            profile_complete: true
-        });
-        memorySetItem('currentOnboardingStep', 'done');
-    }
-
-    window.location.href = 'trainer.html';
 }
 
 function normalizeTrainerServices(value = '') {
@@ -5432,6 +5666,88 @@ async function handleGoogleLogin() {
     }
 }
 
+async function promoteLegacyTrainerAccount(activeUser, profile, roles, fallbackName = '') {
+    let normalizedRoles = prioritizeTrainerRoles(roles, profile?.role);
+    if (normalizedRoles.includes('trainer')) {
+        return { profile, roles: normalizedRoles };
+    }
+
+    let inferredTrainerCode = sanitizeCodeInput(profile?.trainer_code || '', 5);
+    let ownerTrainer = null;
+    let trainerByCode = null;
+
+    if (isSupabaseReady()) {
+        if (activeUser?.id) {
+            ownerTrainer = await getTrainerByOwnerRemote(activeUser.id);
+        }
+        if (!ownerTrainer && inferredTrainerCode) {
+            trainerByCode = await getTrainerByCodeRemote(inferredTrainerCode);
+        }
+    }
+
+    const localTrainers = readStorageJSON('allTrainers', []);
+    const localTrainerByCode = inferredTrainerCode
+        ? localTrainers.find((entry) => sanitizeCodeInput(entry?.code || '', 5) === inferredTrainerCode)
+        : null;
+
+    const ownerMatchesUser = !!ownerTrainer && String(ownerTrainer.owner_id || '') === String(activeUser?.id || '');
+    const hasTrainerEvidence = !!inferredTrainerCode || ownerMatchesUser || !!trainerByCode || !!localTrainerByCode;
+    if (!hasTrainerEvidence) {
+        return { profile, roles: normalizedRoles };
+    }
+
+    if (!inferredTrainerCode) {
+        inferredTrainerCode = sanitizeCodeInput(
+            ownerTrainer?.code || trainerByCode?.code || localTrainerByCode?.code || '',
+            5
+        );
+    }
+    if (!inferredTrainerCode) {
+        inferredTrainerCode = await generateUniqueTrainerCode();
+    }
+
+    normalizedRoles = prioritizeTrainerRoles([...normalizedRoles, 'trainer'], 'trainer');
+    const currentStep = String(profile?.onboarding_step || '').trim().toLowerCase();
+    const payload = {
+        id: activeUser.id,
+        role: 'trainer',
+        roles: normalizedRoles,
+        trainer_code: inferredTrainerCode || null
+    };
+    if (profile?.profile_complete && currentStep !== 'pending_verification') {
+        payload.onboarding_step = 'done';
+    }
+
+    let nextProfile = (await upsertOwnProfile(payload)) || { ...profile, ...payload };
+
+    if (isSupabaseReady() && inferredTrainerCode) {
+        const safeName = sanitizeUserInput(
+            profile?.name || fallbackName || activeUser?.user_metadata?.name || activeUser?.email || 'Treinador',
+            { maxLen: 90 }
+        ) || 'Treinador';
+        const fallbackConsultoria = `Consultoria de ${safeName.split(' ')[0]}`;
+        await ensureTrainerExistsRemote(
+            inferredTrainerCode,
+            safeName,
+            fallbackConsultoria,
+            {
+                ownerId: activeUser.id,
+                name: safeName,
+                displayName: safeName,
+                consultoriaName: fallbackConsultoria,
+                services: 'treino',
+                onboardingComplete: !!nextProfile?.profile_complete
+            }
+        );
+        nextProfile = {
+            ...nextProfile,
+            trainer_code: inferredTrainerCode
+        };
+    }
+
+    return { profile: nextProfile, roles: normalizedRoles };
+}
+
 async function processLogin(user) {
     const sessionUser = await getSupabaseSessionUser();
     const activeUser = sessionUser || user || null;
@@ -5489,9 +5805,9 @@ async function processLogin(user) {
     }
 
     const profileExplicitRoles = extractExplicitRoles(profile?.roles, profile?.role);
-    const roles = profileExplicitRoles.length
-        ? normalizeAppRoles(profile.roles, profile.role || requestedRoles[0])
-        : requestedRoles;
+    let roles = profileExplicitRoles.length
+        ? prioritizeTrainerRoles(profile.roles, profile.role || requestedRoles[0])
+        : prioritizeTrainerRoles(requestedRoles);
     if (!profileExplicitRoles.length) {
         profile = (await upsertOwnProfile({
             id: activeUser.id,
@@ -5499,6 +5815,9 @@ async function processLogin(user) {
             roles
         })) || profile;
     }
+    const promotedLegacy = await promoteLegacyTrainerAccount(activeUser, profile, roles, safeUserName);
+    profile = promotedLegacy.profile || profile;
+    roles = promotedLegacy.roles || roles;
     const needsTrainerCode = roles.includes('trainer') && !sanitizeCodeInput(profile.trainer_code || '', 5);
     if (needsTrainerCode) {
         const trainerCode = await generateUniqueTrainerCode();
@@ -5587,14 +5906,21 @@ async function switchStudentView(view) {
         if (!confirmExitActiveWorkout()) return;
     }
     const views = ['home', 'treino', 'dieta', 'perfil', 'log-workout', 'workout-summary'];
+    const activeNavView = (view === 'log-workout' || view === 'workout-summary') ? 'treino' : view;
     views.forEach(v => {
         const el = document.getElementById(`view-student-${v}`);
         const nav = document.getElementById(`snav-${v}`);
         if (el) el.style.display = v === view ? 'block' : 'none';
-        if (nav) nav.classList.toggle('active', v === view);
+        if (nav) nav.classList.toggle('active', v === activeNavView);
     });
     const navConnect = document.getElementById('snav-connect');
     if (navConnect) navConnect.classList.remove('active');
+
+    const mobileNavViews = ['home', 'treino', 'dieta', 'perfil'];
+    mobileNavViews.forEach((v) => {
+        const mobileNav = document.getElementById(`m-snav-${v}`);
+        if (mobileNav) mobileNav.classList.toggle('active', v === activeNavView);
+    });
 
     // Specific logic for each view
     if (view === 'treino') {
@@ -10486,6 +10812,11 @@ function setProtocolStatus(isReady) {
 
 // Detail Views for Students
 function openStudentWorkout() {
+    if (isMobileDashboardMode()) {
+        activateScreen('student-dashboard-screen');
+        switchStudentView('treino');
+        return;
+    }
     const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
@@ -10526,10 +10857,22 @@ function openStudentWorkout() {
 }
 
 function closeStudentWorkout() {
-    document.getElementById('student-workout-screen').classList.remove('active');
+    const workoutScreen = document.getElementById('student-workout-screen');
+    if (!workoutScreen) return;
+    if (isMobileDashboardMode()) {
+        activateScreen('student-dashboard-screen');
+        switchStudentView('treino');
+        return;
+    }
+    workoutScreen.classList.remove('active');
 }
 
 function openStudentDiet() {
+    if (isMobileDashboardMode()) {
+        activateScreen('student-dashboard-screen');
+        switchStudentView('dieta');
+        return;
+    }
     const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     const student = students.find(s => s.id === studentId);
@@ -10547,7 +10890,14 @@ function openStudentDiet() {
 }
 
 function closeStudentDiet() {
-    document.getElementById('student-diet-screen').classList.remove('active');
+    const dietScreen = document.getElementById('student-diet-screen');
+    if (!dietScreen) return;
+    if (isMobileDashboardMode()) {
+        activateScreen('student-dashboard-screen');
+        switchStudentView('dieta');
+        return;
+    }
+    dietScreen.classList.remove('active');
 }
 
 // â”€â”€â”€ Meu Perfil (Student Profile) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -10561,8 +10911,26 @@ function getStudentData() {
 
 function saveStudentData(students, options = {}) {
     const skipSupabaseSync = !!options?.skipSupabaseSync;
+    const syncModeRaw = String(options?.syncMode || '').trim().toLowerCase();
+    const syncMode = skipSupabaseSync
+        ? 'local-only'
+        : (syncModeRaw || 'immediate');
+    const syncDelayMs = parseInt(options?.syncDelayMs, 10) || BATCHED_STUDENTS_SYNC_DEFAULT_DELAY_MS;
     const normalized = normalizeStudentsDietSchema(students || []);
     memorySetItem('trainerStudents', JSON.stringify(normalized));
+
+    if (syncMode === 'local-only') return;
+
+    if (syncMode === 'batched') {
+        scheduleBatchedStudentsSync(normalized, syncDelayMs);
+        return;
+    }
+
+    if (batchedStudentsSyncTimer) {
+        clearTimeout(batchedStudentsSyncTimer);
+        batchedStudentsSyncTimer = null;
+    }
+    batchedStudentsSyncPayload = null;
     if (!skipSupabaseSync) {
         queueSupabaseStudentsSync(normalized);
     }
@@ -11749,12 +12117,6 @@ async function connectTrainer() {
         .from('profiles')
         .update({ trainer_code: trainerCode, role: 'trainer', roles: profileRoles })
         .eq('id', activeUser.id);
-    await ensureTrainerExistsRemote(
-        trainerCode,
-        trainerName,
-        `Consultoria de ${trainerName.split(' ')[0]} `
-    );
-
     // Go to dashboard
     hideAllScreens();
     document.getElementById('app').classList.add('wide');
@@ -11851,19 +12213,16 @@ async function initTrainerDashboard() {
             .update({ trainer_code: trainerCodeResolved, role: 'trainer', roles: updateRoles })
             .eq('id', sessionUser.id);
     }
-    memorySetItem('trainerName', trainerNameResolved.split(' ')[0]);
-    memorySetItem('currentTrainerCode', trainerCodeResolved);
-    await ensureTrainerExistsRemote(
-        trainerCodeResolved,
-        trainerNameResolved,
-        `Consultoria de ${trainerNameResolved.split(' ')[0]} `
-    );
-
-    const trainerName = memoryGetItem('trainerName') || 'Treinador';
-    const trainerCode = memoryGetItem('currentTrainerCode') || trainerCodeResolved || '00000';
-    if (!memoryGetItem('trainerCodeDefault') && trainerCode && trainerCode !== '00000') {
-        memorySetItem('trainerCodeDefault', trainerCode);
-    }
+    const resolvedIdentity = await resolveCurrentTrainerIdentity({
+        sessionUser,
+        trainerCode: trainerCodeResolved,
+        fallbackName: trainerNameResolved
+    });
+    const trainerIdentity = await setCurrentTrainerIdentity(resolvedIdentity, {
+        code: trainerCodeResolved,
+        name: trainerNameResolved
+    });
+    const trainerCode = sanitizeCodeInput(trainerIdentity?.code || trainerCodeResolved || '', 5) || '00000';
 
     pullAppStateIfNewer();
     startSyncPolling();
@@ -11884,41 +12243,27 @@ async function initTrainerDashboard() {
         dashboardScreen.classList.add('active');
     }
 
-    const elDashName = document.getElementById('dash-trainer-name');
-    if (elDashName) elDashName.innerText = trainerName;
-    const elSidebarName = document.getElementById('sidebar-trainer-name');
-    if (elSidebarName) elSidebarName.innerText = 'Modo Admin';
-
-    const elDashCode = document.getElementById('dash-trainer-code');
-    if (elDashCode) elDashCode.innerText = trainerCode;
-    const elSidebarCode = document.getElementById('sidebar-trainer-code');
-    if (elSidebarCode) elSidebarCode.innerText = trainerCode;
-
-    // Update trainer services in menu
-    const trainers = readStorageJSON('allTrainers', []);
-    const currentTrainer = trainers.find(t => t.code === trainerCode) || (trainerCode === '00001' ? { services: 'ambos' } : null);
-    const servicesLabel = document.getElementById('trainer-services-label');
-    if (servicesLabel && currentTrainer) {
-        const serviceMap = { 'treino': 'Treino', 'dieta': 'Nutrição', 'ambos': 'Treino + Dieta' };
-        servicesLabel.textContent = serviceMap[currentTrainer.services] || 'Serviços Gerais';
-    }
-
     loadTrainerSettingsToUI();
 
     const root = document.getElementById('trainer-dashboard-screen');
     if (root && !root.dataset.menuInit) {
         root.addEventListener('click', (evt) => {
             const menu = document.getElementById('trainer-profile-menu');
-            const trigger = document.querySelector('.profile-menu-trigger');
-            if (!menu || !trigger) return;
+            const triggers = Array.from(document.querySelectorAll('.profile-menu-trigger'));
+            if (!menu) return;
             const clickedInsideMenu = menu.contains(evt.target);
-            const clickedTrigger = trigger.contains(evt.target);
+            const clickedTrigger = triggers.some((trigger) => trigger && trigger.contains(evt.target));
             if (!clickedInsideMenu && !clickedTrigger) closeTrainerProfileMenu();
         });
         document.addEventListener('keydown', (evt) => {
             if (evt.key === 'Escape') closeTrainerProfileMenu();
         });
         root.dataset.menuInit = '1';
+    }
+
+    const mobileProfileNavBtn = document.getElementById('m-nav-profile');
+    if (mobileProfileNavBtn) {
+        mobileProfileNavBtn.onclick = () => switchDashView('config', { focusProfileStudio: true });
     }
 
     // Add swipe gestures for mobile navigation
@@ -12108,14 +12453,24 @@ function readTrainerSettingsByKey(key) {
 
 function loadTrainerSettings() {
     const defaults = {
+        displayName: '',
+        consultoriaName: '',
+        headline: '',
+        handle: '',
         bio: '',
+        services: 'treino',
         specialties: [],
+        socialLinks: { instagram: '', whatsapp: '', website: '' },
+        ctaLabel: '',
+        ctaUrl: '',
+        themePreset: TRAINER_THEME_PRESETS[0],
         unitSystem: 'metric',
         macroFormula: 'mifflin',
         notifyEmail: true,
         notifyPush: true,
         studentLimit: '',
         profilePhoto: '',
+        profileCover: '',
         brandLogo: '',
         billingStartDate: '',
         billingMonthlyAmount: '',
@@ -12151,8 +12506,29 @@ function loadTrainerSettings() {
     }
 
     const specialties = Array.isArray(stored.specialties) ? stored.specialties : [];
+    const socialLinks = normalizeTrainerSocialLinks(stored.socialLinks || {});
     const billingHistory = Array.isArray(stored.billingHistory) ? stored.billingHistory : [];
-    return { ...defaults, ...stored, specialties, billingHistory };
+    const services = normalizeTrainerServices(stored.services || defaults.services);
+    const themePreset = normalizeTrainerThemePreset(stored.themePreset || defaults.themePreset);
+    const ctaLabel = sanitizeUserInput(stored.ctaLabel || '', { maxLen: 80 });
+    const ctaUrl = sanitizeStrictUrl(stored.ctaUrl || '', { maxLen: 320, allowStorage: false });
+    const profilePhoto = typeof stored.profilePhoto === 'string' ? stored.profilePhoto : '';
+    const profileCover = typeof stored.profileCover === 'string' ? stored.profileCover : '';
+    const brandLogo = typeof stored.brandLogo === 'string' ? stored.brandLogo : '';
+    return {
+        ...defaults,
+        ...stored,
+        services,
+        themePreset,
+        ctaLabel,
+        ctaUrl,
+        profilePhoto,
+        profileCover,
+        brandLogo,
+        specialties,
+        socialLinks,
+        billingHistory
+    };
 }
 
 function updateTrainerSettings(partial) {
@@ -12660,6 +13036,195 @@ function loadStudentBillingConfigTab(student = {}) {
     initStudentConfigUXBindings();
 }
 
+function getTrainerProfileStudioThemeSelection() {
+    const selected = document.querySelector('input[name="trainer-theme-preset"]:checked');
+    return normalizeTrainerThemePreset(selected?.value || TRAINER_THEME_PRESETS[0]);
+}
+
+function setTrainerProfileStudioThemeSelection(value = TRAINER_THEME_PRESETS[0]) {
+    const normalized = normalizeTrainerThemePreset(value);
+    const selected = document.querySelector(`input[name="trainer-theme-preset"][value="${normalized}"]`);
+    if (selected) selected.checked = true;
+}
+
+function buildTrainerProfileStudioDraftFromSources(settings = loadTrainerSettings(), identity = currentTrainerIdentity || {}) {
+    const displayName = sanitizeUserInput(settings.displayName || identity.displayName || identity.name || '', { maxLen: 90 })
+        || sanitizeUserInput(identity.displayName || identity.name || memoryGetItem('trainerName') || 'Treinador', { maxLen: 90 })
+        || 'Treinador';
+    const firstName = sanitizeUserInput(displayName.split(' ')[0], { maxLen: 30 }) || 'Treinador';
+    const consultoriaName = sanitizeUserInput(settings.consultoriaName || identity.consultoriaName || '', { maxLen: 120 }) || `Consultoria de ${firstName}`;
+    const headline = sanitizeUserInput(settings.headline || identity.headline || '', { maxLen: 120 });
+    const handle = normalizeTrainerHandle(settings.handle || identity.handle || suggestTrainerHandleFromName(displayName));
+    const bio = sanitizeUserInput(settings.bio || identity.bio || '', { allowNewlines: true, maxLen: 400 });
+    const services = normalizeTrainerServices(settings.services || identity.services || 'treino');
+    const specialties = (Array.isArray(settings.specialties) && settings.specialties.length)
+        ? normalizeTrainerSpecialtiesList(settings.specialties)
+        : normalizeTrainerSpecialtiesList(identity.specialties || []);
+    const socialLinks = normalizeTrainerSocialLinks({
+        ...normalizeTrainerSocialLinks(identity.socialLinks || {}),
+        ...normalizeTrainerSocialLinks(settings.socialLinks || {})
+    });
+    const ctaLabel = sanitizeUserInput(settings.ctaLabel || identity.ctaLabel || '', { maxLen: 80 }) || 'Falar no WhatsApp';
+    const ctaUrl = sanitizeUserInput(settings.ctaUrl || identity.ctaUrl || '', { maxLen: 320 });
+    const themePreset = normalizeTrainerThemePreset(settings.themePreset || identity.themePreset || TRAINER_THEME_PRESETS[0]);
+
+    return {
+        displayName,
+        consultoriaName,
+        headline,
+        handle,
+        bio,
+        services,
+        specialties,
+        socialLinks,
+        ctaLabel,
+        ctaUrl,
+        themePreset,
+        profilePhoto: settings.profilePhoto || identity.avatarPreview || identity.avatarUrl || '',
+        profileCover: settings.profileCover || identity.coverPreview || identity.coverUrl || '',
+        brandLogo: settings.brandLogo || '',
+        studentLimit: sanitizeUserInput(settings.studentLimit || '', { maxLen: 6 }),
+        unitSystem: settings.unitSystem === 'imperial' ? 'imperial' : 'metric',
+        macroFormula: sanitizeUserInput(settings.macroFormula || 'mifflin', { maxLen: 30 }) || 'mifflin',
+        notifyEmail: !!settings.notifyEmail,
+        notifyPush: !!settings.notifyPush
+    };
+}
+
+function collectTrainerProfileStudioState() {
+    const displayName = sanitizeUserInput(document.getElementById('trainer-display-name')?.value || '', { maxLen: 90 }) || 'Treinador';
+    const firstName = sanitizeUserInput(displayName.split(' ')[0], { maxLen: 30 }) || 'Treinador';
+    const consultoriaName = sanitizeUserInput(document.getElementById('trainer-consultoria-name')?.value || '', { maxLen: 120 }) || `Consultoria de ${firstName}`;
+    const headline = sanitizeUserInput(document.getElementById('trainer-headline')?.value || '', { maxLen: 120 });
+    const handle = normalizeTrainerHandle(document.getElementById('trainer-handle')?.value || '');
+    const bio = sanitizeUserInput(document.getElementById('trainer-bio')?.value || '', { allowNewlines: true, maxLen: 400 });
+    const services = normalizeTrainerServices(document.getElementById('trainer-services')?.value || 'treino');
+    const specialties = normalizeTrainerSpecialtiesList(trainerProfileDraftSpecialties || []);
+    const socialLinks = normalizeTrainerSocialLinks({
+        instagram: document.getElementById('trainer-instagram')?.value || '',
+        whatsapp: document.getElementById('trainer-whatsapp')?.value || '',
+        website: document.getElementById('trainer-website')?.value || ''
+    });
+    const ctaLabel = sanitizeUserInput(document.getElementById('trainer-cta-label')?.value || '', { maxLen: 80 });
+    const ctaUrlRaw = sanitizeUserInput(document.getElementById('trainer-cta-url')?.value || '', { maxLen: 320 }).trim();
+    const ctaUrl = ctaUrlRaw ? sanitizeStrictUrl(ctaUrlRaw, { maxLen: 320, allowStorage: false }) : '';
+    const themePreset = getTrainerProfileStudioThemeSelection();
+    const unitSystem = document.querySelector('input[name="unit-system"]:checked')?.value === 'imperial' ? 'imperial' : 'metric';
+
+    return {
+        displayName,
+        consultoriaName,
+        headline,
+        handle,
+        bio,
+        services,
+        specialties,
+        socialLinks,
+        ctaLabel,
+        ctaUrlRaw,
+        ctaUrl,
+        themePreset,
+        profilePhoto: trainerProfileDraftMedia.profilePhoto || '',
+        profileCover: trainerProfileDraftMedia.profileCover || '',
+        brandLogo: trainerProfileDraftMedia.brandLogo || '',
+        studentLimit: sanitizeUserInput(document.getElementById('trainer-student-limit')?.value || '', { maxLen: 6 }),
+        unitSystem,
+        macroFormula: sanitizeUserInput(document.getElementById('trainer-macro-formula')?.value || 'mifflin', { maxLen: 30 }) || 'mifflin',
+        notifyEmail: !!document.getElementById('notif-email')?.checked,
+        notifyPush: !!document.getElementById('notif-push')?.checked
+    };
+}
+
+function serializeTrainerProfileStudioState(stateLike = {}) {
+    const safe = {
+        displayName: sanitizeUserInput(stateLike.displayName || '', { maxLen: 90 }),
+        consultoriaName: sanitizeUserInput(stateLike.consultoriaName || '', { maxLen: 120 }),
+        headline: sanitizeUserInput(stateLike.headline || '', { maxLen: 120 }),
+        handle: normalizeTrainerHandle(stateLike.handle || ''),
+        bio: sanitizeUserInput(stateLike.bio || '', { allowNewlines: true, maxLen: 400 }),
+        services: normalizeTrainerServices(stateLike.services || ''),
+        specialties: normalizeTrainerSpecialtiesList(stateLike.specialties || []),
+        socialLinks: normalizeTrainerSocialLinks(stateLike.socialLinks || {}),
+        ctaLabel: sanitizeUserInput(stateLike.ctaLabel || '', { maxLen: 80 }),
+        ctaUrlRaw: sanitizeUserInput(stateLike.ctaUrlRaw || '', { maxLen: 320 }).trim(),
+        themePreset: normalizeTrainerThemePreset(stateLike.themePreset || ''),
+        profilePhoto: String(stateLike.profilePhoto || ''),
+        profileCover: String(stateLike.profileCover || ''),
+        brandLogo: String(stateLike.brandLogo || ''),
+        studentLimit: sanitizeUserInput(stateLike.studentLimit || '', { maxLen: 6 }),
+        unitSystem: stateLike.unitSystem === 'imperial' ? 'imperial' : 'metric',
+        macroFormula: sanitizeUserInput(stateLike.macroFormula || 'mifflin', { maxLen: 30 }) || 'mifflin',
+        notifyEmail: !!stateLike.notifyEmail,
+        notifyPush: !!stateLike.notifyPush
+    };
+    return JSON.stringify(safe);
+}
+
+function setTrainerProfileSavebarState(state = 'clean', customMessage = '') {
+    const bar = document.getElementById('trainer-profile-savebar');
+    const label = document.getElementById('trainer-profile-savebar-status');
+    const btn = document.getElementById('trainer-profile-savebar-btn');
+    if (!bar || !label || !btn) return;
+
+    const map = {
+        clean: 'Sem alteracoes pendentes',
+        dirty: 'Alteracoes pendentes no perfil',
+        saving: 'Salvando perfil...',
+        saved: 'Perfil salvo com sucesso',
+        error: 'Salvo localmente. Falha no sync remoto.'
+    };
+    bar.dataset.state = state;
+    label.textContent = customMessage || map[state] || map.clean;
+
+    if (state === 'saving') {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ph-bold ph-spinner-gap"></i> Salvando...';
+    } else if (state === 'saved') {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ph-bold ph-check"></i> Salvo';
+    } else if (state === 'error') {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ph-bold ph-warning-circle"></i> Tentar sync novamente';
+    } else {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ph-bold ph-floppy-disk"></i> Salvar perfil';
+    }
+}
+
+function updateTrainerProfileDirtyState(forceState = '') {
+    if (forceState === 'clean') {
+        trainerProfileDraftDirty = false;
+        setTrainerProfileSavebarState('clean');
+        return;
+    }
+    const snapshot = serializeTrainerProfileStudioState(collectTrainerProfileStudioState());
+    const isDirty = snapshot !== trainerProfileDraftBaseSnapshot;
+    trainerProfileDraftDirty = isDirty || trainerProfileDraftHasRemoteError;
+    if (trainerProfileDraftDirty) {
+        setTrainerProfileSavebarState(trainerProfileDraftHasRemoteError ? 'error' : 'dirty');
+    } else {
+        setTrainerProfileSavebarState('clean');
+    }
+}
+
+function hasTrainerProfilePendingChanges() {
+    return !!trainerProfileDraftDirty;
+}
+
+function discardTrainerProfileDraftChanges() {
+    trainerProfileDraftHasRemoteError = false;
+    loadTrainerSettingsToUI();
+}
+
+function focusTrainerProfileForm() {
+    const anchor = document.getElementById('trainer-profile-form-anchor');
+    const focusField = document.getElementById('trainer-display-name')
+        || document.getElementById('trainer-consultoria-name')
+        || document.getElementById('trainer-bio');
+    if (anchor) anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (focusField) setTimeout(() => focusField.focus(), 120);
+}
+
 function renderTrainerSpecialties(tags) {
     const container = document.getElementById('trainer-specialty-tags');
     if (!container) return;
@@ -12677,26 +13242,130 @@ function renderTrainerSpecialties(tags) {
     `).join('');
 }
 
+function renderTrainerProfileStudioPreview(stateLike = {}) {
+    const state = stateLike || collectTrainerProfileStudioState();
+    const safeDisplayName = sanitizeUserInput(state.displayName || 'Treinador', { maxLen: 90 }) || 'Treinador';
+    const safeHandle = normalizeTrainerHandle(state.handle || '');
+    const safeHeadline = sanitizeUserInput(state.headline || '', { maxLen: 120 });
+    const safeConsultoria = sanitizeUserInput(state.consultoriaName || '', { maxLen: 120 }) || `Consultoria de ${(safeDisplayName.split(' ')[0] || 'Treinador')}`;
+    const safeBio = sanitizeUserInput(state.bio || '', { allowNewlines: true, maxLen: 400 }) || 'Complete seu perfil para aparecer para novos alunos.';
+    const safeCtaLabel = sanitizeUserInput(state.ctaLabel || '', { maxLen: 80 }) || 'Chamada principal';
+    const safeTheme = normalizeTrainerThemePreset(state.themePreset || TRAINER_THEME_PRESETS[0]);
+    const safeServices = getTrainerServicesLabel(state.services);
+    const safeSpecialties = normalizeTrainerSpecialtiesList(state.specialties || []);
+    const safeSocialLinks = normalizeTrainerSocialLinks(state.socialLinks || {});
+    const socialChips = [];
+    if (safeSocialLinks.instagram) socialChips.push('<span class="social-chip"><i class="ph-bold ph-instagram-logo"></i> Instagram</span>');
+    if (safeSocialLinks.whatsapp) socialChips.push('<span class="social-chip"><i class="ph-bold ph-whatsapp-logo"></i> WhatsApp</span>');
+    if (safeSocialLinks.website) socialChips.push('<span class="social-chip"><i class="ph-bold ph-globe"></i> Website</span>');
+    const ctaHref = state.ctaUrl || '';
+
+    const card = document.getElementById('trainer-profile-preview-card');
+    if (card) {
+        card.classList.remove('theme-neon-lime', 'theme-ocean-blue', 'theme-graphite');
+        card.classList.add(`theme-${safeTheme}`);
+    }
+    const cover = document.getElementById('trainer-profile-preview-cover');
+    if (cover) cover.style.backgroundImage = state.profileCover ? `url("${escHtml(state.profileCover)}")` : '';
+
+    const avatar = document.getElementById('trainer-profile-preview-avatar');
+    if (avatar) {
+        avatar.innerHTML = state.profilePhoto
+            ? `<img src="${escHtml(state.profilePhoto)}" alt="Avatar do treinador" loading="lazy" decoding="async">`
+            : '<i class="ph-bold ph-user"></i>';
+    }
+
+    const nameEl = document.getElementById('trainer-profile-preview-name');
+    if (nameEl) nameEl.textContent = safeDisplayName;
+    const handleEl = document.getElementById('trainer-profile-preview-handle');
+    if (handleEl) handleEl.textContent = safeHandle ? `@${safeHandle}` : '@treinador';
+    const consultoriaEl = document.getElementById('trainer-profile-preview-consultoria');
+    if (consultoriaEl) consultoriaEl.textContent = safeConsultoria;
+    const headlineEl = document.getElementById('trainer-profile-preview-headline');
+    if (headlineEl) headlineEl.textContent = safeHeadline || 'Headline profissional';
+    const bioEl = document.getElementById('trainer-profile-preview-bio');
+    if (bioEl) bioEl.textContent = safeBio;
+
+    const servicesEl = document.getElementById('trainer-profile-preview-services');
+    if (servicesEl) servicesEl.innerHTML = `<span class="social-chip">${escapeHTML(safeServices)}</span>`;
+
+    const specialtiesEl = document.getElementById('trainer-profile-preview-specialties');
+    if (specialtiesEl) {
+        specialtiesEl.innerHTML = safeSpecialties.length
+            ? safeSpecialties.map((tag) => `<span class="social-chip">${escapeHTML(tag)}</span>`).join('')
+            : '<span class="settings-empty">Sem especialidades</span>';
+    }
+
+    const socialEl = document.getElementById('trainer-profile-preview-social');
+    if (socialEl) {
+        socialEl.innerHTML = socialChips.length
+            ? socialChips.join('')
+            : '<span class="settings-empty">Sem links sociais</span>';
+    }
+
+    const ctaEl = document.getElementById('trainer-profile-preview-cta');
+    if (ctaEl) {
+        ctaEl.textContent = safeCtaLabel;
+        if (ctaHref) ctaEl.setAttribute('href', ctaHref);
+        else ctaEl.setAttribute('href', '#');
+    }
+}
+
+function syncTrainerProfileStudioLiveUI() {
+    const draft = collectTrainerProfileStudioState();
+    renderTrainerProfileStudioPreview(draft);
+    applyTrainerBranding({
+        ...loadTrainerSettings(),
+        ...draft,
+        socialLinks: draft.socialLinks,
+        specialties: draft.specialties
+    });
+    updateTrainerProfileDirtyState();
+}
+
+function handleTrainerProfileStudioInputEvent() {
+    if (trainerProfileStudioSyncLock) return;
+    syncTrainerProfileStudioLiveUI();
+}
+
+function bindTrainerProfileStudioBindings() {
+    const configView = document.getElementById('view-config');
+    if (!configView || configView.dataset.profileStudioBound === '1') return;
+    configView.addEventListener('input', handleTrainerProfileStudioInputEvent);
+    configView.addEventListener('change', handleTrainerProfileStudioInputEvent);
+
+    const specialtyInput = document.getElementById('trainer-specialty-input');
+    if (specialtyInput) {
+        specialtyInput.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            addTrainerSpecialty();
+        });
+    }
+    configView.dataset.profileStudioBound = '1';
+}
+
 function addTrainerSpecialty() {
     const input = document.getElementById('trainer-specialty-input');
     if (!input) return;
     const value = sanitizeUserInput(input.value, { maxLen: 40 });
     if (!value) return;
-    const settings = loadTrainerSettings();
-    if (settings.specialties.includes(value)) {
+    if (trainerProfileDraftSpecialties.includes(value)) {
         input.value = '';
         return;
     }
-    const next = updateTrainerSettings({ specialties: [...settings.specialties, value] });
-    renderTrainerSpecialties(next.specialties);
+    trainerProfileDraftSpecialties = normalizeTrainerSpecialtiesList([...trainerProfileDraftSpecialties, value]);
+    renderTrainerSpecialties(trainerProfileDraftSpecialties);
     input.value = '';
+    syncTrainerProfileStudioLiveUI();
 }
 
 function removeTrainerSpecialty(tag) {
-    const settings = loadTrainerSettings();
-    const nextTags = settings.specialties.filter((t) => t !== tag);
-    const next = updateTrainerSettings({ specialties: nextTags });
-    renderTrainerSpecialties(next.specialties);
+    trainerProfileDraftSpecialties = normalizeTrainerSpecialtiesList(
+        (trainerProfileDraftSpecialties || []).filter((item) => item !== tag)
+    );
+    renderTrainerSpecialties(trainerProfileDraftSpecialties);
+    syncTrainerProfileStudioLiveUI();
 }
 
 function handleTrainerPhotoUpload(event) {
@@ -12704,9 +13373,19 @@ function handleTrainerPhotoUpload(event) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-        const next = updateTrainerSettings({ profilePhoto: reader.result });
-        applyTrainerBranding(next);
-        loadTrainerSettingsToUI();
+        trainerProfileDraftMedia.profilePhoto = String(reader.result || '');
+        syncTrainerProfileStudioLiveUI();
+    };
+    reader.readAsDataURL(file);
+}
+
+function handleTrainerCoverUpload(event) {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        trainerProfileDraftMedia.profileCover = String(reader.result || '');
+        syncTrainerProfileStudioLiveUI();
     };
     reader.readAsDataURL(file);
 }
@@ -12716,26 +13395,54 @@ function handleTrainerLogoUpload(event) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-        const next = updateTrainerSettings({ brandLogo: reader.result });
-        applyTrainerBranding(next);
-        loadTrainerSettingsToUI();
+        trainerProfileDraftMedia.brandLogo = String(reader.result || '');
+        syncTrainerProfileStudioLiveUI();
     };
     reader.readAsDataURL(file);
 }
 
 function applyTrainerBranding(settings) {
     const data = settings || loadTrainerSettings();
-    const photo = data.profilePhoto;
+    const identity = currentTrainerIdentity || {};
+    const photo = data.profilePhoto || identity.avatarPreview || identity.avatarUrl || '';
+    const cover = data.profileCover || identity.coverPreview || identity.coverUrl || '';
     const logo = data.brandLogo;
 
-    const profileBtn = document.querySelector('.profile-avatar');
-    if (profileBtn) {
+    document.querySelectorAll('#trainer-dashboard-screen .profile-avatar').forEach((profileBtn) => {
         if (photo) {
             profileBtn.style.backgroundImage = `url('${photo}')`;
             profileBtn.classList.add('has-photo');
         } else {
             profileBtn.style.backgroundImage = '';
             profileBtn.classList.remove('has-photo');
+        }
+    });
+
+    const menuAvatar = document.getElementById('trainer-profile-avatar');
+    if (menuAvatar) {
+        if (photo) {
+            menuAvatar.innerHTML = `<img src="${escHtml(photo)}" alt="Avatar do treinador" loading="lazy" decoding="async">`;
+        } else {
+            menuAvatar.innerHTML = '<i class="ph-bold ph-user"></i>';
+        }
+    }
+
+    const menuCover = document.getElementById('trainer-profile-cover');
+    if (menuCover) {
+        if (cover) menuCover.style.backgroundImage = `url('${cover}')`;
+        else menuCover.style.backgroundImage = '';
+    }
+
+    const coverPreview = document.getElementById('trainer-cover-preview');
+    if (coverPreview) {
+        if (cover) {
+            coverPreview.style.backgroundImage = `url('${cover}')`;
+            coverPreview.classList.add('has-image');
+            coverPreview.textContent = '';
+        } else {
+            coverPreview.style.backgroundImage = '';
+            coverPreview.classList.remove('has-image');
+            coverPreview.textContent = 'Sem capa';
         }
     }
 
@@ -12803,49 +13510,223 @@ function resetTrainerInviteCode() {
 }
 
 function loadTrainerSettingsToUI() {
+    bindTrainerProfileStudioBindings();
     const settings = loadTrainerSettings();
-    const bio = document.getElementById('trainer-bio');
-    if (bio) bio.value = settings.bio || '';
+    const draft = buildTrainerProfileStudioDraftFromSources(settings, currentTrainerIdentity || {});
+    trainerProfileStudioSyncLock = true;
+
+    const displayInput = document.getElementById('trainer-display-name');
+    if (displayInput) displayInput.value = draft.displayName;
+    const consultoriaInput = document.getElementById('trainer-consultoria-name');
+    if (consultoriaInput) consultoriaInput.value = draft.consultoriaName;
+    const headlineInput = document.getElementById('trainer-headline');
+    if (headlineInput) headlineInput.value = draft.headline;
+    const handleInput = document.getElementById('trainer-handle');
+    if (handleInput) handleInput.value = draft.handle;
+    const bioInput = document.getElementById('trainer-bio');
+    if (bioInput) bioInput.value = draft.bio;
+    const servicesInput = document.getElementById('trainer-services');
+    if (servicesInput) servicesInput.value = draft.services;
+    const instagramInput = document.getElementById('trainer-instagram');
+    if (instagramInput) instagramInput.value = draft.socialLinks.instagram || '';
+    const whatsappInput = document.getElementById('trainer-whatsapp');
+    if (whatsappInput) whatsappInput.value = draft.socialLinks.whatsapp || '';
+    const websiteInput = document.getElementById('trainer-website');
+    if (websiteInput) websiteInput.value = draft.socialLinks.website || '';
+    const ctaLabelInput = document.getElementById('trainer-cta-label');
+    if (ctaLabelInput) ctaLabelInput.value = draft.ctaLabel || '';
+    const ctaUrlInput = document.getElementById('trainer-cta-url');
+    if (ctaUrlInput) ctaUrlInput.value = draft.ctaUrl || '';
     const limit = document.getElementById('trainer-student-limit');
-    if (limit) limit.value = settings.studentLimit || '';
-    const unitInput = document.querySelector(`input[name="unit-system"][value="${settings.unitSystem}"]`);
+    if (limit) limit.value = draft.studentLimit || '';
+    const unitInput = document.querySelector(`input[name="unit-system"][value="${draft.unitSystem}"]`);
     if (unitInput) unitInput.checked = true;
     const macro = document.getElementById('trainer-macro-formula');
-    if (macro) macro.value = settings.macroFormula || 'mifflin';
+    if (macro) macro.value = draft.macroFormula || 'mifflin';
     const emailToggle = document.getElementById('notif-email');
-    if (emailToggle) emailToggle.checked = !!settings.notifyEmail;
+    if (emailToggle) emailToggle.checked = !!draft.notifyEmail;
     const pushToggle = document.getElementById('notif-push');
-    if (pushToggle) pushToggle.checked = !!settings.notifyPush;
-    renderTrainerSpecialties(settings.specialties);
+    if (pushToggle) pushToggle.checked = !!draft.notifyPush;
+    setTrainerProfileStudioThemeSelection(draft.themePreset);
+    trainerProfileDraftSpecialties = normalizeTrainerSpecialtiesList(draft.specialties || []);
+    trainerProfileDraftMedia = {
+        profilePhoto: draft.profilePhoto || '',
+        profileCover: draft.profileCover || '',
+        brandLogo: draft.brandLogo || ''
+    };
+    renderTrainerSpecialties(trainerProfileDraftSpecialties);
+    renderTrainerProfileStudioPreview({
+        ...draft,
+        specialties: trainerProfileDraftSpecialties,
+        profilePhoto: trainerProfileDraftMedia.profilePhoto,
+        profileCover: trainerProfileDraftMedia.profileCover,
+        brandLogo: trainerProfileDraftMedia.brandLogo
+    });
     setTrainerPasswordFeedback('');
-    syncTrainerInviteCodeUI(memoryGetItem('currentTrainerCode') || '00000');
-    applyTrainerBranding(settings);
+    syncTrainerInviteCodeUI((currentTrainerIdentity?.code || memoryGetItem('currentTrainerCode') || '00000'));
+    applyTrainerBranding({
+        ...settings,
+        ...draft,
+        specialties: trainerProfileDraftSpecialties,
+        profilePhoto: trainerProfileDraftMedia.profilePhoto,
+        profileCover: trainerProfileDraftMedia.profileCover,
+        brandLogo: trainerProfileDraftMedia.brandLogo
+    });
+    trainerProfileDraftBaseSnapshot = serializeTrainerProfileStudioState(collectTrainerProfileStudioState());
+    trainerProfileDraftDirty = false;
+    trainerProfileDraftHasRemoteError = false;
+    setTrainerProfileSavebarState('clean');
+    trainerProfileStudioSyncLock = false;
 }
 
-function saveTrainerSettings() {
-    const bio = document.getElementById('trainer-bio');
-    const limit = document.getElementById('trainer-student-limit');
-    const unit = document.querySelector('input[name="unit-system"]:checked');
-    const macro = document.getElementById('trainer-macro-formula');
-    const emailToggle = document.getElementById('notif-email');
-    const pushToggle = document.getElementById('notif-push');
+async function saveTrainerSettings() {
+    const state = collectTrainerProfileStudioState();
+    if (state.ctaUrlRaw && !state.ctaUrl) {
+        setTrainerProfileSavebarState('error', 'Link do CTA invalido. Use formato https://');
+        return;
+    }
+    setTrainerProfileSavebarState('saving');
 
-    const next = updateTrainerSettings({
-        bio: sanitizeUserInput(bio?.value || '', { allowNewlines: true, maxLen: 400 }),
-        studentLimit: sanitizeUserInput(limit?.value || '', { maxLen: 6 }),
-        unitSystem: unit?.value || 'metric',
-        macroFormula: macro?.value || 'mifflin',
-        notifyEmail: !!emailToggle?.checked,
-        notifyPush: !!pushToggle?.checked
+    const nextLocal = updateTrainerSettings({
+        displayName: state.displayName,
+        consultoriaName: state.consultoriaName,
+        headline: state.headline,
+        handle: state.handle,
+        bio: state.bio,
+        services: state.services,
+        specialties: state.specialties,
+        socialLinks: state.socialLinks,
+        ctaLabel: state.ctaLabel,
+        ctaUrl: state.ctaUrl,
+        themePreset: state.themePreset,
+        profilePhoto: state.profilePhoto,
+        profileCover: state.profileCover,
+        brandLogo: state.brandLogo,
+        studentLimit: state.studentLimit,
+        unitSystem: state.unitSystem,
+        macroFormula: state.macroFormula,
+        notifyEmail: state.notifyEmail,
+        notifyPush: state.notifyPush
     });
 
-    applyTrainerBranding(next);
-    loadTrainerSettingsToUI();
+    applyTrainerBranding(nextLocal);
+    renderTrainerProfileStudioPreview(state);
+
+    const avatarUrlForRemote =
+        sanitizeStrictUrl(state.profilePhoto || '', { maxLen: 320, allowStorage: true })
+        || sanitizeStrictUrl(currentTrainerIdentity?.avatarUrl || '', { maxLen: 320, allowStorage: true })
+        || '';
+    const coverUrlForRemote =
+        sanitizeStrictUrl(state.profileCover || '', { maxLen: 320, allowStorage: true })
+        || sanitizeStrictUrl(currentTrainerIdentity?.coverUrl || '', { maxLen: 320, allowStorage: true })
+        || '';
+
+    const localIdentityPayload = {
+        ...(currentTrainerIdentity || {}),
+        displayName: state.displayName,
+        name: state.displayName,
+        consultoriaName: state.consultoriaName,
+        headline: state.headline,
+        bio: state.bio,
+        services: state.services,
+        specialties: state.specialties,
+        socialLinks: state.socialLinks,
+        handle: state.handle,
+        ctaLabel: state.ctaLabel,
+        ctaUrl: state.ctaUrl,
+        themePreset: state.themePreset,
+        avatarUrl: state.profilePhoto || currentTrainerIdentity?.avatarUrl || '',
+        coverUrl: state.profileCover || currentTrainerIdentity?.coverUrl || ''
+    };
+
+    let remoteSynced = false;
+    try {
+        const sessionUser = await getSupabaseSessionUser();
+        const trainerCode = sanitizeCodeInput(currentTrainerIdentity?.code || memoryGetItem('currentTrainerCode') || '', 5);
+        if (!navigator.onLine) {
+            throw new Error('offline');
+        }
+        if (isSupabaseReady() && trainerCode) {
+            const savedRemote = await ensureTrainerExistsRemote(
+                trainerCode,
+                state.displayName,
+                state.consultoriaName,
+                {
+                    ownerId: sessionUser?.id || '',
+                    name: state.displayName,
+                    displayName: state.displayName,
+                    consultoriaName: state.consultoriaName,
+                    headline: state.headline,
+                    bio: state.bio,
+                    avatarUrl: avatarUrlForRemote,
+                    coverUrl: coverUrlForRemote,
+                    specialties: state.specialties,
+                    socialLinks: state.socialLinks,
+                    handle: state.handle,
+                    services: state.services,
+                    ctaLabel: state.ctaLabel,
+                    ctaUrl: state.ctaUrl,
+                    themePreset: state.themePreset,
+                    onboardingComplete: true
+                }
+            );
+            if (!savedRemote) throw new Error('remote-sync-failed');
+            await setCurrentTrainerIdentity(savedRemote, { name: state.displayName, consultoriaName: state.consultoriaName });
+            remoteSynced = true;
+        } else {
+            await setCurrentTrainerIdentity(localIdentityPayload, { name: state.displayName, consultoriaName: state.consultoriaName });
+            remoteSynced = true;
+        }
+    } catch (error) {
+        await setCurrentTrainerIdentity(localIdentityPayload, { name: state.displayName, consultoriaName: state.consultoriaName });
+        trainerProfileDraftHasRemoteError = true;
+        trainerProfileDraftDirty = true;
+        setTrainerProfileSavebarState('error', 'Salvo localmente. Sem conexao para sincronizar agora.');
+        if (typeof showDietRuntimeMessage === 'function') {
+            showDietRuntimeMessage('Perfil salvo localmente. Vamos sincronizar quando voltar a conexao.', 'error');
+        }
+        return;
+    }
+
+    if (remoteSynced) {
+        trainerProfileDraftHasRemoteError = false;
+        trainerProfileDraftBaseSnapshot = serializeTrainerProfileStudioState(collectTrainerProfileStudioState());
+        trainerProfileDraftDirty = false;
+        setTrainerProfileSavebarState('saved');
+        if (typeof showDietRuntimeMessage === 'function') {
+            showDietRuntimeMessage('Perfil do treinador atualizado com sucesso.', 'success');
+        }
+        setTimeout(() => {
+            if (!trainerProfileDraftDirty) setTrainerProfileSavebarState('clean');
+        }, 1200);
+    }
 }
 
 function resetTrainerSettings() {
-    memoryRemoveItem(getTrainerSettingsScopedKey());
+    const settings = loadTrainerSettings();
+    const fallbackName = sanitizeUserInput(
+        currentTrainerIdentity?.displayName || currentTrainerIdentity?.name || memoryGetItem('trainerName') || 'Treinador',
+        { maxLen: 90 }
+    ) || 'Treinador';
+    const firstName = sanitizeUserInput(fallbackName.split(' ')[0], { maxLen: 30 }) || 'Treinador';
+    const profileOnlyReset = {
+        displayName: fallbackName,
+        consultoriaName: `Consultoria de ${firstName}`,
+        headline: '',
+        handle: suggestTrainerHandleFromName(fallbackName),
+        bio: '',
+        services: 'treino',
+        specialties: [],
+        socialLinks: { instagram: '', whatsapp: '', website: '' },
+        ctaLabel: '',
+        ctaUrl: '',
+        themePreset: TRAINER_THEME_PRESETS[0],
+        profilePhoto: '',
+        profileCover: ''
+    };
+    updateTrainerSettings({ ...settings, ...profileOnlyReset });
     loadTrainerSettingsToUI();
+    setTrainerProfileSavebarState('clean', 'Campos de perfil restaurados para o padrao.');
 }
 
 // â”€â”€ View switching + routes (Dashboard / Alunos / Duvidas / Exercicios) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -12881,7 +13762,10 @@ function handleTrainerHashChange() {
     if (!document.getElementById('trainer-dashboard-screen')) return;
     const view = getTrainerViewFromHash();
     if (!view) return;
-    switchDashView(view, { fromHash: true });
+    const switched = switchDashView(view, { fromHash: true });
+    if (switched === false) {
+        setTrainerRoute(lastMainTrainerView || 'dashboard');
+    }
 }
 
 function initTrainerRoutes() {
@@ -12957,6 +13841,7 @@ function openMobileDashboardSearch() {
 
 function switchDashView(view, options = {}) {
     const fromHash = options.fromHash;
+    const focusProfileStudio = !!options.focusProfileStudio;
     const viewDash = document.getElementById('view-dashboard');
     const viewAlunos = document.getElementById('view-alunos');
     const viewDuvidas = document.getElementById('view-duvidas');
@@ -12984,10 +13869,25 @@ function switchDashView(view, options = {}) {
         }, 260);
     };
 
+    if (view === 'config' && lastMainTrainerView === 'config' && hasTrainerProfilePendingChanges()) {
+        if (focusProfileStudio) setTimeout(() => focusTrainerProfileForm(), 120);
+        return true;
+    }
+
+    const leavingConfig = lastMainTrainerView === 'config' && view !== 'config';
+    if (leavingConfig && hasTrainerProfilePendingChanges()) {
+        const shouldDiscard = confirm('Voce tem alteracoes nao salvas no perfil. Deseja descartar e sair de Configuracoes?');
+        if (!shouldDiscard) {
+            if (fromHash) setTrainerRoute('config');
+            return false;
+        }
+        discardTrainerProfileDraftChanges();
+    }
+
     if (view === 'exercicios') {
         openExerciseDrawer();
         if (!fromHash) setTrainerRoute('exercicios');
-        return;
+        return true;
     }
 
     if (trainerDrawerOpen) closeExerciseDrawer({ skipRoute: true });
@@ -13043,6 +13943,7 @@ function switchDashView(view, options = {}) {
         if (dashboardHeaderSub) dashboardHeaderSub.textContent = 'Ajustes operacionais e preferências da consultoria.';
         loadTrainerSettingsToUI();
         animateIn(viewConfig, 'right');
+        if (focusProfileStudio) setTimeout(() => focusTrainerProfileForm(), 120);
     } else {
         lastMainTrainerView = 'dashboard';
         if (viewDash) viewDash.style.display = '';
@@ -13067,6 +13968,7 @@ function switchDashView(view, options = {}) {
     else if (mobileNav.dashboard) mobileNav.dashboard.classList.add('active');
 
     if (!fromHash) setTrainerRoute(lastMainTrainerView);
+    return true;
 }
 
 
@@ -14075,6 +14977,10 @@ let studentConfigSaveState = 'clean';
 let pendingBlockIdx = null;    // which block an exercise is being added to
 let pendingMealIdx = null;    // which meal an item is being added to
 let workoutPlanAutosaveTimer = null;
+let exModalLastOpenedAt = 0;
+let exModalCloseInFlight = false;
+let dietPlannerSummaryRaf = 0;
+let dietPlannerSummaryTimer = null;
 
 let activeExerciseFilter = 'todos';
 let activeEquipmentFilter = 'todos';
@@ -14350,7 +15256,10 @@ function queueWorkoutPlanAutosave() {
         if (!student) return;
         student.workoutBlocks = workoutBlocks;
         students[currentStudentIdx] = student;
-        saveStudentData(students);
+        saveStudentData(students, {
+            syncMode: 'batched',
+            syncDelayMs: 2600
+        });
     }, 350);
 }
 
@@ -14459,6 +15368,9 @@ function updateSummaryBar() {
 // â”€â”€â”€ Exercise Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function openExModal(blockIdx) {
+    const modal = document.getElementById('ex-modal');
+    const overlay = document.getElementById('ex-modal-overlay');
+    if (!modal || !overlay) return;
     pendingBlockIdx = blockIdx;
     ['ex-nome', 'ex-obs', 'ex-series', 'ex-reps', 'ex-carga', 'ex-descanso'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
@@ -14470,8 +15382,10 @@ function openExModal(blockIdx) {
     closeFilterPicker();
     updateExerciseFilterButtons();
 
-    document.getElementById('ex-modal-overlay').classList.add('active');
-    document.getElementById('ex-modal').classList.add('active');
+    exModalCloseInFlight = false;
+    exModalLastOpenedAt = Date.now();
+    overlay.classList.add('active');
+    modal.classList.add('active');
     searchExerciseLibrary('');
     document.getElementById('ex-nome').focus();
 }
@@ -14579,6 +15493,11 @@ function selectExerciseFromLibrary(name) {
 }
 
 function handleExerciseSearchKeydown(event) {
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        closeExModal('escape');
+        return;
+    }
     if (!Array.isArray(exerciseSearchMatches) || !exerciseSearchMatches.length) return;
     if (event.key === 'ArrowDown') {
         event.preventDefault();
@@ -14785,12 +15704,21 @@ function closeFilterPicker() {
     activeFilterPicker = null;
 }
 
-function closeExModal() {
+function closeExModal(reason = 'manual') {
+    const modal = document.getElementById('ex-modal');
+    const overlay = document.getElementById('ex-modal-overlay');
+    if (!modal || !overlay || !modal.classList.contains('active')) return;
+    if (exModalCloseInFlight) return;
+    if (reason !== 'confirm' && reason !== 'escape' && (Date.now() - exModalLastOpenedAt) < 120) return;
 
-    document.getElementById('ex-modal-overlay').classList.remove('active');
-    document.getElementById('ex-modal').classList.remove('active');
+    exModalCloseInFlight = true;
+    overlay.classList.remove('active');
+    modal.classList.remove('active');
     pendingBlockIdx = null;
     closeFilterPicker();
+    setTimeout(() => {
+        exModalCloseInFlight = false;
+    }, 160);
 }
 
 function confirmAddExercise() {
@@ -14810,7 +15738,7 @@ function confirmAddExercise() {
     if (pendingBlockIdx !== null) {
         workoutBlocks[pendingBlockIdx].exercises.push(ex);
     }
-    closeExModal();
+    closeExModal('confirm');
     renderWorkoutBlocks();
     signalStudentPlanDirty();
     queueWorkoutPlanAutosave();
@@ -14866,7 +15794,7 @@ function renderMeals() {
                 <i class="ph-fill ph-fork-knife" style="color:var(--primary-color)"></i>
                 <div class="wb-meal-title-wrap">
                     <input class="wb-name-input" value="${escHtml(meal.name)}" placeholder="Ex: Café da manhã"
-                        oninput="mealBlocks[${mIdx}].name = this.value; updateDietPlannerSummary()">
+                        oninput="mealBlocks[${mIdx}].name = this.value; scheduleDietPlannerSummaryUpdate({ debounceMs: 110 })">
                     <span class="wb-meal-target tone-${getKcalBalanceMeta(summary.mealKcals[mIdx] || 0, summary.mealTargets[mIdx] || 0).tone}" data-meal-idx="${mIdx}">Meta ${summary.mealTargets[mIdx] || 0} kcal · Atual ${summary.mealKcals[mIdx] || 0} kcal · ${getKcalBalanceMeta(summary.mealKcals[mIdx] || 0, summary.mealTargets[mIdx] || 0).text}</span>
                     <div class="wb-meal-progress">
                         <div class="wb-meal-progress-track">
@@ -14962,7 +15890,7 @@ function updateMealItemField(mIdx, iIdx, field, value) {
     }
 
     item[field] = normalized;
-    updateDietPlannerSummary();
+    scheduleDietPlannerSummaryUpdate({ debounceMs: 90 });
     signalStudentPlanDirty();
 }
 
@@ -15019,6 +15947,34 @@ function getDietPlannerSummary() {
     };
 }
 
+function scheduleDietPlannerSummaryUpdate(options = {}) {
+    const immediate = !!options.immediate;
+    const debounceMs = Math.max(0, parseInt(options.debounceMs, 10) || 120);
+    if (dietPlannerSummaryTimer) {
+        clearTimeout(dietPlannerSummaryTimer);
+        dietPlannerSummaryTimer = null;
+    }
+    if (dietPlannerSummaryRaf) {
+        cancelAnimationFrame(dietPlannerSummaryRaf);
+        dietPlannerSummaryRaf = 0;
+    }
+    if (immediate) {
+        updateDietPlannerSummary();
+        return;
+    }
+    dietPlannerSummaryTimer = setTimeout(() => {
+        dietPlannerSummaryTimer = null;
+        dietPlannerSummaryRaf = requestAnimationFrame(() => {
+            dietPlannerSummaryRaf = 0;
+            updateDietPlannerSummary();
+        });
+    }, debounceMs);
+}
+
+function flushDietPlannerSummaryUpdate() {
+    scheduleDietPlannerSummaryUpdate({ immediate: true });
+}
+
 function updateDietPlannerSummary() {
     const card = document.querySelector('.diet-planner-overview');
     if (!card) return;
@@ -15066,6 +16022,12 @@ function updateDietPlannerSummary() {
 
 function openFoodModal(mealIdx) {
     pendingMealIdx = mealIdx;
+    if (foodSearchAbortController) {
+        foodSearchAbortController.abort();
+        foodSearchAbortController = null;
+    }
+    clearTimeout(foodSearchTimeout);
+    foodSearchRequestSeq += 1;
     ['food-nome', 'food-qtd', 'food-kcal', 'food-prot', 'food-carb', 'food-gord'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
     });
@@ -15111,6 +16073,8 @@ function openFoodModal(mealIdx) {
 }
 
 let foodSearchTimeout = null;
+let foodSearchRequestSeq = 0;
+let foodSearchAbortController = null;
 let selectedFoodReference = null;
 let foodModalSearchResults = [];
 let foodModalSearchBaseResults = [];
@@ -15467,6 +16431,31 @@ function registerRecentFood(item) {
     saveFoodModalPrefs({ ...prefs, recents: next });
 }
 
+function mapFoodResultToModalItem(item = {}) {
+    return {
+        nome: item.name,
+        brand: item.brand || '',
+        kcal: item.kcal,
+        prot: item.protein,
+        carb: item.carb,
+        fat: item.fat,
+        base_qty: item.base_qty,
+        base_unit: item.base_unit,
+        foodId: item.id,
+        family_key: item.family_key || '',
+        variant_key: item.variant_key || '',
+        variant_label: item.variant_label || '',
+        source: item.source || 'catalog',
+        portions: getFoodPortions(item)
+    };
+}
+
+function applyFoodSearchResultsFromCatalog(catalogResults = [], label = 'Banco de Alimentos') {
+    foodModalSearchLabel = label;
+    foodModalSearchBaseResults = (catalogResults || []).map(mapFoodResultToModalItem);
+    applyFoodModalFiltersAndRender();
+}
+
 function handleFoodModalSearchKeydown(event) {
     const modal = document.getElementById('food-modal');
     if (!modal || !modal.classList.contains('active')) return;
@@ -15498,45 +16487,60 @@ function handleFoodModalSearchKeydown(event) {
 function searchFoodAPI(query) {
     const results = document.getElementById('food-library-results');
     if (!results) return;
+    const safeQuery = sanitizeUserInput(query || '', { maxLen: 90 }).trim();
 
-    if (!query || query.length < 2) {
-        renderSimpleFoodLibrary(query || '');
+    if (!safeQuery || safeQuery.length < 2) {
+        if (foodSearchAbortController) {
+            foodSearchAbortController.abort();
+            foodSearchAbortController = null;
+        }
+        foodSearchRequestSeq += 1;
+        clearTimeout(foodSearchTimeout);
+        renderSimpleFoodLibrary(safeQuery || '');
         return;
+    }
+
+    if (foodSearchAbortController) {
+        foodSearchAbortController.abort();
+        foodSearchAbortController = null;
+    }
+    const requestId = ++foodSearchRequestSeq;
+
+    const localQuickResults = getEffectiveFoodCatalog()
+        .filter((item) => normalizeText(item.name).includes(normalizeText(safeQuery)))
+        .slice(0, 12);
+    if (localQuickResults.length > 0) {
+        applyFoodSearchResultsFromCatalog(localQuickResults, 'Banco de Alimentos');
+    } else {
+        results.innerHTML = '<div class="food-quick-empty">Buscando alimentos...</div>';
+        results.classList.add('active');
     }
 
     clearTimeout(foodSearchTimeout);
     foodSearchTimeout = setTimeout(async () => {
-        results.innerHTML = '<div class="food-quick-empty">Buscando alimentos...</div>';
-        results.classList.add('active');
+        const controller = new AbortController();
+        foodSearchAbortController = controller;
+        if (!localQuickResults.length) {
+            results.innerHTML = '<div class="food-quick-empty">Buscando alimentos...</div>';
+            results.classList.add('active');
+        }
 
         try {
-            const catalogResults = await searchFoodsCatalog(query, 12);
+            const catalogResults = await searchFoodsCatalog(safeQuery, 12);
+            if (requestId !== foodSearchRequestSeq) return;
             if (catalogResults.length > 0) {
-                foodModalSearchLabel = 'Banco de Alimentos';
-                foodModalSearchBaseResults = catalogResults.map((item) => ({
-                    nome: item.name,
-                    brand: item.brand || '',
-                    kcal: item.kcal,
-                    prot: item.protein,
-                    carb: item.carb,
-                    fat: item.fat,
-                    base_qty: item.base_qty,
-                    base_unit: item.base_unit,
-                    foodId: item.id,
-                    family_key: item.family_key || '',
-                    variant_key: item.variant_key || '',
-                    variant_label: item.variant_label || '',
-                    source: item.source || 'catalog',
-                    portions: getFoodPortions(item)
-                }));
-                applyFoodModalFiltersAndRender();
+                applyFoodSearchResultsFromCatalog(catalogResults, 'Banco de Alimentos');
                 return;
             }
 
             if (catalogResults.length === 0) {
-                const url = `https://br.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=10`;
-                const resp = await fetch(url, { headers: { 'User-Agent': 'AplicativoConsultoria - Browser - v1.0' } });
+                const url = `https://br.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(safeQuery)}&search_simple=1&action=process&json=1&page_size=10`;
+                const resp = await fetch(url, {
+                    headers: { 'User-Agent': 'AplicativoConsultoria - Browser - v1.0' },
+                    signal: controller.signal
+                });
                 const data = await resp.json();
+                if (requestId !== foodSearchRequestSeq) return;
                 if (data.products && data.products.length > 0) {
                     foodModalSearchLabel = 'Open Food Facts';
                     foodModalSearchBaseResults = data.products.map((p) => {
@@ -15569,8 +16573,13 @@ function searchFoodAPI(query) {
             foodModalSearchActiveIndex = -1;
             renderFoodSearchResults();
         } catch (err) {
+            if (err?.name === 'AbortError') return;
             console.error(err);
             results.innerHTML = '<div class="food-quick-empty" style="color:#ef4444;">Erro ao buscar alimentos.</div>';
+        } finally {
+            if (requestId === foodSearchRequestSeq) {
+                foodSearchAbortController = null;
+            }
         }
     }, 500);
 }
@@ -15727,6 +16736,12 @@ function applyRemainingCaloriesToCurrentFood() {
 }
 
 function closeFoodModal() {
+    if (foodSearchAbortController) {
+        foodSearchAbortController.abort();
+        foodSearchAbortController = null;
+    }
+    clearTimeout(foodSearchTimeout);
+    foodSearchRequestSeq += 1;
     document.getElementById('food-modal-overlay').classList.remove('active');
     document.getElementById('food-modal').classList.remove('active');
     selectedFoodReference = null;
@@ -15830,7 +16845,7 @@ function duplicateLastMealFood() {
 }
 
 function updateDietSummary() {
-    updateDietPlannerSummary();
+    scheduleDietPlannerSummaryUpdate({ debounceMs: 60 });
     updateFoodTargetHint();
     signalStudentPlanDirty();
 }
@@ -15899,7 +16914,7 @@ function saveStudentPlan() {
         students[currentStudentIdx].billingNotes = billingNotes;
         students[currentStudentIdx].billingHistory = billingHistory;
         students[currentStudentIdx].active = true; // Mark protocol as active when saved
-        saveStudentData(students);
+        saveStudentData(students, { syncMode: 'immediate' });
         loadStudentBillingConfigTab(students[currentStudentIdx]);
         updateTrainerStats(document.getElementById('alunos-search')?.value || document.getElementById('global-search')?.value || '');
         clearStudentConfigDirty();
@@ -16064,7 +17079,7 @@ function confirmExitActiveWorkout() {
 
 function setupWorkoutExitGuard() {
     window.addEventListener('beforeunload', (event) => {
-        if (!workoutState) return;
+        if (!workoutState && !hasTrainerProfilePendingChanges()) return;
         event.preventDefault();
         event.returnValue = '';
     });

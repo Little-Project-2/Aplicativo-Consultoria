@@ -116,21 +116,22 @@
                 <!-- Sidebar -->
                 <aside class="sidebar sidebar-refined">
                     <div class="sidebar-top">
-                        <button class="workspace-switcher" type="button" aria-label="Selecionar workspace">
+                        <div class="workspace-switcher profile-menu-trigger" role="button" tabindex="0" aria-label="Abrir perfil do treinador" onclick="toggleTrainerProfileMenu(event)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleTrainerProfileMenu(event);}">
                             <span class="workspace-switcher-left">
                                 <span class="workspace-logo">
                                     <i class="ph-thin ph-moon"></i>
                                 </span>
                                 <span class="workspace-name-wrap">
-                                    <span class="workspace-name" id="sidebar-trainer-name">Modo Admin</span>
-                                    <button class="workspace-code-badge" id="sidebar-trainer-code-badge" type="button" onclick="copySidebarAdminCode(event)" aria-label="Copiar código do admin">
+                                    <span class="workspace-name" id="sidebar-consultoria-name">Minha consultoria</span>
+                                    <span class="workspace-subname" id="sidebar-trainer-name">Treinador</span>
+                                    <button class="workspace-code-badge" id="sidebar-trainer-code-badge" type="button" onclick="copySidebarAdminCode(event)" aria-label="Copiar código da consultoria">
                                         <span id="sidebar-trainer-code">00001</span>
                                         <i class="ph-thin ph-copy"></i>
                                     </button>
                                 </span>
                             </span>
                             <span class="workspace-chevron"><i class="ph-thin ph-caret-down"></i></span>
-                        </button>
+                        </div>
 
                         <button class="sidebar-search-trigger" type="button" aria-label="Buscar" onclick="openMobileDashboardSearch()">
                             <span class="search-left"><i class="ph-thin ph-magnifying-glass"></i> Search</span>
@@ -175,9 +176,9 @@
                     <div class="mobile-topbar">
                         <div class="mobile-topbar-brand">
                             <span class="workspace-logo"><i class="ph-thin ph-moon"></i></span>
-                            <span>Nicolas Finance</span>
+                            <span id="mobile-topbar-title">Minha consultoria</span>
                         </div>
-                        <button class="mobile-topbar-search" type="button" onclick="openMobileDashboardSearch()">
+                        <button class="mobile-topbar-search" type="button" onclick="openMobileDashboardSearch()" aria-label="Buscar aluno">
                             <i class="ph-thin ph-magnifying-glass"></i>
                         </button>
                     </div>
@@ -190,6 +191,9 @@
                             <button class="btn-primary btn-sm" id="dashboard-primary-action" onclick="switchDashView('alunos')">
                                 <i class="ph-bold ph-user-plus"></i>
                                 Gerenciar alunos
+                            </button>
+                            <button type="button" class="profile-avatar profile-menu-trigger trainer-profile-trigger-desktop" id="trainer-profile-trigger-desktop" onclick="toggleTrainerProfileMenu(event)" aria-label="Abrir perfil do treinador">
+                                <i class="ph-thin ph-user"></i>
                             </button>
                         </div>
                     </header>
@@ -516,7 +520,7 @@
                                 <i class="ph-thin ph-chat-circle-dots"></i>
                                 <span>Dúvidas</span>
                             </button>
-                            <button type="button" class="mobile-nav-item" id="m-nav-profile" onclick="toggleTrainerProfileMenu(event)">
+                            <button type="button" class="mobile-nav-item" id="m-nav-profile" onclick="switchDashView('config', { focusProfileStudio: true })" aria-label="Abrir Profile Studio">
                                 <i class="ph-thin ph-user-circle"></i>
                                 <span>Perfil</span>
                             </button>
@@ -527,118 +531,258 @@
 
             <!-- VIEW: CONFIGURACOES -->
             <div id="view-config" style="display:none">
-                <div class="settings-grid">
-                    <section class="settings-card">
-                        <div class="settings-card-header">
-                            <h2>Perfil do Treinador</h2>
-                            <p class="subtitle">Edite sua bio, foto e especialidades exibidas aos alunos.</p>
+                <div class="profile-studio-shell">
+                    <section class="settings-card profile-studio-quick-actions-card">
+                        <div class="profile-studio-quick-actions-head">
+                            <h3>Ações rápidas da conta</h3>
+                            <p class="subtitle">Atalhos principais para operar a consultoria no mobile.</p>
                         </div>
-                        <div class="settings-field">
-                            <label>Foto profissional</label>
-                            <div class="settings-upload">
-                                <div class="settings-avatar-preview" id="trainer-photo-preview">
-                                    <i class="ph-bold ph-user"></i>
-                                </div>
-                                <input type="file" id="trainer-photo-input" accept="image/*" onchange="handleTrainerPhotoUpload(event)">
-                            </div>
-                        </div>
-                        <div class="settings-field">
-                            <label>Bio e descricao</label>
-                            <textarea id="trainer-bio" class="q-input" rows="3" placeholder="Ex: Treinador focado em performance e emagrecimento."></textarea>
-                        </div>
-                        <div class="settings-field">
-                            <label>Especialidades</label>
-                            <div class="settings-tag-input">
-                                <input type="text" id="trainer-specialty-input" placeholder="Ex: Hipertrofia">
-                                <button class="btn-secondary btn-sm" onclick="addTrainerSpecialty()">Adicionar</button>
-                            </div>
-                            <div class="settings-tag-list" id="trainer-specialty-tags"></div>
+                        <div class="profile-studio-quick-actions-grid">
+                            <button type="button" class="profile-studio-quick-action-btn" onclick="viewTrainerStats()" aria-label="Ver estatísticas da consultoria">
+                                <i class="ph-bold ph-chart-bar"></i>
+                                <span>Estatísticas</span>
+                            </button>
+                            <button type="button" class="profile-studio-quick-action-btn" onclick="shareTrainerCode()" aria-label="Compartilhar código da consultoria">
+                                <i class="ph-bold ph-share-network"></i>
+                                <span>Compartilhar código</span>
+                            </button>
+                            <button type="button" class="profile-studio-quick-action-btn danger" onclick="logoutTrainerFromMenu()" aria-label="Sair da conta do treinador">
+                                <i class="ph-bold ph-sign-out"></i>
+                                <span>Sair</span>
+                            </button>
                         </div>
                     </section>
 
-                    <section class="settings-card">
-                        <div class="settings-card-header">
-                            <h2>Gestao da Consultoria</h2>
-                            <p class="subtitle">Controle codigo de convite, limite de alunos e sua marca.</p>
+                    <section class="settings-card profile-studio-primary" id="trainer-profile-studio">
+                        <div class="profile-studio-header">
+                            <p class="profile-studio-kicker">Perfil publico</p>
+                            <h2>Profile Studio</h2>
+                            <p class="subtitle">Edite com clareza e veja em tempo real como seu perfil aparece para o aluno.</p>
                         </div>
-                        <div class="settings-field">
-                            <label>Codigo de convite</label>
-                            <div class="settings-inline">
-                                <input type="text" id="trainer-invite-code" class="q-input code-input" readonly>
-                                <button class="btn-secondary btn-sm" onclick="generateTrainerInviteCode()">Gerar novo</button>
-                                <button class="btn-secondary btn-sm" onclick="resetTrainerInviteCode()">Resetar</button>
-                            </div>
-                        </div>
-                        <div class="settings-field">
-                            <label>Limite de alunos</label>
-                            <input type="number" id="trainer-student-limit" class="q-input" min="1" placeholder="Ex: 50">
-                        </div>
-                        <div class="settings-field">
-                            <label>Logo da consultoria</label>
-                            <div class="settings-upload">
-                                <div class="settings-logo-preview" id="trainer-logo-preview">
-                                    <i class="ph-bold ph-image"></i>
-                                </div>
-                                <input type="file" id="trainer-logo-input" accept="image/*" onchange="handleTrainerLogoUpload(event)">
-                            </div>
-                        </div>
-                    </section>
 
-                    <section class="settings-card">
-                        <div class="settings-card-header">
-                            <h2>Preferencias de Protocolo</h2>
-                            <p class="subtitle">Defina unidades e formula padrao para macros.</p>
-                        </div>
-                        <div class="settings-field">
-                            <label>Unidades de medida</label>
-                            <div class="settings-radio-group">
-                                <label class="radio-card compact">
-                                    <input type="radio" name="unit-system" value="metric">
-                                    <div class="radio-content">
-                                        <span>kg/cm</span>
+                        <div class="profile-studio-grid">
+                            <div class="profile-studio-form" id="trainer-profile-form-anchor">
+                                <div class="profile-studio-group">
+                                    <h3>Essenciais</h3>
+                                    <p>Identidade principal da sua consultoria.</p>
+                                    <div class="settings-field">
+                                        <label>Nome de exibicao</label>
+                                        <input type="text" id="trainer-display-name" class="q-input" placeholder="Ex: Nicolas Silva">
                                     </div>
-                                </label>
-                                <label class="radio-card compact">
-                                    <input type="radio" name="unit-system" value="imperial">
-                                    <div class="radio-content">
-                                        <span>lb/in</span>
+                                    <div class="settings-field">
+                                        <label>Nome da consultoria</label>
+                                        <input type="text" id="trainer-consultoria-name" class="q-input" placeholder="Ex: Consultoria Alpha">
                                     </div>
-                                </label>
+                                    <div class="settings-field">
+                                        <label>Headline profissional</label>
+                                        <input type="text" id="trainer-headline" class="q-input" placeholder="Ex: Treino e dieta para hipertrofia natural">
+                                    </div>
+                                    <div class="settings-field">
+                                        <label>Bio e descricao</label>
+                                        <textarea id="trainer-bio" class="q-input" rows="4" placeholder="Ex: Treinador focado em performance e emagrecimento."></textarea>
+                                    </div>
+                                </div>
+
+                                <div class="profile-studio-group">
+                                    <h3>Midia</h3>
+                                    <p>Avatar e capa para fortalecer sua marca.</p>
+                                    <div class="profile-studio-media-grid">
+                                        <div class="profile-media-card">
+                                            <header>
+                                                <p>Foto profissional</p>
+                                                <small>Usada no menu e no card publico.</small>
+                                            </header>
+                                            <div class="settings-avatar-preview" id="trainer-photo-preview">
+                                                <i class="ph-bold ph-user"></i>
+                                            </div>
+                                            <div class="profile-media-actions">
+                                                <label class="btn-secondary btn-sm" for="trainer-photo-input">Selecionar</label>
+                                                <input type="file" id="trainer-photo-input" accept="image/*" onchange="handleTrainerPhotoUpload(event)" hidden>
+                                            </div>
+                                        </div>
+                                        <div class="profile-media-card">
+                                            <header>
+                                                <p>Capa do perfil</p>
+                                                <small>Visual de destaque no topo do perfil.</small>
+                                            </header>
+                                            <div class="profile-cover-preview" id="trainer-cover-preview">Sem capa</div>
+                                            <div class="profile-media-actions">
+                                                <label class="btn-secondary btn-sm" for="trainer-cover-input">Selecionar</label>
+                                                <input type="file" id="trainer-cover-input" accept="image/*" onchange="handleTrainerCoverUpload(event)" hidden>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="profile-studio-group">
+                                    <h3>Avancado</h3>
+                                    <p>Conversao, estilo visual e presenca social.</p>
+                                    <div class="settings-field">
+                                        <label>@Usuario profissional</label>
+                                        <input type="text" id="trainer-handle" class="q-input" placeholder="Ex: nicolas.fit">
+                                    </div>
+                                    <div class="settings-field">
+                                        <label>Servicos oferecidos</label>
+                                        <select id="trainer-services" class="q-input">
+                                            <option value="treino">Treino</option>
+                                            <option value="dieta">Dieta</option>
+                                            <option value="ambos">Treino + Dieta</option>
+                                        </select>
+                                    </div>
+                                    <div class="settings-field">
+                                        <label>Especialidades</label>
+                                        <div class="settings-tag-input">
+                                            <input type="text" id="trainer-specialty-input" placeholder="Ex: Hipertrofia">
+                                            <button class="btn-secondary btn-sm" onclick="addTrainerSpecialty()">Adicionar</button>
+                                        </div>
+                                        <div class="settings-tag-list" id="trainer-specialty-tags"></div>
+                                    </div>
+                                    <div class="settings-field">
+                                        <label>Links sociais</label>
+                                        <div class="settings-social-grid">
+                                            <input type="text" id="trainer-instagram" class="q-input" placeholder="Instagram (@ ou link)">
+                                            <input type="text" id="trainer-whatsapp" class="q-input" placeholder="WhatsApp (+55...)">
+                                            <input type="url" id="trainer-website" class="q-input" placeholder="Website (https://...)">
+                                        </div>
+                                    </div>
+                                    <div class="profile-studio-inline-grid">
+                                        <div class="settings-field">
+                                            <label>Texto do CTA</label>
+                                            <input type="text" id="trainer-cta-label" class="q-input" placeholder="Ex: Falar no WhatsApp">
+                                        </div>
+                                        <div class="settings-field">
+                                            <label>Link do CTA</label>
+                                            <input type="url" id="trainer-cta-url" class="q-input" placeholder="https://wa.me/...">
+                                        </div>
+                                    </div>
+                                    <div class="settings-field">
+                                        <label>Tema visual</label>
+                                        <div class="profile-theme-grid">
+                                            <label class="profile-theme-option">
+                                                <input type="radio" name="trainer-theme-preset" value="neon-lime">
+                                                Neon Lime
+                                            </label>
+                                            <label class="profile-theme-option">
+                                                <input type="radio" name="trainer-theme-preset" value="ocean-blue">
+                                                Ocean Blue
+                                            </label>
+                                            <label class="profile-theme-option">
+                                                <input type="radio" name="trainer-theme-preset" value="graphite">
+                                                Graphite
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                        <div class="settings-field">
-                            <label>Calculo padrao de macros</label>
-                            <select id="trainer-macro-formula" class="q-input">
-                                <option value="mifflin">Mifflin-St Jeor</option>
-                                <option value="harris">Harris-Benedict</option>
-                                <option value="katch">Katch-McArdle</option>
-                            </select>
+
+                            <aside class="profile-studio-preview-pane">
+                                <p class="profile-studio-preview-label">Como o aluno ve</p>
+                                <div class="profile-preview-card" id="trainer-profile-preview-card">
+                                    <div class="profile-preview-cover" id="trainer-profile-preview-cover"></div>
+                                    <div class="profile-preview-content">
+                                        <div class="profile-preview-avatar" id="trainer-profile-preview-avatar">
+                                            <i class="ph-bold ph-user"></i>
+                                        </div>
+                                        <h3 id="trainer-profile-preview-name">Treinador</h3>
+                                        <p class="profile-preview-handle" id="trainer-profile-preview-handle">@treinador</p>
+                                        <p class="profile-preview-consultoria" id="trainer-profile-preview-consultoria">Consultoria</p>
+                                        <p class="profile-preview-bio" id="trainer-profile-preview-headline">Headline profissional</p>
+                                        <p class="profile-preview-bio" id="trainer-profile-preview-bio">Bio profissional</p>
+                                        <div class="profile-preview-social" id="trainer-profile-preview-services"></div>
+                                        <div class="profile-preview-social" id="trainer-profile-preview-specialties"></div>
+                                        <div class="profile-preview-social" id="trainer-profile-preview-social"></div>
+                                        <a class="btn-primary profile-preview-cta" id="trainer-profile-preview-cta" href="#" target="_blank" rel="noreferrer">Chamada principal</a>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn-secondary profile-studio-mobile-edit-btn" onclick="focusTrainerProfileForm()">Editar perfil</button>
+                            </aside>
                         </div>
                     </section>
 
-                    <section class="settings-card">
+                    <section class="settings-card profile-studio-secondary">
                         <div class="settings-card-header">
-                            <h2>Notificacoes</h2>
-                            <p class="subtitle">Escolha como receber alertas de treino e duvidas.</p>
+                            <h2>Operacao da Consultoria</h2>
+                            <p class="subtitle">Controle limite, logo, preferencias de protocolo e notificacoes.</p>
                         </div>
-                        <div class="settings-field">
-                            <label class="toggle-row">
-                                <input type="checkbox" id="notif-email">
-                                <span>Receber e-mail quando um aluno concluir um treino</span>
-                            </label>
-                        </div>
-                        <div class="settings-field">
-                            <label class="toggle-row">
-                                <input type="checkbox" id="notif-push">
-                                <span>Receber push quando um aluno enviar uma duvida</span>
-                            </label>
+                        <div class="profile-studio-ops-grid">
+                            <div class="profile-studio-group profile-studio-group-soft">
+                                <h3>Acesso e marca</h3>
+                                <div class="settings-field">
+                                    <label>Codigo de convite</label>
+                                    <div class="settings-inline">
+                                        <input type="text" id="trainer-invite-code" class="q-input code-input" readonly>
+                                        <button class="btn-secondary btn-sm" onclick="generateTrainerInviteCode()">Gerar novo</button>
+                                        <button class="btn-secondary btn-sm" onclick="resetTrainerInviteCode()">Resetar</button>
+                                    </div>
+                                </div>
+                                <div class="settings-field">
+                                    <label>Limite de alunos</label>
+                                    <input type="number" id="trainer-student-limit" class="q-input" min="1" placeholder="Ex: 50">
+                                </div>
+                                <div class="settings-field">
+                                    <label>Logo da consultoria</label>
+                                    <div class="settings-upload">
+                                        <div class="settings-logo-preview" id="trainer-logo-preview">
+                                            <i class="ph-bold ph-image"></i>
+                                        </div>
+                                        <input type="file" id="trainer-logo-input" accept="image/*" onchange="handleTrainerLogoUpload(event)">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="profile-studio-group profile-studio-group-soft">
+                                <h3>Preferencias</h3>
+                                <div class="settings-field">
+                                    <label>Unidades de medida</label>
+                                    <div class="settings-radio-group">
+                                        <label class="radio-card compact">
+                                            <input type="radio" name="unit-system" value="metric">
+                                            <div class="radio-content">
+                                                <span>kg/cm</span>
+                                            </div>
+                                        </label>
+                                        <label class="radio-card compact">
+                                            <input type="radio" name="unit-system" value="imperial">
+                                            <div class="radio-content">
+                                                <span>lb/in</span>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="settings-field">
+                                    <label>Calculo padrao de macros</label>
+                                    <select id="trainer-macro-formula" class="q-input">
+                                        <option value="mifflin">Mifflin-St Jeor</option>
+                                        <option value="harris">Harris-Benedict</option>
+                                        <option value="katch">Katch-McArdle</option>
+                                    </select>
+                                </div>
+                                <div class="settings-field">
+                                    <label class="toggle-row">
+                                        <input type="checkbox" id="notif-email">
+                                        <span>Receber e-mail quando um aluno concluir um treino</span>
+                                    </label>
+                                </div>
+                                <div class="settings-field">
+                                    <label class="toggle-row">
+                                        <input type="checkbox" id="notif-push">
+                                        <span>Receber push quando um aluno enviar uma duvida</span>
+                                    </label>
+                                </div>
+                            </div>
                         </div>
                     </section>
                 </div>
 
-                <div class="settings-footer">
-                    <button class="btn-secondary" onclick="resetTrainerSettings()">Restaurar padrao</button>
-                    <button class="btn-primary" onclick="saveTrainerSettings()">Salvar configuracoes</button>
+                <div class="trainer-profile-savebar" id="trainer-profile-savebar" data-state="clean">
+                    <div class="trainer-profile-savebar-left">
+                        <span id="trainer-profile-savebar-dot" class="save-dot"></span>
+                        <span id="trainer-profile-savebar-status">Sem alteracoes pendentes</span>
+                    </div>
+                    <div class="trainer-profile-savebar-actions">
+                        <button class="btn-secondary" type="button" onclick="resetTrainerSettings()">Restaurar padrao do perfil</button>
+                        <button id="trainer-profile-savebar-btn" class="btn-primary" type="button" onclick="saveTrainerSettings()">Salvar perfil</button>
+                    </div>
                 </div>
             </div>
 
@@ -785,17 +929,20 @@
                     </div>
                     <div class="diet-meta-item">
                         <span class="summary-label">PROTEÍNA</span>
-                        <input type="number" id="diet-protein-meta" class="diet-meta-input" placeholder="160">
+                        <input type="number" id="diet-protein-meta" class="diet-meta-input" placeholder="160"
+                            oninput="updateDietSummary()">
                         <span class="summary-label">g</span>
                     </div>
                     <div class="diet-meta-item">
                         <span class="summary-label">CARBO</span>
-                        <input type="number" id="diet-carb-meta" class="diet-meta-input" placeholder="280">
+                        <input type="number" id="diet-carb-meta" class="diet-meta-input" placeholder="280"
+                            oninput="updateDietSummary()">
                         <span class="summary-label">g</span>
                     </div>
                     <div class="diet-meta-item">
                         <span class="summary-label">GORDURA</span>
-                        <input type="number" id="diet-fat-meta" class="diet-meta-input" placeholder="80">
+                        <input type="number" id="diet-fat-meta" class="diet-meta-input" placeholder="80"
+                            oninput="updateDietSummary()">
                         <span class="summary-label">g</span>
                     </div>
                 </div>
@@ -972,8 +1119,8 @@
         </div><!-- end prof-editor-layout -->
 
         <!-- ── Modal: Add Exercise ─────────────────────────────────── -->
-        <div id="ex-modal-overlay" class="ex-modal-overlay" onclick="closeExModal()"></div>
-        <div id="ex-modal" class="ex-modal ex-hevy-modal">
+        <div id="ex-modal-overlay" class="ex-modal-overlay" aria-hidden="true"></div>
+        <div id="ex-modal" class="ex-modal ex-hevy-modal" role="dialog" aria-modal="true" aria-label="Adicionar exercício">
             <div class="ex-hevy-topbar">
                 <button type="button" class="hevy-link-btn" onclick="closeExModal()">Cancelar</button>
                 <h3>Adicionar Exercício</h3>
@@ -1136,10 +1283,23 @@
         <div id="trainer-profile-menu" class="trainer-profile-menu trainer-profile-sheet" style="display:none;" role="dialog" aria-modal="true" aria-label="Menu do perfil do treinador" onclick="event.stopPropagation()">
             <div class="trainer-profile-sheet-handle"></div>
             
-            <div class="trainer-profile-menu-head">
-                <span class="profile-label">Treinador</span>
-                <span class="profile-name" id="dash-trainer-name">Treinador</span>
-                <p class="profile-subtitle" id="trainer-services-label" style="font-size: 0.75rem; color: var(--primary-color); margin-top: 0.2rem;">—</p>
+            <div class="trainer-profile-hero">
+                <div id="trainer-profile-cover" class="trainer-profile-cover"></div>
+                <div class="trainer-profile-hero-content">
+                    <div id="trainer-profile-avatar" class="trainer-profile-avatar">
+                        <i class="ph-bold ph-user"></i>
+                    </div>
+                    <div class="trainer-profile-menu-head">
+                        <span class="profile-label">Treinador</span>
+                        <span class="profile-name" id="dash-trainer-name">Treinador</span>
+                        <p class="trainer-profile-consultoria" id="dash-trainer-consultoria">Consultoria</p>
+                        <p class="profile-subtitle" id="trainer-services-label" style="font-size: 0.75rem; color: var(--primary-color); margin-top: 0.2rem;">—</p>
+                        <p class="trainer-profile-handle" id="dash-trainer-handle">@treinador</p>
+                    </div>
+                </div>
+                <p class="trainer-profile-bio" id="dash-trainer-bio">Complete seu perfil para aparecer para os alunos.</p>
+                <div class="trainer-profile-specialties" id="dash-trainer-specialties"></div>
+                <div class="trainer-profile-social-links" id="dash-trainer-social-links"></div>
             </div>
 
             <div class="trainer-profile-menu-code">

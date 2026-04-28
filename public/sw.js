@@ -1,5 +1,5 @@
-const PRECACHE_CACHE = "consultoria-precache-v8";
-const RUNTIME_CACHE = "consultoria-runtime-v8";
+const PRECACHE_CACHE = "consultoria-precache-v10";
+const RUNTIME_CACHE = "consultoria-runtime-v10";
 const OFFLINE_URL = "./offline.html";
 
 const PRECACHE_URLS = [
@@ -85,28 +85,26 @@ async function staleWhileRevalidate(request) {
 }
 
 async function navigationResponse(request) {
-  const precache = await caches.open(PRECACHE_CACHE);
-  const precached = await precache.match(request, { ignoreSearch: true });
-  if (precached) return precached;
-
   const cache = await caches.open(RUNTIME_CACHE);
+  try {
+    const network = await fetch(request);
+    if (network && network.ok) {
+      cache.put(request, network.clone());
+      return network;
+    }
+  } catch (err) {
+    // offline fallback below
+  }
+
+  const precache = await caches.open(PRECACHE_CACHE);
+  const path = new URL(request.url).pathname.toLowerCase();
+  const fallbackHtml = path.includes("/trainer") ? "./trainer.html" : "./index.html";
   const cached =
     (await cache.match(request, { ignoreSearch: true })) ||
-    (await caches.match("./index.html"));
-
-  const networkPromise = fetch(request)
-    .then((response) => {
-      if (response && response.ok) {
-        cache.put(request, response.clone());
-      }
-      return response;
-    })
-    .catch(() => null);
-
+    (await precache.match(request, { ignoreSearch: true })) ||
+    (await precache.match(fallbackHtml, { ignoreSearch: true })) ||
+    (await caches.match(fallbackHtml, { ignoreSearch: true }));
   if (cached) return cached;
-
-  const network = await networkPromise;
-  if (network) return network;
 
   const offline = await caches.match(OFFLINE_URL);
   return offline || Response.error();
