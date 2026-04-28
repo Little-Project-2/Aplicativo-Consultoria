@@ -89,6 +89,7 @@ const SELF_TRAINING_STUDENT_CODES = [SELF_TRAINING_STUDENT_CODE];
 const ENABLE_DEMO_ACCESS = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TRAINER_SETTINGS_KEY = 'trainer_settings_v1';
+const PENDING_SIGNUP_CONTEXT_KEY = 'pending_signup_context_v1';
 const AUTH_MIGRATION_DONE_KEY = 'migration_done_v1';
 let activeDashboardFilter = 'all';
 let activeEngagementRange = 7;
@@ -96,6 +97,29 @@ let lastMainTrainerView = 'dashboard';
 let trainerDrawerOpen = false;
 let trainerRouteLock = false;
 const TRAINER_DASHBOARD_TUTORIAL_KEY = 'trainer_dashboard_tutorial_v1';
+let authStateListenerBound = false;
+let authRouteInFlight = null;
+let authLastProcessedUserId = '';
+let suppressSignedOutRedirectToHome = false;
+let profileSetupTrainerSpecialties = [];
+const TRAINER_SERVICES_ALLOWED = ['treino', 'dieta', 'ambos'];
+const TRAINER_THEME_PRESETS = ['neon-lime', 'ocean-blue', 'graphite'];
+const TRAINER_SOCIAL_LINK_KEYS = ['instagram', 'whatsapp', 'website'];
+let profileSetupState = {
+    step: 1,
+    hasTrainer: false,
+    hasStudent: false,
+    avatarRef: '',
+    avatarPreview: '',
+    coverRef: '',
+    coverPreview: '',
+    handle: '',
+    themePreset: TRAINER_THEME_PRESETS[0],
+    socialLinks: { instagram: '', whatsapp: '', website: '' },
+    ctaLabel: '',
+    ctaUrl: '',
+    headline: ''
+};
 
 function getMigrationDoneKey(userId = '') {
     const safeId = String(userId || '').trim();
@@ -111,16 +135,78 @@ function markMigrationCompleted(userId = '') {
     memorySetItem(AUTH_MIGRATION_DONE_KEY, '1');
 }
 
+function getPendingSignupContextMap() {
+    const raw = readStorageJSON(PENDING_SIGNUP_CONTEXT_KEY, {});
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    return raw;
+}
+
+function setPendingSignupContext(email, payload = {}) {
+    const safeEmail = sanitizeEmailInput(email);
+    if (!safeEmail) return;
+    const map = getPendingSignupContextMap();
+    map[safeEmail] = {
+        roles: normalizeAppRoles(payload.roles || payload.role),
+        name: sanitizeUserInput(payload.name || '', { maxLen: 90 }),
+        createdAt: new Date().toISOString()
+    };
+    memorySetItem(PENDING_SIGNUP_CONTEXT_KEY, JSON.stringify(map));
+}
+
+function getPendingSignupContext(email) {
+    const safeEmail = sanitizeEmailInput(email);
+    if (!safeEmail) return null;
+    const map = getPendingSignupContextMap();
+    return map[safeEmail] || null;
+}
+
+function clearPendingSignupContext(email) {
+    const safeEmail = sanitizeEmailInput(email);
+    if (!safeEmail) return;
+    const map = getPendingSignupContextMap();
+    if (!map[safeEmail]) return;
+    delete map[safeEmail];
+    memorySetItem(PENDING_SIGNUP_CONTEXT_KEY, JSON.stringify(map));
+}
+
+function extractExplicitRoles(rolesLike, legacyRole = '') {
+    const candidates = [];
+    if (Array.isArray(rolesLike)) candidates.push(...rolesLike);
+    else if (typeof rolesLike === 'string' && rolesLike.trim()) candidates.push(...rolesLike.split(','));
+    if (legacyRole) candidates.push(legacyRole);
+    const normalized = [];
+    candidates.forEach((entry) => {
+        const role = normalizeAppRole(entry);
+        if (role && !normalized.includes(role)) normalized.push(role);
+    });
+    return normalized;
+}
+
 function clearAuthRuntimeContext() {
+    authLastProcessedUserId = '';
+    suppressSignedOutRedirectToHome = false;
     memoryRemoveItem('currentUserId');
     memoryRemoveItem('currentUserEmail');
+    memoryRemoveItem('currentUserName');
+    memoryRemoveItem('currentUserAvatarRef');
     memoryRemoveItem('currentUserRoles');
     memoryRemoveItem('currentUserRole');
     memoryRemoveItem('currentOnboardingStep');
     memoryRemoveItem('currentStudentId');
     memoryRemoveItem('connectedTrainerCode');
     memoryRemoveItem('studentName');
+    memoryRemoveItem('trainerName');
+    memoryRemoveItem('currentTrainerCode');
+    memoryRemoveItem('trainerCodeDefault');
     memoryRemoveItem('currentAnamnesis');
+    studentMediaState = {
+        loading: false,
+        items: [],
+        loadedForUser: '',
+        loadedAt: 0,
+        error: ''
+    };
+    activePerfilMediaId = '';
 }
 
 const DEMO_WORKOUT_BLOCKS = [
@@ -1111,7 +1197,10 @@ function goToHome() {
     memoryRemoveItem('currentStudentId');
     memoryRemoveItem('connectedTrainerCode');
     memoryRemoveItem('studentName');
-    activateScreen('home-screen');
+    const opened = activateScreen('home-screen');
+    if (!opened) {
+        goToGlobalLogin();
+    }
 }
 
 async function logout() {
@@ -1131,7 +1220,7 @@ async function logout() {
             console.warn('Falha ao encerrar sessao no Supabase.', err);
         }
         setStudentSyncState('synced', 'Sessão encerrada');
-        goToGlobalLogin();
+        goToHome();
     }
 }
 
@@ -1180,11 +1269,16 @@ const SUPABASE_TABLES = {
     foods: 'app_foods',
     foodPortions: 'app_food_portions',
     studentProfiles: 'student_profiles',
+    studentMedia: 'student_media_gallery',
     dietLogs: 'diet_logs',
     workoutSessions: 'workout_sessions',
     workoutSets: 'workout_sets',
     studentConnections: 'student_connections'
 };
+
+const STUDENT_MEDIA_BUCKET = 'student-media';
+const MAX_STUDENT_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_STUDENT_VIDEO_BYTES = 30 * 1024 * 1024;
 
 let supabaseStudentsSyncTimer = null;
 let supabaseFoodsChannel = null;
@@ -1200,8 +1294,18 @@ const entityTablesAvailability = {
     dietLogs: true,
     workout: true,
     connections: true,
-    profiles: true
+    profiles: true,
+    media: true
 };
+
+let studentMediaState = {
+    loading: false,
+    items: [],
+    loadedForUser: '',
+    loadedAt: 0,
+    error: ''
+};
+let activePerfilMediaId = '';
 const DIET_SCHEMA_VERSION = 2;
 const SUPABASE_TRAINER_CODES_CACHE_TTL_MS = 60000;
 const supabaseTrainerCodesCache = {
@@ -2266,8 +2370,25 @@ async function getTrainerByCodeRemote(code) {
     return data || null;
 }
 
+async function getTrainerByOwnerRemote(ownerId) {
+    if (!isSupabaseReady() || !ownerId) return null;
+    const { data, error } = await window.supabase
+        .from(SUPABASE_TABLES.trainers)
+        .select('*')
+        .eq('owner_id', String(ownerId))
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    if (error) {
+        console.warn('Supabase trainer owner fetch failed', error.message || error);
+        return null;
+    }
+    return data || null;
+}
+
 function cacheTrainerLocal(trainerLike) {
     if (!trainerLike || !trainerLike.code) return null;
+    const socialLinks = normalizeTrainerSocialLinks(trainerLike.socialLinks || trainerLike.social_links || {});
     const normalized = {
         code: String(trainerLike.code),
         name: sanitizeUserInput(trainerLike.name || 'Treinador', { maxLen: 90 }),
@@ -2275,7 +2396,19 @@ function cacheTrainerLocal(trainerLike) {
             trainerLike.consultoriaName || trainerLike.consultoria_name || '',
             { maxLen: 120 }
         ),
-        services: trainerLike.services || 'treino'
+        services: normalizeTrainerServices(trainerLike.services || 'treino'),
+        displayName: sanitizeUserInput(trainerLike.displayName || trainerLike.display_name || trainerLike.name || '', { maxLen: 90 }),
+        avatarUrl: sanitizeUserInput(trainerLike.avatarUrl || trainerLike.avatar_url || '', { maxLen: 300 }),
+        coverUrl: sanitizeUserInput(trainerLike.coverUrl || trainerLike.cover_url || '', { maxLen: 300 }),
+        bio: sanitizeUserInput(trainerLike.bio || '', { allowNewlines: true, maxLen: 500 }),
+        specialties: normalizeTrainerSpecialtiesList(trainerLike.specialties || []),
+        socialLinks,
+        handle: normalizeTrainerHandle(trainerLike.handle || ''),
+        ctaLabel: sanitizeUserInput(trainerLike.ctaLabel || trainerLike.cta_label || '', { maxLen: 80 }),
+        ctaUrl: sanitizeStrictUrl(trainerLike.ctaUrl || trainerLike.cta_url || '', { maxLen: 320 }),
+        themePreset: normalizeTrainerThemePreset(trainerLike.themePreset || trainerLike.theme_preset || ''),
+        headline: sanitizeUserInput(trainerLike.headline || '', { maxLen: 120 }),
+        onboardingComplete: !!trainerLike.onboardingComplete || !!trainerLike.onboarding_complete
     };
     const trainers = readStorageJSON('allTrainers', []);
     const idx = trainers.findIndex(t => String(t.code) === normalized.code);
@@ -2300,7 +2433,19 @@ async function resolveTrainerByCode(code) {
         code: remote.code,
         name: remote.name,
         consultoria_name: remote.consultoria_name,
-        services: remote.services
+        services: remote.services,
+        display_name: remote.display_name,
+        avatar_url: remote.avatar_url,
+        cover_url: remote.cover_url,
+        bio: remote.bio,
+        specialties: remote.specialties,
+        social_links: remote.social_links,
+        handle: remote.handle,
+        cta_label: remote.cta_label,
+        cta_url: remote.cta_url,
+        theme_preset: remote.theme_preset,
+        headline: remote.headline,
+        onboarding_complete: remote.onboarding_complete
     });
 }
 
@@ -2352,35 +2497,91 @@ async function generateUniqueTrainerCode() {
     return `${Math.floor(Date.now() / 1000)}`.slice(-5);
 }
 
-async function ensureTrainerExistsRemote(code, fallbackName = 'Treinador', fallbackConsultoria = '') {
+async function ensureTrainerExistsRemote(code, fallbackName = 'Treinador', fallbackConsultoria = '', profilePayload = {}) {
     if (!isSupabaseReady() || !code) return null;
     const sessionUser = await getSupabaseSessionUser();
+    const ownerId = String(profilePayload.ownerId || sessionUser?.id || '').trim();
+    const normalizedServices = normalizeTrainerServices(profilePayload.services || 'treino');
+    const normalizedSpecialties = normalizeTrainerSpecialtiesList(profilePayload.specialties || []);
+    const normalizedSocialLinks = normalizeTrainerSocialLinks(profilePayload.socialLinks || {});
+    const normalizedThemePreset = normalizeTrainerThemePreset(profilePayload.themePreset || '');
+    const normalizedHandle = normalizeTrainerHandle(profilePayload.handle || '');
+    const normalizedCtaLabel = sanitizeUserInput(profilePayload.ctaLabel || '', { maxLen: 80 });
+    const normalizedCtaUrl = sanitizeStrictUrl(profilePayload.ctaUrl || '', { maxLen: 320 });
+    const rowBase = {
+        code: String(code),
+        name: sanitizeUserInput(profilePayload.name || fallbackName || 'Treinador', { maxLen: 90 }) || 'Treinador',
+        display_name: sanitizeUserInput(profilePayload.displayName || fallbackName || '', { maxLen: 90 }) || null,
+        consultoria_name: sanitizeUserInput(profilePayload.consultoriaName || fallbackConsultoria || '', { maxLen: 120 }) || null,
+        headline: sanitizeUserInput(profilePayload.headline || '', { maxLen: 120 }) || null,
+        bio: sanitizeUserInput(profilePayload.bio || '', { allowNewlines: true, maxLen: 500 }) || null,
+        avatar_url: sanitizeStrictUrl(profilePayload.avatarUrl || '', { maxLen: 320 }) || null,
+        cover_url: sanitizeStrictUrl(profilePayload.coverUrl || '', { maxLen: 320 }) || null,
+        specialties: normalizedSpecialties,
+        social_links: normalizedSocialLinks,
+        handle: normalizedHandle || null,
+        cta_label: normalizedCtaLabel || null,
+        cta_url: normalizedCtaUrl || null,
+        theme_preset: normalizedThemePreset,
+        onboarding_complete: !!profilePayload.onboardingComplete,
+        owner_id: ownerId || null,
+        services: normalizedServices,
+        updated_at: new Date().toISOString()
+    };
+
+    if (ownerId) {
+        const ownerTrainer = await getTrainerByOwnerRemote(ownerId);
+        if (ownerTrainer && String(ownerTrainer.code || '') !== String(code)) {
+            const reassigned = {
+                ...rowBase,
+                code: String(ownerTrainer.code),
+                onboarding_complete: !!profilePayload.onboardingComplete || !!ownerTrainer.onboarding_complete
+            };
+            const { error: ownerUpdateError } = await window.supabase
+                .from(SUPABASE_TABLES.trainers)
+                .upsert(reassigned, { onConflict: 'code' });
+            if (!ownerUpdateError) {
+                cacheTrainerLocal(reassigned);
+                return reassigned;
+            }
+        }
+    }
+
     const existing = await getTrainerByCodeRemote(code);
     if (existing) {
-        if (!existing.owner_id && sessionUser?.id) {
-            await window.supabase
-                .from(SUPABASE_TABLES.trainers)
-                .update({ owner_id: sessionUser.id })
-                .eq('code', String(code));
-            return { ...existing, owner_id: sessionUser.id };
+        const next = {
+            ...existing,
+            ...rowBase,
+            owner_id: existing.owner_id || rowBase.owner_id
+        };
+        const { error: existingUpdateError } = await window.supabase
+            .from(SUPABASE_TABLES.trainers)
+            .upsert(next, { onConflict: 'code' });
+        if (existingUpdateError) {
+            console.warn('Supabase trainer update failed', existingUpdateError.message || existingUpdateError);
+            return cacheTrainerLocal(existing);
         }
-        return existing;
+        cacheTrainerLocal(next);
+        return next;
     }
     const row = {
-        code: String(code),
-        name: fallbackName,
-        consultoria_name: fallbackConsultoria,
-        owner_id: sessionUser?.id || null,
-        services: 'treino',
-        updated_at: new Date().toISOString()
+        ...rowBase
     };
     const { error } = await window.supabase
         .from(SUPABASE_TABLES.trainers)
         .upsert(row, { onConflict: 'code' });
     if (error) {
+        if (ownerId && error.code === '23505') {
+            const ownerTrainer = await getTrainerByOwnerRemote(ownerId);
+            if (ownerTrainer) {
+                cacheTrainerLocal(ownerTrainer);
+                return ownerTrainer;
+            }
+        }
         console.warn('Supabase trainer upsert failed', error.message);
         return null;
     }
+    cacheTrainerLocal(row);
     return row;
 }
 
@@ -2766,6 +2967,7 @@ async function syncStudentProfileEntity(student) {
             weight: student.weight || '',
             height: student.height || '',
             bodyFat: student.bodyFat || '',
+            avatarRef: student.avatarRef || student.avatar_url || memoryGetItem('currentUserAvatarRef') || '',
             questionnaire: student.questionnaire || {}
         },
         updated_at: new Date().toISOString()
@@ -2870,6 +3072,7 @@ async function syncWorkoutArchiveToEntities(student, workoutArchive, sessionId =
                     type: set.type || 'normal',
                     intensidade: set.intensidade ?? null,
                     rir: set.rir ?? null,
+                    set_note: sanitizeUserInput(set.set_note || set.setNote || '', { maxLen: 220 }),
                     brokenPRs: set.brokenPRs || {}
                 },
                 completed_at: finishedAt,
@@ -3240,6 +3443,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     upgradeSidebarNavIcons();
     setupInstallButton();
     setupWorkoutExitGuard();
+    initSignupUXBindings();
 
     // Haptic para ações de salvar plano, quando existirem
     document.addEventListener('click', (event) => {
@@ -3278,48 +3482,40 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     optimizeMediaElements(document);
 
-    const hasPublicHome = !!document.getElementById('home-screen');
-    if (hasPublicHome) {
-        const activeUser = await getSupabaseSessionUser();
-        if (activeUser) {
-            await processLogin({
-                id: activeUser.id,
-                roles: normalizeAppRoles(activeUser?.user_metadata?.roles, activeUser?.user_metadata?.role),
-                name: sanitizeUserInput(activeUser?.user_metadata?.name || activeUser?.email || 'Usuário', { maxLen: 90 }),
-                email: activeUser?.email || ''
-            });
+    bindSupabaseAuthStateListener();
+
+    const activeUser = await getSupabaseSessionUser();
+    if (activeUser) {
+        if (isEmailConfirmed(activeUser)) {
+            await routeAuthenticatedSessionUser(activeUser, { force: true });
             return;
         }
+        const pendingEmail = sanitizeEmailInput(activeUser?.email || '');
+        if (pendingEmail) memorySetItem('pendingVerificationEmail', pendingEmail);
+        if (typeof window.supabase?.auth?.signOut === 'function') {
+            suppressSignedOutRedirectToHome = true;
+            await window.supabase.auth.signOut();
+        }
+        await goToGlobalLogin();
+        setAuthInlineFeedback(
+            'login-inline-feedback',
+            'Seu e-mail ainda não foi verificado. Use "Reenviar verificacao de e-mail".',
+            'warning'
+        );
+        return;
     }
 
     clearAuthRuntimeContext();
 
-    if (isSupabaseReady() && typeof window.supabase?.auth?.onAuthStateChange === 'function') {
-        window.supabase.auth.onAuthStateChange((event) => {
-            if (event === 'SIGNED_OUT') {
-                clearAuthRuntimeContext();
-                goToGlobalLogin();
-                return;
-            }
-            if (event === 'PASSWORD_RECOVERY') {
-                goToGlobalLogin().then(() => {
-                    setLoginRecoveryMode(true);
-                    setAuthInlineFeedback('login-inline-feedback', 'Recuperação validada. Defina sua nova senha para continuar.', 'info');
-                });
-            }
-        });
+    const home = document.getElementById('home-screen');
+    if (home) {
+        goToHome();
+        return;
     }
 
     const login = document.getElementById('global-login-screen');
     if (login) {
         await goToGlobalLogin();
-        return;
-    }
-
-    const home = document.getElementById('home-screen');
-    if (home) {
-        hideAllScreens();
-        home.classList.add('active');
     }
 });
 
@@ -3569,6 +3765,7 @@ async function goToProfileCreate() {
         }
         return;
     }
+    initSignupUXBindings();
     activateScreen('profile-create-screen', { animate: true });
 }
 
@@ -3619,6 +3816,141 @@ function isSupabaseRecoveryFlowActive() {
     return type === 'recovery' && !!params.get('access_token');
 }
 
+function isAuthEntryScreenActive() {
+    const authScreens = [
+        'home-screen',
+        'global-login-screen',
+        'profile-create-screen',
+        'profile-setup-screen',
+        'student-screen'
+    ];
+    return authScreens.some((screenId) => document.getElementById(screenId)?.classList.contains('active'));
+}
+
+async function routeAuthenticatedSessionUser(user, { force = false } = {}) {
+    const userId = String(user?.id || '');
+    if (!userId) return;
+
+    const cachedUserId = String(memoryGetItem('currentUserId') || '');
+    if (cachedUserId && cachedUserId !== userId) {
+        clearAuthRuntimeContext();
+    }
+    const shouldSkip = !force
+        && authLastProcessedUserId === userId
+        && cachedUserId === userId
+        && !isAuthEntryScreenActive();
+
+    if (shouldSkip) return;
+
+    if (authRouteInFlight) {
+        try {
+            await authRouteInFlight;
+        } catch (err) {
+            // Ignora erro anterior e tenta novamente.
+        }
+    }
+
+    authRouteInFlight = (async () => {
+        await processLogin({
+            id: user.id,
+            roles: normalizeAppRoles(user?.user_metadata?.roles, user?.user_metadata?.role),
+            name: sanitizeUserInput(user?.user_metadata?.name || user?.email || 'Usuário', { maxLen: 90 }),
+            email: user?.email || ''
+        });
+        authLastProcessedUserId = userId;
+    })()
+        .catch((err) => {
+            console.error('Falha ao rotear sessão autenticada.', err);
+        })
+        .finally(() => {
+            authRouteInFlight = null;
+        });
+
+    await authRouteInFlight;
+}
+
+async function handleSupabaseAuthStateEvent(event, session) {
+    const normalizedEvent = String(event || '').toUpperCase();
+
+    if (normalizedEvent === 'PASSWORD_RECOVERY') {
+        await goToGlobalLogin();
+        setLoginRecoveryMode(true);
+        setAuthInlineFeedback(
+            'login-inline-feedback',
+            'Recuperação validada. Defina sua nova senha para continuar.',
+            'info'
+        );
+        return;
+    }
+
+    if (normalizedEvent === 'SIGNED_OUT') {
+        const keepInLoginFlow = suppressSignedOutRedirectToHome;
+        suppressSignedOutRedirectToHome = false;
+        clearAuthRuntimeContext();
+        if (keepInLoginFlow) {
+            await goToGlobalLogin();
+            return;
+        }
+        goToHome();
+        return;
+    }
+
+    if (normalizedEvent === 'TOKEN_REFRESHED') {
+        const refreshedUser = session?.user || null;
+        if (refreshedUser?.id) {
+            memorySetItem('currentUserId', String(refreshedUser.id));
+            if (refreshedUser.email) memorySetItem('currentUserEmail', sanitizeEmailInput(refreshedUser.email));
+        }
+        return;
+    }
+
+    if (!['INITIAL_SESSION', 'SIGNED_IN'].includes(normalizedEvent)) return;
+
+    const sessionUser = session?.user || await getSupabaseSessionUser();
+    if (!sessionUser) {
+        if (normalizedEvent === 'INITIAL_SESSION') {
+            authLastProcessedUserId = '';
+            clearAuthRuntimeContext();
+            const hasHome = !!document.getElementById('home-screen');
+            if (hasHome) {
+                goToHome();
+            } else {
+                await goToGlobalLogin();
+            }
+        }
+        return;
+    }
+
+    if (!isEmailConfirmed(sessionUser)) {
+        const pendingEmail = sanitizeEmailInput(sessionUser?.email || '');
+        if (pendingEmail) memorySetItem('pendingVerificationEmail', pendingEmail);
+        if (normalizedEvent === 'SIGNED_IN' && typeof window.supabase?.auth?.signOut === 'function') {
+            suppressSignedOutRedirectToHome = true;
+            await window.supabase.auth.signOut();
+            await goToGlobalLogin();
+            setAuthInlineFeedback(
+                'login-inline-feedback',
+                'Seu e-mail ainda não foi verificado. Use "Reenviar verificacao de e-mail".',
+                'warning'
+            );
+        }
+        return;
+    }
+
+    await routeAuthenticatedSessionUser(sessionUser, {
+        force: normalizedEvent === 'SIGNED_IN'
+    });
+}
+
+function bindSupabaseAuthStateListener() {
+    if (authStateListenerBound) return;
+    if (!isSupabaseReady() || typeof window.supabase?.auth?.onAuthStateChange !== 'function') return;
+    window.supabase.auth.onAuthStateChange((event, session) => {
+        void handleSupabaseAuthStateEvent(event, session);
+    });
+    authStateListenerBound = true;
+}
+
 // â”€â”€â”€ Authentication Logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function normalizeAppRole(role) {
@@ -3662,9 +3994,15 @@ function isEmailConfirmed(user) {
 
 function mapOnboardingStep(profile, roles) {
     const normalizedRoles = normalizeAppRoles(roles, profile?.role);
+    const hasTrainer = normalizedRoles.includes('trainer');
     const hasStudent = normalizedRoles.includes('student');
+    const currentStep = String(profile?.onboarding_step || '').trim().toLowerCase();
+    const hasTrainerCode = !!sanitizeCodeInput(profile?.trainer_code || '', 5);
 
+    if (currentStep === 'pending_verification') return 'profile_setup';
     if (!profile?.profile_complete) return 'profile_setup';
+    if (hasTrainer && (!hasTrainerCode || currentStep === 'profile_setup')) return 'profile_setup';
+    if (hasTrainer && !hasStudent && currentStep && currentStep !== 'done') return 'profile_setup';
     if (hasStudent && !profile?.anamnesis) return 'profile_setup';
     if (hasStudent && !sanitizeCodeInput(profile?.connected_trainer_code || '', 5)) return 'trainer_connect';
     return 'done';
@@ -3720,7 +4058,7 @@ async function getProfileByUserId(userId) {
     if (!isSupabaseReady() || !userId) return null;
     const { data, error } = await window.supabase
         .from('profiles')
-        .select('id,role,roles,name,avatar_url,trainer_code,connected_trainer_code,profile_complete,onboarding_step,anamnesis')
+        .select('id,role,roles,name,avatar_url,bio,trainer_code,connected_trainer_code,profile_complete,onboarding_step,anamnesis')
         .eq('id', String(userId))
         .maybeSingle();
     if (error) return null;
@@ -3732,7 +4070,7 @@ async function upsertOwnProfile(payload) {
     const { data, error } = await window.supabase
         .from('profiles')
         .upsert(payload, { onConflict: 'id' })
-        .select('id,role,roles,name,avatar_url,trainer_code,connected_trainer_code,profile_complete,onboarding_step,anamnesis')
+        .select('id,role,roles,name,avatar_url,bio,trainer_code,connected_trainer_code,profile_complete,onboarding_step,anamnesis')
         .maybeSingle();
     if (error) {
         console.warn('Falha ao salvar perfil.', error.message || error);
@@ -3744,6 +4082,8 @@ async function upsertOwnProfile(payload) {
 function cacheAuthenticatedContext(user, profile, roles, onboardingStep) {
     if (user?.id) memorySetItem('currentUserId', String(user.id));
     if (user?.email) memorySetItem('currentUserEmail', sanitizeEmailInput(user.email));
+    if (profile?.name) memorySetItem('currentUserName', sanitizeUserInput(profile.name, { maxLen: 90 }));
+    if (profile?.avatar_url) memorySetItem('currentUserAvatarRef', String(profile.avatar_url));
     memorySetItem('currentUserRoles', JSON.stringify(roles));
     memorySetItem('currentUserRole', roles[0] || 'student');
     memorySetItem('currentOnboardingStep', onboardingStep);
@@ -3791,26 +4131,473 @@ async function openStudentDashboardForUser(userId, trainerCode = '') {
     return openStudentDashboardSession(student);
 }
 
-function showProfileSetupScreen(profile, roles) {
-    hideAllScreens();
+function setProfileSetupServiceSelection(value = 'treino') {
+    const normalized = normalizeTrainerServices(value);
+    const selected = document.querySelector(`input[name="profile-setup-services"][value="${normalized}"]`);
+    if (selected instanceof HTMLInputElement) selected.checked = true;
+}
+
+function getProfileSetupServiceSelection() {
+    const selected = document.querySelector('input[name="profile-setup-services"]:checked');
+    return normalizeTrainerServices(selected?.value || 'treino');
+}
+
+function setProfileSetupThemeSelection(value = TRAINER_THEME_PRESETS[0]) {
+    const normalized = normalizeTrainerThemePreset(value);
+    const selected = document.querySelector(`input[name="profile-setup-theme"][value="${normalized}"]`);
+    if (selected instanceof HTMLInputElement) selected.checked = true;
+    profileSetupState.themePreset = normalized;
+}
+
+function getProfileSetupThemeSelection() {
+    const selected = document.querySelector('input[name="profile-setup-theme"]:checked');
+    return normalizeTrainerThemePreset(selected?.value || profileSetupState.themePreset || TRAINER_THEME_PRESETS[0]);
+}
+
+function setProfileSetupStepErrors(messages = []) {
+    const el = document.getElementById('profile-setup-step-errors');
+    if (!el) return;
+    const list = Array.isArray(messages)
+        ? messages.filter(Boolean).map((item) => String(item).trim()).filter(Boolean)
+        : [];
+    if (!list.length) {
+        el.style.display = 'none';
+        el.innerHTML = '';
+        return;
+    }
+    el.innerHTML = `<strong>Ajustes necessarios:</strong><ul>${list.map((msg) => `<li>${escHtml(msg)}</li>`).join('')}</ul>`;
+    el.style.display = 'block';
+    el.classList.add('is-error');
+    el.classList.remove('is-success', 'is-warning', 'is-info');
+}
+
+function renderProfileSetupSpecialties() {
+    const list = document.getElementById('profile-setup-specialty-tags');
+    if (!list) return;
+    if (!profileSetupTrainerSpecialties.length) {
+        list.innerHTML = '<small style="color:#a1a1aa;">Adicione pelo menos 1 especialidade.</small>';
+        return;
+    }
+    list.innerHTML = profileSetupTrainerSpecialties
+        .map((item, index) => `
+            <span class="settings-tag">
+                ${item}
+                <button type="button" onclick="removeProfileSetupSpecialty(${index})" aria-label="Remover especialidade ${item}">
+                    <i class="ph-bold ph-x"></i>
+                </button>
+            </span>
+        `)
+        .join('');
+}
+
+function renderProfileSetupMediaPreviews() {
+    const avatarPreview = document.getElementById('profile-setup-avatar-preview');
+    if (avatarPreview) {
+        avatarPreview.innerHTML = profileSetupState.avatarPreview
+            ? `<img src="${escHtml(profileSetupState.avatarPreview)}" alt="Avatar do treinador">`
+            : '<i class="ph-bold ph-user"></i>';
+    }
+
+    const coverPreview = document.getElementById('profile-setup-cover-preview');
+    if (coverPreview) {
+        if (profileSetupState.coverPreview) {
+            coverPreview.style.backgroundImage = `url("${escHtml(profileSetupState.coverPreview)}")`;
+            coverPreview.innerHTML = '';
+        } else {
+            coverPreview.style.backgroundImage = '';
+            coverPreview.innerHTML = '<span>Sem capa</span>';
+        }
+    }
+}
+
+function refreshProfileSetupTrainerPreview() {
+    const name = sanitizeUserInput(document.getElementById('profile-setup-name')?.value || '', { maxLen: 90 }) || 'Seu nome';
+    const consultoria = sanitizeUserInput(document.getElementById('profile-setup-consultoria-name')?.value || '', { maxLen: 120 }) || 'Sua consultoria';
+    const bio = sanitizeUserInput(document.getElementById('profile-setup-bio')?.value || '', { allowNewlines: true, maxLen: 500 }) || 'Sua bio aparecera aqui.';
+    const headline = sanitizeUserInput(document.getElementById('profile-setup-headline')?.value || '', { maxLen: 120 });
+    const handleRaw = normalizeTrainerHandle(document.getElementById('profile-setup-handle')?.value || profileSetupState.handle || '');
+    const handle = handleRaw ? `@${handleRaw}` : '@seuusuario';
+    const ctaLabel = sanitizeUserInput(document.getElementById('profile-setup-cta-label')?.value || '', { maxLen: 80 }) || 'Chamada principal';
+    const socialLinks = normalizeTrainerSocialLinks({
+        instagram: document.getElementById('profile-setup-instagram')?.value || '',
+        whatsapp: document.getElementById('profile-setup-whatsapp')?.value || '',
+        website: document.getElementById('profile-setup-website')?.value || ''
+    });
+    const themePreset = getProfileSetupThemeSelection();
+    const nameEl = document.getElementById('profile-setup-preview-name');
+    const handleEl = document.getElementById('profile-setup-preview-handle');
+    const consultoriaEl = document.getElementById('profile-setup-preview-consultoria');
+    const bioEl = document.getElementById('profile-setup-preview-bio');
+    const coverEl = document.getElementById('profile-setup-preview-cover');
+    const avatarEl = document.getElementById('profile-setup-preview-avatar');
+    const specialtiesEl = document.getElementById('profile-setup-preview-specialties');
+    const socialEl = document.getElementById('profile-setup-preview-social');
+    const ctaEl = document.getElementById('profile-setup-preview-cta');
+    const cardEl = document.getElementById('profile-setup-preview-card');
+
+    if (nameEl) nameEl.textContent = name;
+    if (handleEl) handleEl.textContent = handle;
+    if (consultoriaEl) consultoriaEl.textContent = consultoria;
+    if (bioEl) bioEl.textContent = headline ? `${headline} • ${bio}` : bio;
+    if (ctaEl) ctaEl.textContent = ctaLabel;
+    if (cardEl) {
+        cardEl.classList.remove('theme-neon-lime', 'theme-ocean-blue', 'theme-graphite');
+        cardEl.classList.add(`theme-${themePreset}`);
+    }
+    if (coverEl) {
+        if (profileSetupState.coverPreview) {
+            coverEl.style.backgroundImage = `url("${escHtml(profileSetupState.coverPreview)}")`;
+        } else {
+            coverEl.style.backgroundImage = '';
+        }
+    }
+    if (avatarEl) {
+        avatarEl.innerHTML = profileSetupState.avatarPreview
+            ? `<img src="${escHtml(profileSetupState.avatarPreview)}" alt="Avatar do treinador">`
+            : '<i class="ph-bold ph-user"></i>';
+    }
+    if (specialtiesEl) {
+        specialtiesEl.innerHTML = profileSetupTrainerSpecialties.length
+            ? profileSetupTrainerSpecialties
+                .map((item) => `<span class="settings-tag">${item}</span>`)
+                .join('')
+            : '<small style="color:#a1a1aa;">Sem especialidades ainda.</small>';
+    }
+    if (socialEl) {
+        const chips = [];
+        if (socialLinks.instagram) chips.push(`<span class="social-chip"><i class="ph-bold ph-instagram-logo"></i> Insta</span>`);
+        if (socialLinks.whatsapp) chips.push(`<span class="social-chip"><i class="ph-bold ph-whatsapp-logo"></i> WhatsApp</span>`);
+        if (socialLinks.website) chips.push(`<span class="social-chip"><i class="ph-bold ph-globe"></i> Site</span>`);
+        socialEl.innerHTML = chips.length ? chips.join('') : '<span class="social-chip">Sem links ainda</span>';
+    }
+}
+
+function addProfileSetupSpecialty() {
+    const input = document.getElementById('profile-setup-specialty-input');
+    if (!input) return;
+    const value = sanitizeUserInput(input.value || '', { maxLen: 40 });
+    if (!value) return;
+    if (!profileSetupTrainerSpecialties.includes(value)) {
+        profileSetupTrainerSpecialties.push(value);
+        profileSetupTrainerSpecialties = normalizeTrainerSpecialtiesList(profileSetupTrainerSpecialties);
+    }
+    input.value = '';
+    renderProfileSetupSpecialties();
+    refreshProfileSetupTrainerPreview();
+}
+
+function removeProfileSetupSpecialty(index) {
+    const numericIndex = Number(index);
+    if (Number.isNaN(numericIndex) || numericIndex < 0 || numericIndex >= profileSetupTrainerSpecialties.length) return;
+    profileSetupTrainerSpecialties.splice(numericIndex, 1);
+    renderProfileSetupSpecialties();
+    refreshProfileSetupTrainerPreview();
+}
+
+function triggerProfileSetupMediaInput(inputId) {
+    const input = document.getElementById(inputId);
+    if (input) input.click();
+}
+
+async function handleProfileSetupMediaInput(event, mediaType = 'avatar') {
+    const file = event?.target?.files?.[0];
+    if (event?.target) event.target.value = '';
+    if (!file) return;
+    if (!String(file.type || '').startsWith('image/')) {
+        setProfileSetupFeedback('Selecione apenas imagens para avatar/capa.', true);
+        return;
+    }
+    if (file.size > MAX_STUDENT_IMAGE_BYTES) {
+        setProfileSetupFeedback(`Imagem muito grande (${formatFileSize(file.size)}). Limite: 8MB.`, true);
+        return;
+    }
+
+    const folder = mediaType === 'cover' ? 'trainer-profile/cover' : 'trainer-profile/avatar';
+    setProfileSetupFeedback('Enviando imagem...', false);
+    const upload = await uploadStudentFileToStorage(file, folder);
+    if (upload.error || !upload.storagePath) {
+        setProfileSetupFeedback(getAuthErrorMessage(upload.error, 'generic') || 'Falha no upload da imagem.', true);
+        return;
+    }
+
+    const mediaRef = makeStorageRef(STUDENT_MEDIA_BUCKET, upload.storagePath);
+    const signed = await resolveStorageRefUrl(mediaRef, 3600);
+    if (mediaType === 'cover') {
+        profileSetupState.coverRef = mediaRef;
+        profileSetupState.coverPreview = signed || '';
+    } else {
+        profileSetupState.avatarRef = mediaRef;
+        profileSetupState.avatarPreview = signed || '';
+    }
+
+    renderProfileSetupMediaPreviews();
+    refreshProfileSetupTrainerPreview();
+    setProfileSetupFeedback('Imagem enviada com sucesso.', false);
+}
+
+function validateProfileSetupStep(step, { showFeedback = true } = {}) {
+    const errors = [];
+    const hasTrainer = !!profileSetupState.hasTrainer;
+    const displayName = sanitizeUserInput(document.getElementById('profile-setup-name')?.value || '', { maxLen: 90 });
+    const consultoriaName = sanitizeUserInput(document.getElementById('profile-setup-consultoria-name')?.value || '', { maxLen: 120 });
+    const trainerBio = sanitizeUserInput(document.getElementById('profile-setup-bio')?.value || '', { allowNewlines: true, maxLen: 500 });
+    const handle = normalizeTrainerHandle(document.getElementById('profile-setup-handle')?.value || '');
+    const ctaLabel = sanitizeUserInput(document.getElementById('profile-setup-cta-label')?.value || '', { maxLen: 80 });
+    const ctaUrlRaw = document.getElementById('profile-setup-cta-url')?.value || '';
+    const ctaUrl = sanitizeStrictUrl(ctaUrlRaw || '', { maxLen: 320, allowStorage: false });
+
+    if (step >= 1) {
+        if (!displayName || displayName.length < 3) errors.push('Nome de exibicao precisa ter no minimo 3 caracteres.');
+        if (hasTrainer) {
+            if (!consultoriaName || consultoriaName.length < 3) errors.push('Nome da consultoria precisa ter no minimo 3 caracteres.');
+            if (!TRAINER_SERVICES_ALLOWED.includes(getProfileSetupServiceSelection())) errors.push('Selecione ao menos um tipo de servico.');
+        }
+    }
+
+    if (hasTrainer && step >= 2) {
+        if (!trainerBio || trainerBio.length < 8) errors.push('Bio profissional precisa ter no minimo 8 caracteres.');
+        if (profileSetupTrainerSpecialties.length < 1) errors.push('Adicione pelo menos 1 especialidade.');
+        if (!handle || handle.length < 3) errors.push('Defina um @usuario com no minimo 3 caracteres.');
+    }
+
+    if (hasTrainer && step >= 3) {
+        if (!TRAINER_THEME_PRESETS.includes(getProfileSetupThemeSelection())) errors.push('Selecione um tema visual.');
+        if (!ctaLabel || ctaLabel.length < 2) errors.push('Defina um texto para o botao principal.');
+        if (ctaUrlRaw && !ctaUrl) errors.push('Link da chamada principal invalido. Use formato https://');
+    }
+
+    if (showFeedback) setProfileSetupStepErrors(errors);
+    return { valid: errors.length === 0, errors };
+}
+
+function updateProfileSetupActions() {
+    const hasTrainer = !!profileSetupState.hasTrainer;
+    const backBtn = document.getElementById('profile-setup-back-btn');
+    const nextBtn = document.getElementById('profile-setup-next-btn');
+    const submitBtn = document.getElementById('profile-setup-submit-btn');
+    const submitLabel = document.getElementById('profile-setup-btn-text');
+    if (!backBtn || !nextBtn || !submitBtn || !submitLabel) return;
+
+    if (!hasTrainer) {
+        backBtn.style.display = 'none';
+        nextBtn.style.display = 'none';
+        submitBtn.style.display = '';
+        submitLabel.textContent = 'Salvar e continuar';
+        return;
+    }
+
+    backBtn.style.display = profileSetupState.step > 1 ? '' : 'none';
+    nextBtn.style.display = profileSetupState.step < 3 ? '' : 'none';
+    submitBtn.style.display = profileSetupState.step === 3 ? '' : 'none';
+    submitLabel.textContent = profileSetupState.hasStudent ? 'Salvar e continuar' : 'Concluir onboarding';
+}
+
+function renderProfileSetupStepper() {
+    const chips = document.querySelectorAll('#profile-setup-stepper .profile-step-chip');
+    chips.forEach((chip) => {
+        const chipStep = Number(chip.dataset.step || '1');
+        chip.classList.toggle('is-active', chipStep === profileSetupState.step);
+        chip.classList.toggle('is-done', chipStep < profileSetupState.step);
+    });
+}
+
+function showProfileSetupStep(step) {
+    const hasTrainer = !!profileSetupState.hasTrainer;
+    const target = hasTrainer ? Math.max(1, Math.min(3, Number(step) || 1)) : 1;
+    profileSetupState.step = target;
+
+    const stepBlocks = document.querySelectorAll('#profile-setup-screen .profile-setup-step');
+    stepBlocks.forEach((block) => {
+        const blockStep = Number(block.dataset.step || '1');
+        const isTrainerOnly = block.classList.contains('profile-setup-trainer-only');
+        if (!hasTrainer && isTrainerOnly) {
+            block.style.display = 'none';
+            return;
+        }
+        block.style.display = blockStep === target ? '' : 'none';
+    });
+
+    const trainerOnlyBlocks = document.querySelectorAll('#profile-setup-screen .profile-setup-trainer-only');
+    trainerOnlyBlocks.forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        if (!hasTrainer) el.style.display = 'none';
+        else if (!el.classList.contains('profile-setup-step')) el.style.display = '';
+    });
+
+    const stepper = document.getElementById('profile-setup-stepper');
+    if (stepper) stepper.style.display = hasTrainer ? 'grid' : 'none';
+    renderProfileSetupStepper();
+    updateProfileSetupActions();
+    refreshProfileSetupTrainerPreview();
+}
+
+function nextProfileSetupStep() {
+    if (!profileSetupState.hasTrainer) return;
+    const current = profileSetupState.step;
+    const validation = validateProfileSetupStep(current, { showFeedback: true });
+    if (!validation.valid) return;
+    setProfileSetupFeedback('');
+    showProfileSetupStep(current + 1);
+}
+
+function prevProfileSetupStep() {
+    if (!profileSetupState.hasTrainer) return;
+    setProfileSetupStepErrors([]);
+    setProfileSetupFeedback('');
+    showProfileSetupStep(profileSetupState.step - 1);
+}
+
+function bindProfileSetupTrainerInteractions() {
     const screen = document.getElementById('profile-setup-screen');
+    if (!screen || screen.dataset.boundTrainerSetup === '1') return;
+
+    const watchedIds = [
+        'profile-setup-name',
+        'profile-setup-consultoria-name',
+        'profile-setup-bio',
+        'profile-setup-headline',
+        'profile-setup-handle',
+        'profile-setup-instagram',
+        'profile-setup-whatsapp',
+        'profile-setup-website',
+        'profile-setup-cta-label',
+        'profile-setup-cta-url'
+    ];
+    watchedIds.forEach((id) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener('input', () => {
+            if (id === 'profile-setup-name') {
+                const handleInput = document.getElementById('profile-setup-handle');
+                if (handleInput && !String(handleInput.value || '').trim()) {
+                    handleInput.value = suggestTrainerHandleFromName(input.value || '');
+                }
+            }
+            if (id === 'profile-setup-handle') {
+                input.value = normalizeTrainerHandle(input.value || '');
+            }
+            refreshProfileSetupTrainerPreview();
+        });
+    });
+
+    const serviceInputs = document.querySelectorAll('input[name="profile-setup-services"]');
+    serviceInputs.forEach((input) => {
+        input.addEventListener('change', refreshProfileSetupTrainerPreview);
+    });
+    const themeInputs = document.querySelectorAll('input[name="profile-setup-theme"]');
+    themeInputs.forEach((input) => {
+        input.addEventListener('change', () => {
+            profileSetupState.themePreset = normalizeTrainerThemePreset(input.value || '');
+            refreshProfileSetupTrainerPreview();
+        });
+    });
+
+    const specialtyInput = document.getElementById('profile-setup-specialty-input');
+    if (specialtyInput) {
+        specialtyInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                addProfileSetupSpecialty();
+            }
+        });
+    }
+
+    screen.dataset.boundTrainerSetup = '1';
+}
+
+async function showProfileSetupScreen(profile, roles, user = null) {
+    const loadedScreen = await ensureScreenElement('profile-setup-screen', 'pages/profile-setup.html');
+    hideAllScreens();
+    const screen = loadedScreen || document.getElementById('profile-setup-screen');
     if (!screen) {
         goToProfileCreate();
         return;
     }
     screen.classList.add('active');
     screen.dataset.roles = JSON.stringify(roles);
+    bindProfileSetupTrainerInteractions();
 
+    const hasTrainer = roles.includes('trainer');
+    const hasStudent = roles.includes('student');
     const nameInput = document.getElementById('profile-setup-name');
-    const avatarInput = document.getElementById('profile-setup-avatar');
     const heading = document.getElementById('profile-setup-heading');
     const studentHint = document.getElementById('profile-setup-student-hint');
+    const trainerHint = document.getElementById('profile-setup-trainer-hint');
+    const consultoriaInput = document.getElementById('profile-setup-consultoria-name');
+    const bioInput = document.getElementById('profile-setup-bio');
+    const headlineInput = document.getElementById('profile-setup-headline');
+    const handleInput = document.getElementById('profile-setup-handle');
+    const instagramInput = document.getElementById('profile-setup-instagram');
+    const whatsappInput = document.getElementById('profile-setup-whatsapp');
+    const websiteInput = document.getElementById('profile-setup-website');
+    const ctaLabelInput = document.getElementById('profile-setup-cta-label');
+    const ctaUrlInput = document.getElementById('profile-setup-cta-url');
     const roleList = roles.map((r) => (r === 'trainer' ? 'Treinador' : 'Aluno')).join(' + ');
+    const ownerId = String(user?.id || profile?.id || memoryGetItem('currentUserId') || '').trim();
+    const profileTrainerCode = sanitizeCodeInput(profile?.trainer_code || memoryGetItem('currentTrainerCode') || '', 5);
+    let trainerProfile = null;
 
-    if (heading) heading.textContent = `Finalizar conta (${roleList})`;
-    if (nameInput) nameInput.value = sanitizeUserInput(profile?.name || memoryGetItem('studentName') || '', { maxLen: 90 });
-    if (avatarInput) avatarInput.value = sanitizeUserInput(profile?.avatar_url || '', { maxLen: 300 });
-    if (studentHint) studentHint.style.display = roles.includes('student') ? '' : 'none';
+    if (hasTrainer) {
+        if (ownerId) trainerProfile = await getTrainerByOwnerRemote(ownerId);
+        if (!trainerProfile && profileTrainerCode) trainerProfile = await getTrainerByCodeRemote(profileTrainerCode);
+    }
+
+    if (heading) heading.textContent = hasTrainer ? `Criar perfil profissional (${roleList})` : `Finalizar conta (${roleList})`;
+    if (studentHint) studentHint.style.display = hasStudent ? '' : 'none';
+    if (trainerHint) trainerHint.style.display = hasTrainer ? '' : 'none';
+    setProfileSetupStepErrors([]);
+
+    const displayName = sanitizeUserInput(profile?.name || memoryGetItem('studentName') || trainerProfile?.display_name || trainerProfile?.name || '', { maxLen: 90 });
+    const avatarUrl = sanitizeStrictUrl(profile?.avatar_url || trainerProfile?.avatar_url || '', { maxLen: 320 });
+    const coverUrl = sanitizeStrictUrl(trainerProfile?.cover_url || '', { maxLen: 320 });
+    const consultoriaName = sanitizeUserInput(trainerProfile?.consultoria_name || '', { maxLen: 120 });
+    const bio = sanitizeUserInput(profile?.bio || trainerProfile?.bio || '', { allowNewlines: true, maxLen: 500 });
+    const specialties = normalizeTrainerSpecialtiesList(trainerProfile?.specialties || []);
+    const services = normalizeTrainerServices(trainerProfile?.services || 'treino');
+    const socialLinks = normalizeTrainerSocialLinks(trainerProfile?.social_links || {});
+    const handle = normalizeTrainerHandle(trainerProfile?.handle || '');
+    const themePreset = normalizeTrainerThemePreset(trainerProfile?.theme_preset || '');
+    const ctaLabel = sanitizeUserInput(trainerProfile?.cta_label || '', { maxLen: 80 });
+    const ctaUrl = sanitizeStrictUrl(trainerProfile?.cta_url || '', { maxLen: 320, allowStorage: false });
+    const headline = sanitizeUserInput(trainerProfile?.headline || '', { maxLen: 120 });
+
+    if (nameInput) nameInput.value = displayName;
+    if (consultoriaInput) consultoriaInput.value = consultoriaName;
+    if (bioInput) bioInput.value = bio;
+    if (headlineInput) headlineInput.value = headline;
+    const resolvedHandle = handle || suggestTrainerHandleFromName(displayName);
+    if (handleInput) handleInput.value = resolvedHandle;
+    if (instagramInput) instagramInput.value = socialLinks.instagram || '';
+    if (whatsappInput) whatsappInput.value = socialLinks.whatsapp || '';
+    if (websiteInput) websiteInput.value = socialLinks.website || '';
+    if (ctaLabelInput) ctaLabelInput.value = ctaLabel || 'Falar no WhatsApp';
+    if (ctaUrlInput) ctaUrlInput.value = ctaUrl || '';
+
+    setProfileSetupServiceSelection(services);
+    setProfileSetupThemeSelection(themePreset);
+    profileSetupTrainerSpecialties = hasTrainer ? specialties : [];
+    profileSetupState.hasTrainer = hasTrainer;
+    profileSetupState.hasStudent = hasStudent;
+    profileSetupState.avatarRef = avatarUrl || '';
+    profileSetupState.coverRef = coverUrl || '';
+    profileSetupState.handle = resolvedHandle;
+    profileSetupState.themePreset = themePreset;
+    profileSetupState.socialLinks = socialLinks;
+    profileSetupState.ctaLabel = ctaLabel;
+    profileSetupState.ctaUrl = ctaUrl;
+    profileSetupState.headline = headline;
+    profileSetupState.step = 1;
+
+    if (avatarUrl) profileSetupState.avatarPreview = await resolveStorageRefUrl(avatarUrl, 3600);
+    else profileSetupState.avatarPreview = '';
+    if (coverUrl) profileSetupState.coverPreview = await resolveStorageRefUrl(coverUrl, 3600);
+    else profileSetupState.coverPreview = '';
+
+    renderProfileSetupSpecialties();
+    renderProfileSetupMediaPreviews();
+    setProfileSetupFeedback('');
+    showProfileSetupStep(1);
+    if (nameInput) nameInput.focus();
 }
 
 function showTrainerConnectScreen() {
@@ -3832,6 +4619,19 @@ function showTrainerConnectScreen() {
     if (trainerCodeInput) trainerCodeInput.value = currentCode || '';
 }
 
+function openStudentQuestionnaireScreen(displayName = '') {
+    hideAllScreens();
+    const app = document.getElementById('app');
+    if (app) app.classList.add('wide');
+    const qScreen = document.getElementById('student-questionnaire-screen');
+    if (qScreen) qScreen.classList.add('active');
+    switchQTab('saude');
+    const nameField = document.getElementById('q_nome');
+    if (nameField && !nameField.value) {
+        nameField.value = sanitizeUserInput(displayName || memoryGetItem('studentName') || '', { maxLen: 90 });
+    }
+}
+
 async function openStudentConnectFromDashboard() {
     const activeUser = await getSupabaseSessionUser();
     if (!activeUser) {
@@ -3851,10 +4651,16 @@ async function routeByOnboarding(user, profile, roles) {
     cacheAuthenticatedContext(user, profile, roles, onboardingStep);
 
     if (onboardingStep === 'profile_setup') {
+        const shouldContinueStudentQuestionnaire = roles.includes('student') && !!profile?.profile_complete && !profile?.anamnesis;
         if ((profile?.onboarding_step || '') !== 'profile_setup') {
             await upsertOwnProfile({ id: user.id, onboarding_step: 'profile_setup' });
         }
-        showProfileSetupScreen(profile, roles);
+        if (shouldContinueStudentQuestionnaire) {
+            memorySetItem('onboardingPendingQuestionnaire', '1');
+            openStudentQuestionnaireScreen(profile?.name || memoryGetItem('currentUserName') || '');
+            return;
+        }
+        await showProfileSetupScreen(profile, roles, user);
         return;
     }
 
@@ -3873,7 +4679,76 @@ async function routeByOnboarding(user, profile, roles) {
         return;
     }
 
+    // Fluxo de treinador: marca onboarding como concluido para evitar loops.
+    if ((profile?.onboarding_step || '') !== 'done' || !profile?.profile_complete) {
+        await upsertOwnProfile({
+            id: user.id,
+            onboarding_step: 'done',
+            profile_complete: true
+        });
+        memorySetItem('currentOnboardingStep', 'done');
+    }
+
     window.location.href = 'trainer.html';
+}
+
+function normalizeTrainerServices(value = '') {
+    const safe = String(value || '').trim().toLowerCase();
+    if (safe === 'treino' || safe === 'dieta' || safe === 'ambos') return safe;
+    return 'treino';
+}
+
+function normalizeTrainerThemePreset(value = '') {
+    const safe = String(value || '').trim().toLowerCase();
+    if (TRAINER_THEME_PRESETS.includes(safe)) return safe;
+    return TRAINER_THEME_PRESETS[0];
+}
+
+function normalizeTrainerHandle(value = '') {
+    const raw = String(value || '').trim().replace(/^@+/, '').toLowerCase();
+    return raw
+        .replace(/[^a-z0-9._]/g, '')
+        .replace(/\.{2,}/g, '.')
+        .slice(0, 24);
+}
+
+function suggestTrainerHandleFromName(value = '') {
+    const base = sanitizeUserInput(value || '', { maxLen: 90 })
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s._-]/g, ' ')
+        .trim()
+        .replace(/\s+/g, '.');
+    return normalizeTrainerHandle(base);
+}
+
+function sanitizeStrictUrl(value = '', { maxLen = 320, allowStorage = true } = {}) {
+    const safe = sanitizeUserInput(value || '', { maxLen }).trim();
+    if (!safe) return '';
+    if (allowStorage && safe.startsWith('storage://')) return safe;
+    if (/^https?:\/\/[^\s]+$/i.test(safe)) return safe;
+    return '';
+}
+
+function normalizeTrainerSocialLinks(value) {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const next = {};
+    TRAINER_SOCIAL_LINK_KEYS.forEach((key) => {
+        next[key] = sanitizeUserInput(source[key] || '', { maxLen: 220 });
+    });
+    return next;
+}
+
+function normalizeTrainerSpecialtiesList(value) {
+    if (!Array.isArray(value)) return [];
+    const next = [];
+    value.forEach((item) => {
+        const safe = sanitizeUserInput(item, { maxLen: 40 });
+        if (!safe) return;
+        if (!next.includes(safe)) next.push(safe);
+    });
+    return next.slice(0, 8);
 }
 
 function setAuthInlineFeedback(elementId, message = '', type = 'info') {
@@ -3912,6 +4787,34 @@ function getSupabaseUnavailableMessage(mode = 'login') {
     return defaultMessage;
 }
 
+function getAuthErrorMessage(error, context = 'generic') {
+    const message = String(error?.message || error || '').trim();
+    const lowered = message.toLowerCase();
+    const status = Number(error?.status || 0);
+    const isRateLimited = (
+        status === 429
+        || lowered.includes('rate limit')
+        || lowered.includes('too many requests')
+        || lowered.includes('email rate limit exceeded')
+    );
+    if (isRateLimited) {
+        if (context === 'signup') {
+            return 'Muitos envios de e-mail em sequência. Aguarde alguns minutos. Para lançamento, ajuste SMTP e rate limits no Supabase.';
+        }
+        if (context === 'resend') {
+            return 'Limite de reenvio atingido agora. Tente novamente em alguns minutos.';
+        }
+        return 'Muitas tentativas agora. Aguarde alguns minutos e tente novamente.';
+    }
+    if (context === 'login' && lowered.includes('invalid login credentials')) {
+        return 'E-mail ou senha incorretos.';
+    }
+    if (context === 'login' && lowered.includes('email not confirmed')) {
+        return 'Seu e-mail ainda não foi verificado. Use "Reenviar verificação de e-mail".';
+    }
+    return message || 'Nao foi possivel concluir a operacao agora.';
+}
+
 function setAuthSubmitLoading(config = {}, isLoading = false) {
     const button = document.getElementById(config.buttonId || '');
     if (!button) return;
@@ -3928,6 +4831,64 @@ function setAuthSubmitLoading(config = {}, isLoading = false) {
             : (textEl.dataset.defaultText || textEl.textContent || '');
     }
     if (spinnerEl) spinnerEl.style.display = isLoading ? 'inline-block' : 'none';
+}
+
+function initSignupUXBindings() {
+    const form = document.getElementById('signup-form');
+    if (!form || form.dataset.bound === '1') return;
+
+    const passInput = document.getElementById('reg-pass');
+    const confirmInput = document.getElementById('reg-pass-confirm');
+    const termsInput = document.getElementById('reg-terms');
+    const hint = document.getElementById('signup-pass-hint');
+    const submitBtn = document.getElementById('signup-submit-btn');
+    const feedbackId = 'signup-inline-feedback';
+
+    const updateHint = () => {
+        if (!hint) return;
+        const pass = passInput?.value || '';
+        const confirm = confirmInput?.value || '';
+        if (!pass) {
+            hint.textContent = 'Use no minimo 8 caracteres com letras e numeros.';
+            return;
+        }
+        const hasLetter = /[A-Za-z]/.test(pass);
+        const hasNumber = /\d/.test(pass);
+        if (pass.length < 8 || !hasLetter || !hasNumber) {
+            hint.textContent = 'Senha fraca: inclua letras e numeros (minimo 8 caracteres).';
+            return;
+        }
+        if (confirm && pass !== confirm) {
+            hint.textContent = 'A confirmacao de senha nao confere.';
+            return;
+        }
+        hint.textContent = 'Senha valida. Continue com o cadastro.';
+    };
+
+    const clearFeedback = () => {
+        setAuthInlineFeedback(feedbackId, '');
+    };
+
+    const updateSubmitState = () => {
+        if (!submitBtn || !termsInput) return;
+        if (submitBtn.classList.contains('is-loading')) return;
+        submitBtn.disabled = !termsInput.checked;
+    };
+
+    form.querySelectorAll('input').forEach((input) => {
+        input.addEventListener('input', () => {
+            updateHint();
+            clearFeedback();
+        });
+    });
+
+    if (termsInput) {
+        termsInput.addEventListener('change', updateSubmitState);
+    }
+
+    updateHint();
+    updateSubmitState();
+    form.dataset.bound = '1';
 }
 
 function setProfileSetupFeedback(message, isError = false) {
@@ -3951,15 +4912,42 @@ async function completeProfileSetup() {
     }
     const roles = normalizeAppRoles(storedRoles, memoryGetItem('currentUserRole'));
 
+    const hasTrainer = roles.includes('trainer');
     const hasStudent = roles.includes('student');
     const displayName = sanitizeUserInput(document.getElementById('profile-setup-name')?.value, { maxLen: 90 });
-    const avatarUrl = sanitizeUserInput(document.getElementById('profile-setup-avatar')?.value, { maxLen: 300 });
+    const avatarUrl = sanitizeStrictUrl(profileSetupState.avatarRef || '', { maxLen: 320 });
+    const coverUrl = sanitizeStrictUrl(profileSetupState.coverRef || '', { maxLen: 320 });
+    const consultoriaName = sanitizeUserInput(document.getElementById('profile-setup-consultoria-name')?.value, { maxLen: 120 });
+    const trainerServices = getProfileSetupServiceSelection();
+    const trainerBio = sanitizeUserInput(document.getElementById('profile-setup-bio')?.value, { allowNewlines: true, maxLen: 500 });
+    const trainerHeadline = sanitizeUserInput(document.getElementById('profile-setup-headline')?.value || '', { maxLen: 120 });
+    const trainerSpecialties = normalizeTrainerSpecialtiesList(profileSetupTrainerSpecialties);
+    const trainerHandle = normalizeTrainerHandle(document.getElementById('profile-setup-handle')?.value || '');
+    const trainerThemePreset = getProfileSetupThemeSelection();
+    const trainerSocialLinks = normalizeTrainerSocialLinks({
+        instagram: document.getElementById('profile-setup-instagram')?.value || '',
+        whatsapp: document.getElementById('profile-setup-whatsapp')?.value || '',
+        website: document.getElementById('profile-setup-website')?.value || ''
+    });
+    const trainerCtaLabel = sanitizeUserInput(document.getElementById('profile-setup-cta-label')?.value || '', { maxLen: 80 });
+    const trainerCtaUrlRaw = document.getElementById('profile-setup-cta-url')?.value || '';
+    const trainerCtaUrl = sanitizeStrictUrl(trainerCtaUrlRaw || '', { maxLen: 320, allowStorage: false });
     const newPass = document.getElementById('profile-setup-pass')?.value || '';
     const passConfirm = document.getElementById('profile-setup-pass-confirm')?.value || '';
 
     if (!displayName || displayName.length < 3) {
         setProfileSetupFeedback('Informe seu nome com pelo menos 3 caracteres.', true);
         return;
+    }
+
+    if (hasTrainer) {
+        const fullValidation = validateProfileSetupStep(3, { showFeedback: true });
+        if (!fullValidation.valid) {
+            setProfileSetupFeedback('Revise os campos obrigatorios para concluir o onboarding.', true);
+            return;
+        }
+    } else {
+        setProfileSetupStepErrors([]);
     }
 
     if (newPass || passConfirm) {
@@ -3976,6 +4964,7 @@ async function completeProfileSetup() {
     }
 
     setProfileSetupFeedback('');
+    setProfileSetupStepErrors([]);
     setAuthSubmitLoading({
         buttonId: 'profile-setup-submit-btn',
         textId: 'profile-setup-btn-text',
@@ -4000,8 +4989,11 @@ async function completeProfileSetup() {
             return;
         }
 
+        let trainerCode = sanitizeCodeInput(memoryGetItem('currentTrainerCode') || '', 5);
+        if (hasTrainer && !trainerCode) trainerCode = await generateUniqueTrainerCode();
+
         const targetStep = hasStudent ? 'profile_setup' : 'done';
-        const profile = await upsertOwnProfile({
+        const profilePayload = {
             id: activeUser.id,
             role: roles[0],
             roles,
@@ -4009,28 +5001,82 @@ async function completeProfileSetup() {
             avatar_url: avatarUrl || null,
             profile_complete: true,
             onboarding_step: targetStep
-        });
+        };
+        if (hasTrainer) profilePayload.bio = trainerBio || null;
+        if (hasTrainer) profilePayload.trainer_code = trainerCode || null;
+
+        const profile = await upsertOwnProfile(profilePayload);
 
         if (!profile) {
             setProfileSetupFeedback('Não foi possível salvar o perfil no banco.', true);
             return;
         }
 
+        if (hasTrainer) {
+            const firstName = sanitizeUserInput(displayName.split(' ')[0] || displayName, { maxLen: 30 }) || 'Treinador';
+            const consultoriaFallback = consultoriaName || `Consultoria de ${firstName}`;
+            const resolvedTrainerCode = sanitizeCodeInput(profile?.trainer_code || trainerCode || '', 5);
+            const trainerRecord = await ensureTrainerExistsRemote(
+                resolvedTrainerCode,
+                displayName,
+                consultoriaFallback,
+                {
+                    ownerId: activeUser.id,
+                    name: displayName,
+                    displayName,
+                    consultoriaName: consultoriaFallback,
+                    services: trainerServices,
+                    headline: trainerHeadline,
+                    bio: trainerBio,
+                    avatarUrl,
+                    coverUrl,
+                    specialties: trainerSpecialties,
+                    socialLinks: trainerSocialLinks,
+                    handle: trainerHandle,
+                    ctaLabel: trainerCtaLabel,
+                    ctaUrl: trainerCtaUrl,
+                    themePreset: trainerThemePreset,
+                    onboardingComplete: true
+                }
+            );
+            if (!trainerRecord) {
+                setProfileSetupFeedback('Não foi possível finalizar o cadastro do treinador no Supabase.', true);
+                return;
+            }
+
+            cacheTrainerLocal({
+                ...trainerRecord,
+                consultoriaName: consultoriaFallback,
+                services: trainerServices,
+                headline: trainerHeadline,
+                displayName,
+                bio: trainerBio,
+                avatarUrl,
+                coverUrl,
+                specialties: trainerSpecialties,
+                socialLinks: trainerSocialLinks,
+                handle: trainerHandle,
+                ctaLabel: trainerCtaLabel,
+                ctaUrl: trainerCtaUrl,
+                themePreset: trainerThemePreset,
+                onboardingComplete: true
+            });
+            memorySetItem('trainerName', firstName);
+            const trainerCodeValue = sanitizeCodeInput(trainerRecord.code || resolvedTrainerCode, 5);
+            if (trainerCodeValue) {
+                memorySetItem('currentTrainerCode', trainerCodeValue);
+                if (!memoryGetItem('trainerCodeDefault')) memorySetItem('trainerCodeDefault', trainerCodeValue);
+            }
+        }
+
         if (!hasStudent) {
-            await routeByOnboarding(activeUser, profile, roles);
+            await routeByOnboarding(activeUser, { ...profile, onboarding_step: 'done', profile_complete: true }, roles);
             return;
         }
 
         memorySetItem('onboardingPendingQuestionnaire', '1');
         setProfileSetupFeedback('');
-        hideAllScreens();
-        const app = document.getElementById('app');
-        if (app) app.classList.add('wide');
-        const qScreen = document.getElementById('student-questionnaire-screen');
-        if (qScreen) qScreen.classList.add('active');
-        switchQTab('saude');
-        const nameField = document.getElementById('q_nome');
-        if (nameField && !nameField.value) nameField.value = displayName;
+        openStudentQuestionnaireScreen(displayName);
     } finally {
         setAuthSubmitLoading({
             buttonId: 'profile-setup-submit-btn',
@@ -4074,24 +5120,19 @@ async function handleEmailLogin() {
         });
 
         if (error || !data?.user) {
-            showLoginFeedback('E-mail ou senha incorretos.', 'error');
+            showLoginFeedback(getAuthErrorMessage(error, 'login') || 'E-mail ou senha incorretos.', 'error');
             return;
         }
 
         if (!isEmailConfirmed(data.user)) {
+            suppressSignedOutRedirectToHome = true;
             await window.supabase.auth.signOut();
             memorySetItem('pendingVerificationEmail', email);
             showLoginFeedback('Seu e-mail ainda nao foi verificado. Use "Reenviar verificacao de e-mail".', 'warning');
             return;
         }
 
-        await processLogin({
-            id: data.user.id,
-            roles: normalizeAppRoles(data.user?.user_metadata?.roles, data.user?.user_metadata?.role),
-            name: sanitizeUserInput(data.user?.user_metadata?.name || data.user?.email || 'Usuário', { maxLen: 90 }),
-            email: data.user?.email || '',
-            trainerCode: ''
-        });
+        await routeAuthenticatedSessionUser(data.user, { force: true });
     } finally {
         setAuthSubmitLoading({
             buttonId: 'login-submit-btn',
@@ -4121,7 +5162,7 @@ async function startPasswordRecoveryFromLogin() {
     const redirectTo = `${window.location.origin}${window.location.pathname}`;
     const { error } = await window.supabase.auth.resetPasswordForEmail(email, { redirectTo });
     if (error) {
-        showLoginFeedback(error.message || 'Não foi possível enviar o e-mail de recuperação.', 'error');
+        showLoginFeedback(getAuthErrorMessage(error, 'resend') || 'Não foi possível enviar o e-mail de recuperação.', 'error');
         return;
     }
 
@@ -4165,6 +5206,7 @@ async function completePasswordRecovery() {
             return;
         }
         showLoginFeedback('Senha atualizada com sucesso. Faça login novamente.', 'success');
+        suppressSignedOutRedirectToHome = true;
         await window.supabase.auth.signOut();
         document.getElementById('recovery-new-pass').value = '';
         document.getElementById('recovery-confirm-pass').value = '';
@@ -4229,8 +5271,9 @@ async function resendVerificationEmailFromLogin() {
         options: { emailRedirectTo: `${window.location.origin}/` }
     });
     if (error) {
-        const hasInline = setAuthInlineFeedback('login-inline-feedback', error.message || 'Nao foi possivel reenviar o e-mail de verificacao.', 'error');
-        if (!hasInline) alert(error.message || 'Nao foi possivel reenviar o e-mail de verificacao.');
+        const mapped = getAuthErrorMessage(error, 'resend');
+        const hasInline = setAuthInlineFeedback('login-inline-feedback', mapped || 'Nao foi possivel reenviar o e-mail de verificacao.', 'error');
+        if (!hasInline) alert(mapped || 'Nao foi possivel reenviar o e-mail de verificacao.');
         return;
     }
 
@@ -4291,6 +5334,8 @@ async function handleProfileCreation() {
         return;
     }
 
+    setPendingSignupContext(email, { roles, name });
+
     setAuthSubmitLoading({
         buttonId: 'signup-submit-btn',
         textId: 'signup-btn-text',
@@ -4298,6 +5343,7 @@ async function handleProfileCreation() {
         loadingText: 'Criando conta...'
     }, true);
 
+    let created = false;
     try {
         const { data, error } = await window.supabase.auth.signUp({
             email,
@@ -4313,7 +5359,7 @@ async function handleProfileCreation() {
         });
 
         if (error) {
-            showSignupFeedback(error.message || 'Nao foi possivel criar sua conta.', 'error');
+            showSignupFeedback(getAuthErrorMessage(error, 'signup') || 'Nao foi possivel criar sua conta.', 'error');
             return;
         }
 
@@ -4324,22 +5370,35 @@ async function handleProfileCreation() {
         }
 
         if (data?.session?.user) {
-            const trainerCode = roles.includes('trainer') ? await generateUniqueTrainerCode() : '';
-            await upsertOwnProfile({
-                id: user.id,
-                role: roles[0],
-                roles,
-                name,
-                trainer_code: trainerCode || null,
-                profile_complete: false,
-                onboarding_step: 'pending_verification'
-            });
-            await window.supabase.auth.signOut();
+            try {
+                const trainerCode = roles.includes('trainer') ? await generateUniqueTrainerCode() : '';
+                await upsertOwnProfile({
+                    id: user.id,
+                    role: roles[0],
+                    roles,
+                    name,
+                    trainer_code: trainerCode || null,
+                    profile_complete: false,
+                    onboarding_step: 'pending_verification'
+                });
+            } catch (profileSyncErr) {
+                console.warn('Falha ao sincronizar perfil apos cadastro. Continuando fluxo.', profileSyncErr);
+            }
+            try {
+                suppressSignedOutRedirectToHome = true;
+                await window.supabase.auth.signOut();
+            } catch (signOutErr) {
+                console.warn('Falha ao encerrar sessao apos cadastro.', signOutErr);
+            }
         }
 
         memorySetItem('pendingVerificationEmail', email);
         showSignupFeedback('Conta criada com sucesso. Verifique seu e-mail para continuar.', 'success');
+        created = true;
         setTimeout(() => goToGlobalLogin(), 900);
+    } catch (err) {
+        console.error('Erro inesperado ao criar conta:', err);
+        showSignupFeedback('Nao foi possivel criar sua conta agora. Tente novamente em alguns instantes.', 'error');
     } finally {
         setAuthSubmitLoading({
             buttonId: 'signup-submit-btn',
@@ -4347,6 +5406,15 @@ async function handleProfileCreation() {
             spinnerId: 'signup-btn-spinner',
             loadingText: 'Criando conta...'
         }, false);
+        if (created) {
+            const form = document.getElementById('signup-form');
+            if (form instanceof HTMLFormElement) {
+                form.reset();
+                const roleStudent = form.querySelector('input[name="reg-role"][value="student"]');
+                if (roleStudent instanceof HTMLInputElement) roleStudent.checked = true;
+            }
+            initSignupUXBindings();
+        }
     }
 }
 
@@ -4374,15 +5442,31 @@ async function processLogin(user) {
     }
 
     if (!isEmailConfirmed(activeUser)) {
-        await window.supabase.auth.signOut();
+        if (typeof window.supabase?.auth?.signOut === 'function') {
+            suppressSignedOutRedirectToHome = true;
+            await window.supabase.auth.signOut();
+        }
         alert('Verifique seu e-mail antes de acessar o aplicativo.');
         goToGlobalLogin();
         return;
     }
 
-    const safeUserName = sanitizeUserInput(user?.name || activeUser?.user_metadata?.name || activeUser?.email || 'Usuário', { maxLen: 90 }) || 'Usuário';
     const safeEmail = sanitizeEmailInput(activeUser?.email || user?.email || '');
-    const requestedRoles = normalizeAppRoles(user?.roles, user?.role || activeUser?.user_metadata?.role);
+    const pendingSignupContext = getPendingSignupContext(safeEmail);
+    const explicitMetadataRoles = extractExplicitRoles(user?.roles || activeUser?.user_metadata?.roles, user?.role || activeUser?.user_metadata?.role);
+    const explicitPendingRoles = extractExplicitRoles(pendingSignupContext?.roles);
+
+    const safeUserName = sanitizeUserInput(
+        user?.name
+        || activeUser?.user_metadata?.name
+        || pendingSignupContext?.name
+        || activeUser?.email
+        || 'Usuário',
+        { maxLen: 90 }
+    ) || 'Usuário';
+    const requestedRoles = explicitMetadataRoles.length
+        ? normalizeAppRoles(explicitMetadataRoles)
+        : (explicitPendingRoles.length ? normalizeAppRoles(explicitPendingRoles) : ['student']);
     let profile = await getProfileByUserId(activeUser.id);
 
     if (!profile) {
@@ -4404,7 +5488,17 @@ async function processLogin(user) {
         return;
     }
 
-    const roles = normalizeAppRoles(profile.roles, profile.role || requestedRoles[0]);
+    const profileExplicitRoles = extractExplicitRoles(profile?.roles, profile?.role);
+    const roles = profileExplicitRoles.length
+        ? normalizeAppRoles(profile.roles, profile.role || requestedRoles[0])
+        : requestedRoles;
+    if (!profileExplicitRoles.length) {
+        profile = (await upsertOwnProfile({
+            id: activeUser.id,
+            role: roles[0],
+            roles
+        })) || profile;
+    }
     const needsTrainerCode = roles.includes('trainer') && !sanitizeCodeInput(profile.trainer_code || '', 5);
     if (needsTrainerCode) {
         const trainerCode = await generateUniqueTrainerCode();
@@ -4423,6 +5517,7 @@ async function processLogin(user) {
     await runOneShotLegacyMigration(activeUser, profile, roles);
 
     await routeByOnboarding(activeUser, profile, roles);
+    if (safeEmail) clearPendingSignupContext(safeEmail);
 }
 
 if (typeof window !== 'undefined') {
@@ -4437,6 +5532,12 @@ if (typeof window !== 'undefined') {
         handleProfileCreation,
         handleTestLogin,
         completeProfileSetup,
+        nextProfileSetupStep,
+        prevProfileSetupStep,
+        addProfileSetupSpecialty,
+        removeProfileSetupSpecialty,
+        triggerProfileSetupMediaInput,
+        handleProfileSetupMediaInput,
         connectStudent,
         confirmConnection,
         openTrainerArea,
@@ -5622,11 +6723,23 @@ function renderWorkoutHistory() {
     }).join('');
 }
 
-function getWorkoutRpeStats(workout) {
+function convertLegacyRpeToRir(rpeValue) {
+    const rpe = Number(rpeValue);
+    if (!Number.isFinite(rpe)) return null;
+    return Math.max(0, Math.min(5, Math.round(5 - rpe)));
+}
+
+function getSetRirForRead(set = {}) {
+    const rir = Number(set?.rir);
+    if (Number.isFinite(rir)) return Math.max(0, Math.min(5, Math.round(rir)));
+    return convertLegacyRpeToRir(set?.rpe);
+}
+
+function getWorkoutRirStats(workout) {
     const values = [];
     (workout?.Exercicios || []).forEach(ex => {
         (ex.sets || []).forEach(s => {
-            const v = Number(s.rpe);
+            const v = getSetRirForRead(s);
             if (Number.isFinite(v)) values.push(v);
         });
     });
@@ -5674,16 +6787,16 @@ function renderTrainerWorkoutHistory(studentId) {
         const totalSessions = history.length;
         const totalVolume = history.reduce((sum, w) => sum + (w.Volume_Total || 0), 0);
         const totalDuration = history.reduce((sum, w) => sum + (w.Duracao || 0), 0);
-        let rpeSum = 0;
-        let rpeCount = 0;
+        let rirSum = 0;
+        let rirCount = 0;
         history.forEach(w => {
-            const stats = getWorkoutRpeStats(w);
-            if (stats.count > 0 && stats.avg) {
-                rpeSum += stats.avg;
-                rpeCount += 1;
+            const stats = getWorkoutRirStats(w);
+            if (stats.count > 0 && (stats.avg || stats.avg === 0)) {
+                rirSum += stats.avg;
+                rirCount += 1;
             }
         });
-        const avgRpeAll = rpeCount > 0 ? (rpeSum / rpeCount) : 0;
+        const avgRirAll = rirCount > 0 ? (rirSum / rirCount) : 0;
 
         evoGrid.innerHTML = `
             <div class="evo-card">
@@ -5703,8 +6816,8 @@ function renderTrainerWorkoutHistory(studentId) {
             </div>
             <div class="evo-card">
                 <div class="evo-icon"><i class="ph-bold ph-gauge"></i></div>
-                <div class="evo-value">${avgRpeAll ? avgRpeAll.toFixed(1) : '--'}</div>
-                <div class="evo-label">RPE Médio</div>
+                <div class="evo-value">${avgRirAll || avgRirAll === 0 ? avgRirAll.toFixed(1) : '--'}</div>
+                <div class="evo-label">RIR Médio</div>
             </div>
         `;
     }
@@ -5732,8 +6845,8 @@ function renderTrainerWorkoutHistory(studentId) {
         const notePreview = note ? truncateText(note, 140) : '';
         const intensityLabel = feedback.intensidade ? formatIntensityLabel(feedback.intensidade) : '--';
         const qualityLabel = feedback.qualidade ? `${feedback.qualidade}/5` : '--';
-        const rpeStats = getWorkoutRpeStats(w);
-        const rpeLabel = rpeStats.avg ? rpeStats.avg.toFixed(1) : '--';
+        const rirStats = getWorkoutRirStats(w);
+        const rirLabel = rirStats.avg || rirStats.avg === 0 ? rirStats.avg.toFixed(1) : '--';
 
         return `
             <div class="history-workout-card" onclick="openTrainerHistoryDetail(${JSON.stringify(String(studentId))}, ${originalIdx})">
@@ -5748,7 +6861,7 @@ function renderTrainerWorkoutHistory(studentId) {
                         <div class="history-feedback-badges">
                             <span class="history-feedback-chip"><i class="ph-bold ph-smiley"></i> Qualidade: ${qualityLabel}</span>
                             <span class="history-feedback-chip"><i class="ph-bold ph-lightning"></i> Intensidade: ${intensityLabel}</span>
-                            <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> PSE médio: ${rpeLabel}</span>
+                            <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> RIR médio: ${rirLabel}</span>
                         </div>
                         ${notePreview ? `<div class="history-feedback-note">${escHtml(notePreview)}</div>` : ''}
                     </div>
@@ -5794,8 +6907,9 @@ function renderHistoryExerciseDetail(ex) {
                     const repsVal = getSetRepsValue(s);
                     const volumeVal = getSetVolumeValue(s);
                     const oneRMVal = getSetOneRMValue(s);
-                    const rpeVal = Number(s.rpe);
-                    const rpeText = Number.isFinite(rpeVal) ? `PSE ${rpeVal.toFixed(1)}` : 'PSE --';
+                    const rirVal = getSetRirForRead(s);
+                    const rirText = Number.isFinite(rirVal) ? `RIR ${rirVal}` : 'RIR --';
+                    const setNote = sanitizeUserInput(s.set_note || s.setNote || '', { maxLen: 160 });
                     const execVal = Number(s.execucao);
                     const execText = Number.isFinite(execVal) && execVal > 0 ? `Exec ${execVal}` : 'Exec --';
                     const prTypes = getSetPRTypes(s);
@@ -5809,8 +6923,9 @@ function renderHistoryExerciseDetail(ex) {
                         <span class="hd-set-vol">Vol ${formatMetricNumber(volumeVal)} kg</span>
                         <span class="hd-set-onerm">1RM ${formatMetricNumber(oneRMVal)} kg</span>
                         ${prTags}
-                        <span class="hd-set-rpe">${rpeText}</span>
+                        <span class="hd-set-rir">${rirText}</span>
                         <span class="hd-set-exec">${execText}</span>
+                        ${setNote ? `<span class="hd-set-note">Nota: ${escHtml(setNote)}</span>` : ''}
                     </div>
                 `;
                 }).join('')}
@@ -5840,8 +6955,8 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
     const note = (feedback.comentario || '').trim();
     const intensityLabel = feedback.intensidade ? formatIntensityLabel(feedback.intensidade) : '--';
     const qualityLabel = feedback.qualidade ? `${feedback.qualidade}/5` : '--';
-    const rpeStats = getWorkoutRpeStats(workout);
-    const rpeLabel = rpeStats.avg ? rpeStats.avg.toFixed(1) : '--';
+    const rirStats = getWorkoutRirStats(workout);
+    const rirLabel = rirStats.avg || rirStats.avg === 0 ? rirStats.avg.toFixed(1) : '--';
     const prTotal = (workout.Exercicios || []).reduce((sum, ex) => {
         return sum + (ex.sets || []).reduce((inner, s) => inner + getSetPRTypes(s).length, 0);
     }, 0);
@@ -5876,7 +6991,7 @@ function openTrainerHistoryDetail(studentId, originalIdx) {
             <div class="history-feedback-badges">
                 <span class="history-feedback-chip"><i class="ph-bold ph-smiley"></i> Qualidade: ${qualityLabel}</span>
                 <span class="history-feedback-chip"><i class="ph-bold ph-lightning"></i> Intensidade: ${intensityLabel}</span>
-                <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> PSE médio: ${rpeLabel}</span>
+                <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> RIR médio: ${rirLabel}</span>
             </div>
             ${note ? `<div class="history-feedback-note">${escHtml(note)}</div>` : `<div class="history-feedback-note">Sem notas registradas.</div>`}
         </div>
@@ -5916,8 +7031,8 @@ function openHistoryDetail(originalIdx) {
     const note = (feedback.comentario || '').trim();
     const intensityLabel = feedback.intensidade ? formatIntensityLabel(feedback.intensidade) : '--';
     const qualityLabel = feedback.qualidade ? `${feedback.qualidade}/5` : '--';
-    const rpeStats = getWorkoutRpeStats(workout);
-    const rpeLabel = rpeStats.avg ? rpeStats.avg.toFixed(1) : '--';
+    const rirStats = getWorkoutRirStats(workout);
+    const rirLabel = rirStats.avg || rirStats.avg === 0 ? rirStats.avg.toFixed(1) : '--';
     const prTotal = (workout.Exercicios || []).reduce((sum, ex) => {
         return sum + (ex.sets || []).reduce((inner, s) => inner + getSetPRTypes(s).length, 0);
     }, 0);
@@ -5952,7 +7067,7 @@ function openHistoryDetail(originalIdx) {
             <div class="history-feedback-badges">
                 <span class="history-feedback-chip"><i class="ph-bold ph-smiley"></i> Qualidade: ${qualityLabel}</span>
                 <span class="history-feedback-chip"><i class="ph-bold ph-lightning"></i> Intensidade: ${intensityLabel}</span>
-                <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> PSE médio: ${rpeLabel}</span>
+                <span class="history-feedback-chip"><i class="ph-bold ph-gauge"></i> RIR médio: ${rirLabel}</span>
             </div>
             ${note ? `<div class="history-feedback-note">${escHtml(note)}</div>` : `<div class="history-feedback-note">Sem notas registradas.</div>`}
         </div>
@@ -6415,6 +7530,37 @@ function computeDietConsumedMacros(baseItem, logEntry) {
     return { prot: calc.protein, carb: calc.carb, gord: calc.fat, kcal: calc.kcal };
 }
 
+function getDietDeltaBadge(targetValue, consumedValue, unit = 'g', options = {}) {
+    const safeTarget = Math.max(0, parseDecimalSafe(targetValue));
+    const safeConsumed = Math.max(0, parseDecimalSafe(consumedValue));
+    const toleranceMin = Math.max(0, parseDecimalSafe(options.toleranceMin));
+    const tolerancePct = Math.max(0, parseDecimalSafe(options.tolerancePct));
+    const fallbackTolerance = unit === 'kcal' ? 120 : 6;
+    const tolerance = Math.max(
+        toleranceMin,
+        safeTarget * tolerancePct,
+        fallbackTolerance
+    );
+    const delta = Math.round((safeTarget - safeConsumed) * 10) / 10;
+
+    if (Math.abs(delta) <= tolerance) {
+        return {
+            tone: 'ontrack',
+            text: unit === 'kcal' ? 'No alvo calórico' : 'No alvo'
+        };
+    }
+    if (delta > 0) {
+        return {
+            tone: 'under',
+            text: `Faltam ${Math.round(delta)}${unit}`
+        };
+    }
+    return {
+        tone: 'over',
+        text: `Excedeu ${Math.round(Math.abs(delta))}${unit}`
+    };
+}
+
 function renderStudentDietContent(student) {
     const selectedDate = studentDietSelectedDateKey || getTodayDateKey();
     const macro = computeDietMacroData(student, selectedDate);
@@ -6427,6 +7573,39 @@ function renderStudentDietContent(student) {
     const isDayCompleted = !!dayLog?.meta?.completed;
     const completionLabel = isDayCompleted ? 'Dia concluído' : `${completionPercent}% concluído`;
     const statusClass = isDayCompleted ? 'done' : 'pending';
+    const mealsCompleted = meals.reduce((acc, meal, mealIdx) => (
+        acc + (isStudentMealCompleted(dayLog, mealIdx, meal) ? 1 : 0)
+    ), 0);
+    const nextPendingMeal = meals.find((meal, mealIdx) => !isStudentMealCompleted(dayLog, mealIdx, meal));
+    const nextPendingMealLabel = nextPendingMeal?.name || 'Dia finalizado';
+    const kcalDelta = getDietDeltaBadge(
+        macro.targets.kcal,
+        macro.totals.consumed.kcal,
+        'kcal',
+        { toleranceMin: 100, tolerancePct: 0.08 }
+    );
+    const proteinDelta = getDietDeltaBadge(
+        macro.targets.protein,
+        macro.totals.consumed.protein,
+        'g',
+        { toleranceMin: 4, tolerancePct: 0.06 }
+    );
+    const carbDelta = getDietDeltaBadge(
+        macro.targets.carb,
+        macro.totals.consumed.carb,
+        'g',
+        { toleranceMin: 6, tolerancePct: 0.08 }
+    );
+    const fatDelta = getDietDeltaBadge(
+        macro.targets.fat,
+        macro.totals.consumed.fat,
+        'g',
+        { toleranceMin: 3, tolerancePct: 0.08 }
+    );
+    const bestWeeklyDay = (weekly.days || []).reduce((best, day) => {
+        if (!best || day.adherence > best.adherence) return day;
+        return best;
+    }, null);
     const canUndoCopy = !!(
         studentDietRepeatUndoState
         && String(studentDietRepeatUndoState.studentId || '') === String(student.id || '')
@@ -6434,15 +7613,40 @@ function renderStudentDietContent(student) {
     );
 
     const summaryCard = `
-        <div class="diet-modern-summary-card">
+        <section class="diet-modern-summary-card">
             <div class="diet-modern-summary-head">
-                <div class="diet-modern-summary-title">Macros Diários</div>
+                <div class="diet-modern-summary-title-wrap">
+                    <div class="diet-modern-summary-title">Rotina alimentar do dia</div>
+                    <p class="diet-modern-summary-subtitle">Acompanhe sua aderência e ajuste porções conforme necessário.</p>
+                </div>
                 <span class="diet-modern-day-status ${statusClass}">${completionLabel}</span>
             </div>
             <div class="diet-modern-date-controls">
                 <button type="button" class="diet-modern-icon-btn" onclick="setStudentDietDate('${getDateKeyShift(selectedDate, -1)}')"><i class="ph-bold ph-caret-left"></i></button>
                 <input type="date" class="diet-modern-date-input" value="${selectedDate}" onchange="setStudentDietDate(this.value)">
                 <button type="button" class="diet-modern-icon-btn" onclick="setStudentDietDate('${getDateKeyShift(selectedDate, 1)}')"><i class="ph-bold ph-caret-right"></i></button>
+            </div>
+            <div class="diet-modern-kpi-strip">
+                <div class="diet-modern-kpi-card ${kcalDelta.tone}">
+                    <span>Kcal</span>
+                    <strong>${macro.totals.consumed.kcal}/${macro.targets.kcal}</strong>
+                    <small>${kcalDelta.text}</small>
+                </div>
+                <div class="diet-modern-kpi-card ${completionPercent >= 85 ? 'ontrack' : 'under'}">
+                    <span>Aderência</span>
+                    <strong>${completionPercent}%</strong>
+                    <small>${macro.completion.done}/${macro.completion.total} itens</small>
+                </div>
+                <div class="diet-modern-kpi-card ${mealsCompleted === meals.length && meals.length > 0 ? 'ontrack' : 'under'}">
+                    <span>Refeições</span>
+                    <strong>${mealsCompleted}/${meals.length}</strong>
+                    <small>Concluídas</small>
+                </div>
+                <div class="diet-modern-kpi-card ${isDayCompleted ? 'ontrack' : 'pending'}">
+                    <span>Próxima ação</span>
+                    <strong>${escHtml(nextPendingMealLabel)}</strong>
+                    <small>${isDayCompleted ? 'Dia fechado' : 'Continuar rotina'}</small>
+                </div>
             </div>
             <div class="diet-progress-row">
                 <div class="diet-progress-label protein">${uiSvgIcon('protein')} Proteína</div>
@@ -6464,6 +7668,11 @@ function renderStudentDietContent(student) {
                 <div class="diet-progress-bar"><span class="diet-progress-fill fat" style="width:${macro.progress.kcal}%"></span></div>
                 <div class="diet-progress-value">${macro.totals.consumed.kcal}/${macro.targets.kcal} kcal</div>
             </div>
+            <div class="diet-modern-delta-row">
+                <span class="diet-modern-delta-chip ${proteinDelta.tone}">Proteína: ${proteinDelta.text}</span>
+                <span class="diet-modern-delta-chip ${carbDelta.tone}">Carbo: ${carbDelta.text}</span>
+                <span class="diet-modern-delta-chip ${fatDelta.tone}">Gordura: ${fatDelta.text}</span>
+            </div>
             <div class="diet-modern-summary-foot">${selectedDate} · ${macro.completion.done}/${macro.completion.total} alimentos marcados</div>
             <div class="diet-modern-day-actions">
                 <button type="button" class="diet-modern-ghost-btn" onclick="repeatPreviousDietDay()">
@@ -6478,8 +7687,8 @@ function renderStudentDietContent(student) {
                     ${isDayCompleted ? 'Reabrir dia alimentar' : 'Concluir dia alimentar'}
                 </button>
             </div>
-        </div>
-        <div class="diet-modern-weekly-card">
+        </section>
+        <section class="diet-modern-weekly-card">
             <div class="diet-modern-weekly-title">Resumo Semanal</div>
             <div class="diet-modern-weekly-grid">
                 <div><span>Aderência média</span><strong>${weekly.avgAdherence}%</strong></div>
@@ -6491,7 +7700,10 @@ function renderStudentDietContent(student) {
             <div class="diet-modern-weekly-days">
                 ${weekly.days.map((d) => `<span class="diet-week-day">${d.key.slice(5)} · ${d.adherence}%</span>`).join('')}
             </div>
-        </div>
+            <div class="diet-modern-weekly-insight">
+                Melhor dia: <strong>${bestWeeklyDay ? `${bestWeeklyDay.key.slice(5)} (${bestWeeklyDay.adherence}%)` : '--'}</strong>
+            </div>
+        </section>
     `;
 
     const mealCards = meals.map((meal, mealIdx) => {
@@ -6500,12 +7712,29 @@ function renderStudentDietContent(student) {
         const mealProgressLabel = mealItems.length
             ? `${doneItems}/${mealItems.length} itens concluídos`
             : 'Sem itens cadastrados';
+        const mealProgressPercent = mealItems.length ? Math.round((doneItems / mealItems.length) * 100) : 0;
+        const mealTotals = mealItems.reduce((acc, item, itemIdx) => {
+            const base = getDietItemBaseMacros(item);
+            acc.targetKcal += base.kcal;
+            const logEntry = getDietLogItem(dayLog, mealIdx, itemIdx);
+            if (logEntry?.checked) {
+                const consumed = computeDietConsumedMacros(item, logEntry);
+                acc.consumedKcal += consumed.kcal;
+            }
+            return acc;
+        }, { targetKcal: 0, consumedKcal: 0 });
+        const mealKcalDelta = getDietDeltaBadge(
+            mealTotals.targetKcal,
+            mealTotals.consumedKcal,
+            'kcal',
+            { toleranceMin: 80, tolerancePct: 0.12 }
+        );
         return `
-        <div class="diet-modern-meal-card tone-${mealIdx % 3}" style="--meal-order:${mealIdx};">
+        <section class="diet-modern-meal-card tone-${mealIdx % 3}" style="--meal-order:${mealIdx};">
             <div class="diet-modern-meal-header">
                 <div class="diet-modern-meal-title-wrap">
                     <h3>${escHtml(meal.name)}</h3>
-                    <span class="diet-modern-meal-meta">${mealProgressLabel}</span>
+                    <span class="diet-modern-meal-meta">${mealProgressLabel} · ${mealTotals.consumedKcal}/${mealTotals.targetKcal || 0} kcal</span>
                 </div>
                 <div class="diet-modern-meal-actions">
                     <button type="button" class="diet-modern-check-all-btn ${isStudentMealCompleted(dayLog, mealIdx, meal) ? 'done' : ''}" onclick="toggleDietMealCheck(${mealIdx})" title="Marcar ou desmarcar todos os itens">
@@ -6518,6 +7747,13 @@ function renderStudentDietContent(student) {
                         <i class="ph-bold ${isStudentMealCompleted(dayLog, mealIdx, meal) ? 'ph-check-circle' : 'ph-circle'}"></i>
                     </button>
                 </div>
+            </div>
+            <div class="diet-modern-meal-progress-track">
+                <span style="width:${mealProgressPercent}%"></span>
+            </div>
+            <div class="diet-modern-meal-kcal-status ${mealKcalDelta.tone}">
+                <i class="ph-bold ph-fire"></i>
+                <span>${mealKcalDelta.text}</span>
             </div>
             ${activeStudentMealAddFormIdx === mealIdx ? `
                 <div class="diet-modern-add-food-box">
@@ -6544,7 +7780,7 @@ function renderStudentDietContent(student) {
                 </div>
             ` : ''}
             <div class="diet-modern-food-list">
-                ${(meal.items || []).map((item, itemIdx) => {
+                ${mealItems.length ? mealItems.map((item, itemIdx) => {
                     const logEntry = getDietLogItem(dayLog, mealIdx, itemIdx);
                     const checked = !!logEntry?.checked;
                     const base = getDietItemBaseMacros(item);
@@ -6600,13 +7836,28 @@ function renderStudentDietContent(student) {
                             <span class="diet-modern-chip fat">${uiSvgIcon('fat')} ${(checked ? consumed.gord : base.gord)}g G</span>
                         </div>
                     </div>`;
-                }).join('')}
+                }).join('') : `
+                    <div class="diet-modern-empty-meal">
+                        <i class="ph-bold ph-bowl-food"></i>
+                        <div>
+                            <strong>Sem alimentos nessa refeição</strong>
+                            <span>Use o botão <em>+</em> para adicionar itens ao seu plano.</span>
+                        </div>
+                    </div>
+                `}
             </div>
-        </div>
+        </section>
     `;
     }).join('');
 
-    return `${summaryCard}${mealCards}`;
+    return `
+        <div class="diet-modern-content-layout">
+            ${summaryCard}
+            <div class="diet-modern-meals-stack">
+                ${mealCards}
+            </div>
+        </div>
+    `;
 }
 
 function getDateKeyShift(baseDateKey, shiftDays) {
@@ -9465,6 +10716,103 @@ function formatDateShort(iso) {
     return `${d.getDate()} ${months[d.getMonth()]} `;
 }
 
+function makeStorageRef(bucket, path) {
+    const safeBucket = sanitizeUserInput(String(bucket || ''), { maxLen: 80 });
+    const safePath = String(path || '').replace(/^\/+/, '').trim();
+    if (!safeBucket || !safePath) return '';
+    return `storage://${safeBucket}/${safePath}`;
+}
+
+function parseStorageRef(value) {
+    const raw = String(value || '').trim();
+    if (!raw.startsWith('storage://')) return null;
+    const withoutPrefix = raw.slice('storage://'.length);
+    const slashIdx = withoutPrefix.indexOf('/');
+    if (slashIdx <= 0) return null;
+    const bucket = withoutPrefix.slice(0, slashIdx);
+    const path = withoutPrefix.slice(slashIdx + 1);
+    if (!bucket || !path) return null;
+    return { bucket, path };
+}
+
+function formatFileSize(bytesValue) {
+    const bytes = Number(bytesValue) || 0;
+    if (bytes <= 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function resolveStorageRefUrl(value, expiresInSeconds = 3600) {
+    if (!value) return '';
+    if (String(value).startsWith('http://') || String(value).startsWith('https://') || String(value).startsWith('data:')) {
+        return String(value);
+    }
+    const ref = parseStorageRef(value);
+    if (!ref || !isSupabaseReady() || typeof window.supabase?.storage?.from !== 'function') return '';
+    const { data, error } = await window.supabase.storage
+        .from(ref.bucket)
+        .createSignedUrl(ref.path, expiresInSeconds);
+    if (error) {
+        console.warn('Falha ao gerar signed URL de mídia.', error.message || error);
+        return '';
+    }
+    return data?.signedUrl || '';
+}
+
+function setPerfilMediaStatus(message = '', type = '') {
+    const el = document.getElementById('perfil-media-status');
+    if (!el) return;
+    el.textContent = message || '';
+    el.classList.remove('success', 'error', 'loading');
+    if (type) el.classList.add(type);
+}
+
+function getStudentAvatarSource(student = {}) {
+    return String(
+        student?.avatarRef
+        || student?.avatar_url
+        || memoryGetItem('currentUserAvatarRef')
+        || ''
+    ).trim();
+}
+
+function renderStudentAvatarElement(student = {}, resolvedUrl = '') {
+    const avatarEl = document.getElementById('perfil-avatar');
+    if (!avatarEl) return;
+    const name = sanitizeUserInput(student?.name || memoryGetItem('studentName') || 'Aluno', { maxLen: 90 }) || 'Aluno';
+    const initials = name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+    const avatarUrl = String(resolvedUrl || '').trim();
+    if (avatarUrl) {
+        avatarEl.innerHTML = `<img src="${escHtml(avatarUrl)}" alt="Foto de perfil" loading="lazy" decoding="async">`;
+        avatarEl.classList.add('has-image');
+    } else {
+        avatarEl.innerHTML = `<span>${initials}</span>`;
+        avatarEl.classList.remove('has-image');
+    }
+}
+
+async function syncStudentAvatarFromProfile(student) {
+    if (!student || !isSupabaseReady()) return;
+    const source = getStudentAvatarSource(student);
+    renderStudentAvatarElement(student, '');
+    if (!source) return;
+    const resolved = await resolveStorageRefUrl(source, 3600);
+    renderStudentAvatarElement(student, resolved);
+}
+
+function triggerStudentAvatarUpload() {
+    const input = document.getElementById('perfil-avatar-input');
+    if (!input) return;
+    input.click();
+}
+
+function triggerStudentGalleryUpload() {
+    const input = document.getElementById('perfil-media-input');
+    if (!input) return;
+    input.click();
+}
+
 function renderStudentPerfil() {
     const { student } = getStudentData();
     if (!student) return;
@@ -9486,10 +10834,8 @@ function renderStudentPerfil() {
     if (nameEl) nameEl.innerHTML = student.name || 'Aluno';
 
     const avatarEl = document.getElementById('perfil-avatar');
-    if (avatarEl) {
-        const initials = (student.name || 'A').split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
-        avatarEl.innerHTML = `<span>${initials}</span>`;
-    }
+    if (avatarEl) renderStudentAvatarElement(student, '');
+    void syncStudentAvatarFromProfile(student);
 
     const membroEl = document.getElementById('perfil-membro-desde');
     if (membroEl) membroEl.innerHTML = `Membro desde ${formatDate(student.joinedAt)} `;
@@ -9602,6 +10948,7 @@ function renderStudentPerfil() {
 
     // Chart
     renderPerfilChart();
+    void loadStudentMediaGallery();
 }
 
 function getStudentAnamnesisSource(student = {}) {
@@ -9704,6 +11051,307 @@ function closePerfilAnamnesisModal() {
     if (!modal) return;
     modal.classList.remove('active');
     setTimeout(() => { modal.style.display = 'none'; }, 220);
+}
+
+async function uploadStudentFileToStorage(file, folder = 'gallery') {
+    if (!isSupabaseReady() || typeof window.supabase?.storage?.from !== 'function') {
+        return { error: { message: 'Supabase Storage indisponível no momento.' } };
+    }
+    const userId = String(memoryGetItem('currentUserId') || '').trim();
+    if (!userId) return { error: { message: 'Sessão inválida para upload.' } };
+    const originalName = sanitizeUserInput(file?.name || 'arquivo', { maxLen: 120 }) || 'arquivo';
+    const extRaw = originalName.includes('.') ? originalName.split('.').pop() : '';
+    const ext = sanitizeUserInput(extRaw || (file?.type || '').split('/').pop() || 'bin', { maxLen: 12 }).toLowerCase() || 'bin';
+    const random = Math.random().toString(36).slice(2, 9);
+    const storagePath = `${userId}/${folder}/${Date.now()}-${random}.${ext}`;
+    const { error } = await window.supabase.storage
+        .from(STUDENT_MEDIA_BUCKET)
+        .upload(storagePath, file, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: file?.type || undefined
+        });
+    if (error) return { error };
+    return { storagePath };
+}
+
+async function handleStudentAvatarInput(event) {
+    const file = event?.target?.files?.[0];
+    if (event?.target) event.target.value = '';
+    if (!file) return;
+
+    if (!String(file.type || '').startsWith('image/')) {
+        setPerfilMediaStatus('Selecione uma imagem para foto de perfil.', 'error');
+        return;
+    }
+    if (file.size > MAX_STUDENT_IMAGE_BYTES) {
+        setPerfilMediaStatus(`A imagem excede 8MB (${formatFileSize(file.size)}).`, 'error');
+        return;
+    }
+
+    setPerfilMediaStatus('Enviando foto de perfil...', 'loading');
+    const upload = await uploadStudentFileToStorage(file, 'avatar');
+    if (upload.error || !upload.storagePath) {
+        setPerfilMediaStatus(getAuthErrorMessage(upload.error, 'generic'), 'error');
+        return;
+    }
+
+    const avatarRef = makeStorageRef(STUDENT_MEDIA_BUCKET, upload.storagePath);
+    const userId = String(memoryGetItem('currentUserId') || '').trim();
+    const { studentId, students, student } = getStudentData();
+
+    const profileUpdate = await upsertOwnProfile({
+        id: userId,
+        avatar_url: avatarRef
+    });
+    if (!profileUpdate) {
+        setPerfilMediaStatus('Upload concluído, mas falhou ao salvar o perfil.', 'error');
+        return;
+    }
+
+    if (student) {
+        student.avatarRef = avatarRef;
+        student.avatar_url = avatarRef;
+        const idx = students.findIndex((s) => String(s.id) === String(studentId));
+        if (idx >= 0) {
+            students[idx] = student;
+            saveStudentData(students);
+            syncStudentProfileEntity(student);
+        }
+    }
+
+    memorySetItem('currentUserAvatarRef', avatarRef);
+    setPerfilMediaStatus('Foto atualizada com sucesso.', 'success');
+    await syncStudentAvatarFromProfile(student || {});
+}
+
+async function loadStudentMediaGallery(force = false) {
+    const grid = document.getElementById('perfil-media-grid');
+    if (!grid) return;
+    const userId = String(memoryGetItem('currentUserId') || '').trim();
+    if (!userId || !isSupabaseReady() || !entityTablesAvailability.media) {
+        studentMediaState.items = [];
+        studentMediaState.loading = false;
+        studentMediaState.error = userId ? 'Galeria indisponível no momento.' : 'Faça login para carregar sua galeria.';
+        renderStudentMediaGallery();
+        return;
+    }
+
+    const cacheValid = (
+        !force
+        && studentMediaState.loadedForUser === userId
+        && (Date.now() - studentMediaState.loadedAt) < 40 * 60 * 1000
+    );
+    if (cacheValid) {
+        renderStudentMediaGallery();
+        return;
+    }
+
+    studentMediaState.loading = true;
+    studentMediaState.error = '';
+    renderStudentMediaGallery();
+
+    const { data, error } = await window.supabase
+        .from(SUPABASE_TABLES.studentMedia)
+        .select('id,student_user_id,trainer_code,media_type,storage_path,caption,created_at')
+        .eq('student_user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(120);
+
+    if (error) {
+        console.warn('Falha ao carregar galeria do aluno.', error.message || error);
+        if (String(error.message || '').toLowerCase().includes('does not exist')) {
+            entityTablesAvailability.media = false;
+        }
+        studentMediaState.loading = false;
+        studentMediaState.items = [];
+        studentMediaState.error = 'Não foi possível carregar sua galeria agora.';
+        renderStudentMediaGallery();
+        return;
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    const signedRows = await Promise.all(rows.map(async (row) => {
+        const ref = makeStorageRef(STUDENT_MEDIA_BUCKET, row.storage_path || '');
+        const signedUrl = await resolveStorageRefUrl(ref, 3600);
+        return {
+            ...row,
+            signedUrl
+        };
+    }));
+
+    studentMediaState.loading = false;
+    studentMediaState.items = signedRows.filter((item) => item.signedUrl);
+    studentMediaState.loadedForUser = userId;
+    studentMediaState.loadedAt = Date.now();
+    studentMediaState.error = '';
+    renderStudentMediaGallery();
+}
+
+function renderStudentMediaGallery() {
+    const grid = document.getElementById('perfil-media-grid');
+    if (!grid) return;
+
+    if (studentMediaState.loading) {
+        grid.innerHTML = `
+            <div class="perfil-history-empty" style="grid-column:1/-1;">
+                <i class="ph-bold ph-spinner-gap"></i>
+                <p>Carregando sua galeria...</p>
+            </div>
+        `;
+        return;
+    }
+
+    if (studentMediaState.error) {
+        grid.innerHTML = `
+            <div class="perfil-history-empty" style="grid-column:1/-1;">
+                <i class="ph-bold ph-warning-circle"></i>
+                <p>${escHtml(studentMediaState.error)}</p>
+            </div>
+        `;
+        return;
+    }
+
+    if (!Array.isArray(studentMediaState.items) || studentMediaState.items.length === 0) {
+        grid.innerHTML = `
+            <div class="perfil-history-empty" style="grid-column:1/-1;">
+                <i class="ph-bold ph-images-square"></i>
+                <p>Nenhum arquivo enviado ainda. Envie fotos e vídeos para acompanhar sua evolução.</p>
+            </div>
+        `;
+        return;
+    }
+
+    grid.innerHTML = studentMediaState.items.map((item, idx) => {
+        const isVideo = item.media_type === 'video';
+        const preview = isVideo
+            ? `<video src="${escHtml(item.signedUrl)}" muted preload="metadata" playsinline></video>`
+            : `<img src="${escHtml(item.signedUrl)}" alt="Mídia ${idx + 1}" loading="lazy" decoding="async">`;
+        return `
+            <button type="button" class="perfil-media-item" onclick="openPerfilMediaViewer(${idx})">
+                ${preview}
+                <div class="perfil-media-item-meta">
+                    <span class="perfil-media-item-type">
+                        <i class="ph-bold ${isVideo ? 'ph-video-camera' : 'ph-image'}"></i>
+                        ${isVideo ? 'Vídeo' : 'Imagem'}
+                    </span>
+                    <span>${formatDate(item.created_at)}</span>
+                </div>
+            </button>
+        `;
+    }).join('');
+    optimizeMediaElements(grid);
+}
+
+async function handleStudentGalleryUpload(event) {
+    const file = event?.target?.files?.[0];
+    if (event?.target) event.target.value = '';
+    if (!file) return;
+    const isImage = String(file.type || '').startsWith('image/');
+    const isVideo = String(file.type || '').startsWith('video/');
+    if (!isImage && !isVideo) {
+        setPerfilMediaStatus('Formato inválido. Envie imagem ou vídeo.', 'error');
+        return;
+    }
+    const limit = isImage ? MAX_STUDENT_IMAGE_BYTES : MAX_STUDENT_VIDEO_BYTES;
+    if (file.size > limit) {
+        setPerfilMediaStatus(
+            `Arquivo excede o limite (${isImage ? '8MB imagem' : '30MB vídeo'}): ${formatFileSize(file.size)}.`,
+            'error'
+        );
+        return;
+    }
+
+    setPerfilMediaStatus('Enviando arquivo...', 'loading');
+    const upload = await uploadStudentFileToStorage(file, 'gallery');
+    if (upload.error || !upload.storagePath) {
+        setPerfilMediaStatus(getAuthErrorMessage(upload.error, 'generic'), 'error');
+        return;
+    }
+
+    const userId = String(memoryGetItem('currentUserId') || '').trim();
+    const { student } = getStudentData();
+    const trainerCode = sanitizeCodeInput(
+        student?.trainerCode || student?.trainer_code || memoryGetItem('connectedTrainerCode') || '',
+        5
+    ) || null;
+
+    const { error } = await window.supabase
+        .from(SUPABASE_TABLES.studentMedia)
+        .insert({
+            student_user_id: userId,
+            trainer_code: trainerCode,
+            media_type: isVideo ? 'video' : 'image',
+            storage_path: upload.storagePath,
+            caption: ''
+        });
+
+    if (error) {
+        console.warn('Falha ao registrar metadado da galeria.', error.message || error);
+        await window.supabase.storage.from(STUDENT_MEDIA_BUCKET).remove([upload.storagePath]);
+        setPerfilMediaStatus('Upload enviado, mas não foi possível salvar na galeria.', 'error');
+        return;
+    }
+
+    setPerfilMediaStatus('Arquivo enviado para sua galeria.', 'success');
+    await loadStudentMediaGallery(true);
+}
+
+function openPerfilMediaViewer(index) {
+    const item = Array.isArray(studentMediaState.items) ? studentMediaState.items[index] : null;
+    const modal = document.getElementById('perfil-media-viewer-modal');
+    const body = document.getElementById('perfil-media-viewer-body');
+    if (!item || !modal || !body) return;
+    activePerfilMediaId = String(item.id || '');
+    const isVideo = item.media_type === 'video';
+    const mediaHtml = isVideo
+        ? `<video src="${escHtml(item.signedUrl)}" controls playsinline></video>`
+        : `<img src="${escHtml(item.signedUrl)}" alt="Mídia do aluno">`;
+    body.innerHTML = `
+        <div class="perfil-media-viewer-content">${mediaHtml}</div>
+        <div class="perfil-media-viewer-meta">
+            <strong>${isVideo ? 'Vídeo' : 'Imagem'}</strong>
+            <span> • ${formatDate(item.created_at)}</span>
+        </div>
+    `;
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+}
+
+function closePerfilMediaViewer() {
+    const modal = document.getElementById('perfil-media-viewer-modal');
+    if (!modal) return;
+    activePerfilMediaId = '';
+    modal.classList.remove('active');
+    setTimeout(() => { modal.style.display = 'none'; }, 220);
+}
+
+async function deleteActivePerfilMedia() {
+    if (!activePerfilMediaId) {
+        closePerfilMediaViewer();
+        return;
+    }
+    const target = (studentMediaState.items || []).find((item) => String(item.id) === String(activePerfilMediaId));
+    if (!target) {
+        closePerfilMediaViewer();
+        return;
+    }
+    if (!confirm('Remover este arquivo da galeria?')) return;
+
+    const { error } = await window.supabase
+        .from(SUPABASE_TABLES.studentMedia)
+        .delete()
+        .eq('id', target.id);
+
+    if (error) {
+        setPerfilMediaStatus('Não foi possível remover este arquivo.', 'error');
+        return;
+    }
+
+    await window.supabase.storage.from(STUDENT_MEDIA_BUCKET).remove([target.storage_path]);
+    setPerfilMediaStatus('Arquivo removido da galeria.', 'success');
+    closePerfilMediaViewer();
+    await loadStudentMediaGallery(true);
 }
 
 function renderPerfilHistory(student) {
@@ -10025,6 +11673,7 @@ function savePerfilUpdate() {
         if (idade) student.age = idade;
         if (objetivo) student.goal = objetivo;
         if (nome) memorySetItem('studentName', nome);
+        if (nome) memorySetItem('currentUserName', nome);
         changed = true;
     }
 
@@ -10440,6 +12089,23 @@ async function initTrainerDashboard() {
     initTrainerRoutes();
 }
 
+function getTrainerSettingsScopedKey() {
+    const currentUserId = String(memoryGetItem('currentUserId') || '').trim();
+    if (currentUserId) return `${TRAINER_SETTINGS_KEY}:${currentUserId}`;
+    const trainerCode = sanitizeCodeInput(
+        memoryGetItem('currentTrainerCode') || memoryGetItem('trainerCodeDefault') || '',
+        5
+    );
+    if (trainerCode) return `${TRAINER_SETTINGS_KEY}:${trainerCode}`;
+    return TRAINER_SETTINGS_KEY;
+}
+
+function readTrainerSettingsByKey(key) {
+    const value = readStorageJSON(key, null);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    return value;
+}
+
 function loadTrainerSettings() {
     const defaults = {
         bio: '',
@@ -10458,7 +12124,32 @@ function loadTrainerSettings() {
         billingNotes: '',
         billingHistory: []
     };
-    const stored = readStorageJSON(TRAINER_SETTINGS_KEY, {});
+    const scopedKey = getTrainerSettingsScopedKey();
+    const trainerCode = sanitizeCodeInput(
+        memoryGetItem('currentTrainerCode') || memoryGetItem('trainerCodeDefault') || '',
+        5
+    );
+    const fallbackKeys = [];
+    fallbackKeys.push(scopedKey);
+    if (trainerCode) fallbackKeys.push(`${TRAINER_SETTINGS_KEY}:${trainerCode}`);
+    fallbackKeys.push(TRAINER_SETTINGS_KEY);
+
+    let stored = null;
+    let sourceKey = '';
+    fallbackKeys.forEach((key) => {
+        if (stored) return;
+        const candidate = readTrainerSettingsByKey(key);
+        if (candidate) {
+            stored = candidate;
+            sourceKey = key;
+        }
+    });
+
+    if (!stored) stored = {};
+    if (sourceKey && sourceKey !== scopedKey && scopedKey !== TRAINER_SETTINGS_KEY) {
+        memorySetItem(scopedKey, JSON.stringify(stored));
+    }
+
     const specialties = Array.isArray(stored.specialties) ? stored.specialties : [];
     const billingHistory = Array.isArray(stored.billingHistory) ? stored.billingHistory : [];
     return { ...defaults, ...stored, specialties, billingHistory };
@@ -10467,7 +12158,7 @@ function loadTrainerSettings() {
 function updateTrainerSettings(partial) {
     const current = loadTrainerSettings();
     const next = { ...current, ...partial };
-    memorySetItem(TRAINER_SETTINGS_KEY, JSON.stringify(next));
+    memorySetItem(getTrainerSettingsScopedKey(), JSON.stringify(next));
     return next;
 }
 
@@ -11153,7 +12844,7 @@ function saveTrainerSettings() {
 }
 
 function resetTrainerSettings() {
-    memoryRemoveItem(TRAINER_SETTINGS_KEY);
+    memoryRemoveItem(getTrainerSettingsScopedKey());
     loadTrainerSettingsToUI();
 }
 
@@ -11491,12 +13182,8 @@ function openWhatsAppForStudent(studentIdx, event) {
         students[studentIdx].whatsapp = phoneRaw;
         saveStudentData(students);
         setStudentSyncState('pending', 'Sincronização pendente');
-        syncWorkoutArchiveToEntities(students[sIdx], workoutArchive, workoutState?.sessionId || '')
-            .then(() => setStudentSyncState('synced', 'Sincronizado'))
-            .catch((err) => {
-                console.warn('[entity-sync] Falha ao persistir treino', err);
-                setStudentSyncState('error', 'Falha ao salvar sessão de treino');
-            });
+        queueSupabaseStudentsSync(students);
+        setTimeout(() => setStudentSyncState('synced', 'Sincronizado'), 450);
     }
 
     const phone = phoneRaw.replace(/\D/g, '');
@@ -14314,10 +16001,47 @@ function getWorkoutBackup() {
     }
 }
 
+function normalizeWorkoutStateSnapshot(rawState) {
+    if (!rawState || typeof rawState !== 'object') return null;
+    const snapshot = { ...rawState };
+    const exercises = Array.isArray(rawState.exercises) ? rawState.exercises : [];
+    snapshot.exercises = exercises.map((exercise, exIdx) => {
+        const safeExercise = exercise && typeof exercise === 'object' ? { ...exercise } : {};
+        const sets = Array.isArray(safeExercise.sets) ? safeExercise.sets : [];
+        safeExercise.sets = sets.map((set, setIdx) => {
+            const safeSet = set && typeof set === 'object' ? { ...set } : {};
+            const mapped = mapRirToMetrics(
+                Number.isFinite(Number(safeSet.rir))
+                    ? safeSet.rir
+                    : convertLegacyRpeToRir(safeSet.rpe)
+            );
+            return {
+                id: safeSet.id || `set-${exIdx}-${setIdx}`,
+                weight: safeSet.weight ?? safeSet.peso ?? '',
+                reps: safeSet.reps ?? '',
+                type: safeSet.type || 'normal',
+                intensityLevel: safeSet.intensityLevel ?? mapped.intensityLevel ?? 0,
+                rpe: Number.isFinite(Number(safeSet.rpe)) ? Number(safeSet.rpe) : mapped.rpe,
+                rir: Number.isFinite(Number(safeSet.rir)) ? Number(safeSet.rir) : mapped.rir,
+                setNote: sanitizeUserInput(safeSet.setNote || safeSet.set_note || '', { maxLen: 220 }),
+                execucao: Number.isFinite(Number(safeSet.execucao)) ? Number(safeSet.execucao) : 0,
+                logged: !!safeSet.logged,
+                completed: !!safeSet.completed,
+                brokenPRs: safeSet.brokenPRs || { weight: false, volume: false, oneRM: false },
+                prev: safeSet.prev || null,
+                prNotified: !!safeSet.prNotified
+            };
+        });
+        return safeExercise;
+    });
+    return snapshot;
+}
+
 function resumeWorkoutBackup() {
     const backup = getWorkoutBackup();
     if (!backup) return false;
-    workoutState = backup;
+    workoutState = normalizeWorkoutStateSnapshot(backup);
+    if (!workoutState) return false;
     // Resume view
     switchStudentView('log-workout');
     // Resume Timer
@@ -14535,6 +16259,7 @@ function startWorkoutSession(blockIdx = 0) {
                         intensityLevel: 0,
                         rpe: '',
                         rir: '',
+                        setNote: '',
                         execucao: 0,
                         logged: false,
                         completed: false,
@@ -14552,6 +16277,7 @@ function startWorkoutSession(blockIdx = 0) {
                         intensityLevel: 0,
                         rpe: '',
                         rir: '',
+                        setNote: '',
                         execucao: 0,
                         logged: false,
                         completed: false,
@@ -14698,7 +16424,7 @@ function renderWorkoutLog() {
                     <span>Série</span>
                     <span>Kg</span>
                     <span>Reps</span>
-                    <span>PSE</span>
+                    <span>RIR</span>
                     <span>Exec</span>
                     <span>Ações</span>
                 </div>
@@ -14760,8 +16486,8 @@ function renderWorkoutLog() {
                             </div>
                         </div>
 
-                        <div class="set-pse-visual" title="${getPseLabel(set.rpe)}">
-                            ${renderPseSelector(exIdx, setIdx, set.rpe)}
+                        <div class="set-pse-visual" title="${getRirLabel(set.rir)}">
+                            ${renderPseSelector(exIdx, setIdx, set.rir)}
                         </div>
 
                         <div class="set-exec-visual" title="${getExecutionLabel(set.execucao)}">
@@ -14778,6 +16504,16 @@ function renderWorkoutLog() {
                     </div>
                     <div class="log-set-history ${hasPR ? 'pr-hit' : ''}">
                         <div class="set-history-line">${escHtml(prevLine)}</div>
+                    </div>
+                    <div class="log-set-note-row">
+                        <input
+                            type="text"
+                            class="set-note-input"
+                            placeholder="Nota da série (opcional)"
+                            value="${escHtml(set.setNote || '')}"
+                            data-workout-focus="note-${exIdx}-${setIdx}"
+                            oninput="updateSetNote(${exIdx}, ${setIdx}, this.value)"
+                        >
                     </div>
                 `;
                 }).join('')}
@@ -14973,6 +16709,12 @@ function updateSetData(exIdx, setIdx, field, value) {
     }
 }
 
+function updateSetNote(exIdx, setIdx, note) {
+    if (!workoutState || !workoutState.exercises?.[exIdx]?.sets?.[setIdx]) return;
+    workoutState.exercises[exIdx].sets[setIdx].setNote = sanitizeUserInput(note, { maxLen: 220 });
+    saveWorkoutBackup();
+}
+
 function updateExercisePRs(exIdx) {
     const ex = workoutState.exercises[exIdx];
     const best = ex.best || { maxWeight: 0, maxVolume: 0, maxOneRM: 0 };
@@ -15032,7 +16774,8 @@ function toggleSetCompletion(exIdx, setIdx) {
     const exercise = workoutState.exercises[exIdx];
     const set = exercise.sets[setIdx];
 
-    if (!set.completed && !set.rpe) {
+    const hasRir = Number.isFinite(Number(set.rir));
+    if (!set.completed && !hasRir) {
         pendingSetCompletion = { exIdx, setIdx, completeAfter: true };
         openSetEffortQuickModal();
         return;
@@ -15067,8 +16810,9 @@ function toggleSetCompletion(exIdx, setIdx) {
                 peso: parseFloat(set.weight) || 0,
                 reps: parseInt(set.reps) || 0,
                 intensidade: set.intensityLevel || 0,
-                rpe: set.rpe || null,
-                rir: set.rir || null,
+                rpe: Number.isFinite(Number(set.rpe)) ? Number(set.rpe) : null,
+                rir: Number.isFinite(Number(set.rir)) ? Number(set.rir) : null,
+                set_note: sanitizeUserInput(set.setNote || '', { maxLen: 220 }),
                 execucao: set.execucao || null,
                 completedAt: new Date().toISOString()
             });
@@ -15141,16 +16885,21 @@ function closeSetExecutionQuickModal() {
     setTimeout(() => { modal.style.display = 'none'; }, 180);
 }
 
-function chooseQuickSetPse(pse) {
+function chooseQuickSetRir(rirValue) {
     if (!pendingSetCompletion) return;
     const { exIdx, setIdx, completeAfter } = pendingSetCompletion;
-    setSetPse(exIdx, setIdx, pse);
+    setSetRir(exIdx, setIdx, rirValue);
     pendingSetCompletion = null;
     closeSetEffortQuickModal();
     if (completeAfter) {
         toggleSetCompletion(exIdx, setIdx);
         triggerHaptic(20);
     }
+}
+
+function chooseQuickSetPse(pse) {
+    // legacy alias kept for existing bindings
+    chooseQuickSetRir(pse);
 }
 
 function chooseQuickSetExecution(value) {
@@ -15167,8 +16916,8 @@ function chooseQuickSetExecution(value) {
 
 function applyPseColorStyles() {
     document.querySelectorAll('.pse-color-btn').forEach(btn => {
-        const value = Number(btn.dataset.pse || 0);
-        if (!value) return;
+        const value = normalizeSetRirValue(btn.dataset.pse);
+        if (value === null) return;
         btn.style.cssText = getPseButtonStyle(value);
     });
 }
@@ -15408,6 +17157,7 @@ function addSetToExercise(exIdx) {
         intensityLevel: 0,
         rpe: '',
         rir: '',
+        setNote: '',
         execucao: 0,
         logged: false,
         completed: false,
@@ -15569,9 +17319,10 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
                     reps: parseInt(s.reps) || 0,
                     type: s.type || 'normal',
                     intensidade: s.intensityLevel || null,
-                    rpe: s.rpe ? parseFloat(s.rpe) : null,
-                    rir: s.rir ? parseInt(s.rir) : null,
-                    execucao: s.execucao ? parseInt(s.execucao) : null,
+                    rpe: Number.isFinite(Number(s.rpe)) ? Number(s.rpe) : null,
+                    rir: Number.isFinite(Number(s.rir)) ? Number(s.rir) : null,
+                    set_note: sanitizeUserInput(s.setNote || '', { maxLen: 220 }),
+                    execucao: Number.isFinite(Number(s.execucao)) ? parseInt(s.execucao, 10) : null,
                     brokenPRs: s.brokenPRs // Keep this for summary visualization
                 }))
         })).filter(ex => ex.sets.length > 0 || ex.nota),
@@ -15986,24 +17737,33 @@ function addCustomExercise() {
 }
 
 
-function mapPseToMetrics(pse) {
-    const rpe = Number(pse) || 0;
-    if (!rpe) return { rpe: null, rir: null, intensityLevel: 0 };
-    const intensityLevel = Math.min(5, Math.max(1, Math.round(rpe)));
-    const rir = Math.max(0, Math.round(5 - rpe));
-    return { rpe, rir, intensityLevel };
+function normalizeSetRirValue(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.max(0, Math.min(5, Math.round(parsed)));
+}
+
+function mapRirToMetrics(rirValue) {
+    const rir = normalizeSetRirValue(rirValue);
+    if (rir === null) return { rpe: null, rir: null, intensityLevel: 0 };
+    const estimatedRpe = Math.max(0, 5 - rir);
+    const intensityLevel = Math.min(5, Math.max(1, Math.round(estimatedRpe || 1)));
+    return { rpe: estimatedRpe, rir, intensityLevel };
+}
+
+function getRirLabel(rirValue) {
+    const rir = normalizeSetRirValue(rirValue);
+    return rir === null ? 'RIR --' : `RIR ${rir}`;
 }
 
 function getPseLabel(rpe) {
-    if (!rpe) return 'PSE --';
-    const value = Number(rpe);
-    if (!Number.isFinite(value)) return 'PSE --';
-    const text = value % 1 === 0 ? String(value) : value.toFixed(1);
-    return `PSE ${text}`;
+    // legacy alias kept for backward compatibility in existing templates
+    return getRirLabel(rpe);
 }
 
-function getPseRgb(rpe) {
-    const value = Math.max(1, Math.min(5, Number(rpe) || 0));
+function getPseRgb(rirValue) {
+    const rir = normalizeSetRirValue(rirValue);
+    const value = rir === null ? 0 : Math.max(1, Math.min(5, 5 - rir));
     if (!value) return { r: 163, g: 163, b: 163 };
     const green = { r: 34, g: 197, b: 94 };
     const yellow = { r: 250, g: 204, b: 21 };
@@ -16029,10 +17789,10 @@ function getPseButtonStyle(rpe) {
     return `background: rgba(${r}, ${g}, ${b}, 0.12); border-color: rgba(${r}, ${g}, ${b}, 0.35); color: rgb(${r}, ${g}, ${b});`;
 }
 
-function renderPseSelector(exIdx, setIdx, rpe) {
-    const value = Number(rpe);
-    const label = Number.isFinite(value) && value > 0 ? (value % 1 === 0 ? String(value) : value.toFixed(1)) : '--';
-    const hasValue = Number.isFinite(value) && value > 0;
+function renderPseSelector(exIdx, setIdx, rirValue) {
+    const value = normalizeSetRirValue(rirValue);
+    const label = value === null ? '--' : String(value);
+    const hasValue = value !== null;
     const style = hasValue ? ` style="${getPseButtonStyle(value)}"` : '';
     return `<button type="button" class="set-pse-btn ${hasValue ? 'has-value' : ''}"${style} onclick="openSetEffortQuickModal(${exIdx}, ${setIdx}, false)">${label}</button>`;
 }
@@ -16044,18 +17804,22 @@ function renderExecSelector(exIdx, setIdx, execValue) {
     return `<button type="button" class="set-exec-btn ${hasValue ? 'has-value' : ''}" onclick="openSetExecutionQuickModal(${exIdx}, ${setIdx}, false)">${label}</button>`;
 }
 
-function setSetPse(exIdx, setIdx, pse) {
+function setSetPse(exIdx, setIdx, rirValue) {
     if (!workoutState) return;
     const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
     if (!set) return;
 
-    const mapped = mapPseToMetrics(pse);
+    const mapped = mapRirToMetrics(rirValue);
     set.rpe = mapped.rpe;
     set.rir = mapped.rir;
     set.intensityLevel = mapped.intensityLevel;
 
     saveWorkoutBackup();
     renderWorkoutLogWithStatePreserved();
+}
+
+function setSetRir(exIdx, setIdx, rirValue) {
+    setSetPse(exIdx, setIdx, rirValue);
 }
 
 function setSetExecution(exIdx, setIdx, execValue) {

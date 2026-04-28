@@ -10,57 +10,279 @@
     </button>
 
     <section class="auth-shell">
-        <article class="auth-card auth-card-setup">
+        <article class="auth-card auth-card-setup profile-setup-shell">
             <header class="auth-header">
                 <div class="auth-brand-badge"><i class="ph-bold ph-user-circle"></i></div>
                 <p class="auth-kicker">Onboarding</p>
                 <h2 id="profile-setup-heading" class="auth-title">Finalizar conta</h2>
-                <p class="auth-subtitle">Complete seus dados para liberar o acesso completo.</p>
-                <p class="auth-helper">Fluxo: Perfil -> (Aluno) Anamnese -> Codigo do treinador -> Acesso.</p>
+                <p class="auth-subtitle">Monte seu perfil profissional e entre no painel com tudo pronto.</p>
+                <p id="profile-setup-trainer-hint" class="auth-helper profile-setup-hint" style="display:none;">
+                    Fluxo premium: Basico -> Perfil social -> Personalizacao.
+                </p>
+                <p id="profile-setup-student-hint" class="auth-helper profile-setup-hint" style="display:none;">
+                    Como aluno, depois desta etapa voce continua para anamnese e conexao com treinador.
+                </p>
             </header>
 
-            <form class="auth-form" onsubmit="event.preventDefault(); completeProfileSetup();">
-                <div class="auth-field">
-                    <label class="auth-field-label" for="profile-setup-name">Nome de exibicao</label>
-                    <div class="auth-input-shell">
-                        <i class="ph-bold ph-identification-card auth-field-icon"></i>
-                        <input type="text" id="profile-setup-name" placeholder="Como seu nome sera exibido" required>
+            <div id="profile-setup-stepper" class="profile-setup-stepper" style="display:none;">
+                <button type="button" class="profile-step-chip is-active" data-step="1">
+                    <span>1</span> Basico
+                </button>
+                <button type="button" class="profile-step-chip" data-step="2">
+                    <span>2</span> Perfil Social
+                </button>
+                <button type="button" class="profile-step-chip" data-step="3">
+                    <span>3</span> Personalizacao
+                </button>
+            </div>
+
+            <p id="profile-setup-step-errors" class="auth-inline-feedback" style="display:none;"></p>
+
+            <form class="auth-form profile-setup-form" onsubmit="event.preventDefault(); completeProfileSetup();">
+                <div class="profile-setup-grid">
+                    <div class="profile-setup-form-pane">
+                        <section class="profile-setup-step" data-step="1">
+                            <div class="auth-field">
+                                <label class="auth-field-label" for="profile-setup-name">Nome de exibicao</label>
+                                <div class="auth-input-shell">
+                                    <i class="ph-bold ph-identification-card auth-field-icon"></i>
+                                    <input type="text" id="profile-setup-name" placeholder="Como seu nome sera exibido" required>
+                                </div>
+                            </div>
+
+                            <div class="auth-field profile-setup-trainer-only">
+                                <label class="auth-field-label" for="profile-setup-consultoria-name">Nome da consultoria</label>
+                                <div class="auth-input-shell">
+                                    <i class="ph-bold ph-buildings auth-field-icon"></i>
+                                    <input type="text" id="profile-setup-consultoria-name" placeholder="Ex: Nova Era Performance">
+                                </div>
+                            </div>
+
+                            <div class="auth-field profile-setup-trainer-only">
+                                <label class="auth-field-label">Servicos oferecidos</label>
+                                <div class="auth-role-grid">
+                                    <label class="auth-role-card">
+                                        <input type="radio" name="profile-setup-services" value="treino">
+                                        <div class="auth-role-content">
+                                            <i class="ph-bold ph-barbell"></i>
+                                            <span class="auth-role-title">Treino</span>
+                                            <small>Protocolos de treino</small>
+                                        </div>
+                                    </label>
+                                    <label class="auth-role-card">
+                                        <input type="radio" name="profile-setup-services" value="dieta">
+                                        <div class="auth-role-content">
+                                            <i class="ph-bold ph-apple-logo"></i>
+                                            <span class="auth-role-title">Dieta</span>
+                                            <small>Plano alimentar</small>
+                                        </div>
+                                    </label>
+                                    <label class="auth-role-card auth-role-card-wide">
+                                        <input type="radio" name="profile-setup-services" value="ambos">
+                                        <div class="auth-role-content">
+                                            <i class="ph-bold ph-arrows-left-right"></i>
+                                            <span class="auth-role-title">Treino + Dieta</span>
+                                            <small>Acompanhamento completo</small>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="auth-field">
+                                <label class="auth-field-label" for="profile-setup-pass">Nova senha (opcional)</label>
+                                <div class="auth-input-shell">
+                                    <i class="ph-bold ph-lock-key auth-field-icon"></i>
+                                    <input type="password" id="profile-setup-pass" placeholder="Nova senha (opcional)">
+                                </div>
+                            </div>
+
+                            <div class="auth-field">
+                                <label class="auth-field-label" for="profile-setup-pass-confirm">Confirmar nova senha</label>
+                                <div class="auth-input-shell">
+                                    <i class="ph-bold ph-lock-key auth-field-icon"></i>
+                                    <input type="password" id="profile-setup-pass-confirm" placeholder="Repita a nova senha">
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="profile-setup-step profile-setup-trainer-only" data-step="2" style="display:none;">
+                            <div class="profile-setup-media-grid">
+                                <article class="profile-media-card">
+                                    <header>
+                                        <p>Avatar profissional (opcional)</p>
+                                        <small>Foto principal do seu perfil</small>
+                                    </header>
+                                    <div id="profile-setup-avatar-preview" class="profile-avatar-preview">
+                                        <i class="ph-bold ph-user"></i>
+                                    </div>
+                                    <div class="profile-media-actions">
+                                        <button type="button" class="btn-secondary" onclick="triggerProfileSetupMediaInput('profile-setup-avatar-gallery-input')">
+                                            Galeria
+                                        </button>
+                                        <button type="button" class="btn-secondary" onclick="triggerProfileSetupMediaInput('profile-setup-avatar-camera-input')">
+                                            Camera
+                                        </button>
+                                    </div>
+                                </article>
+
+                                <article class="profile-media-card">
+                                    <header>
+                                        <p>Capa do perfil (opcional)</p>
+                                        <small>Visual principal do card social</small>
+                                    </header>
+                                    <div id="profile-setup-cover-preview" class="profile-cover-preview">
+                                        <span>Sem capa</span>
+                                    </div>
+                                    <div class="profile-media-actions">
+                                        <button type="button" class="btn-secondary" onclick="triggerProfileSetupMediaInput('profile-setup-cover-gallery-input')">
+                                            Galeria
+                                        </button>
+                                        <button type="button" class="btn-secondary" onclick="triggerProfileSetupMediaInput('profile-setup-cover-camera-input')">
+                                            Camera
+                                        </button>
+                                    </div>
+                                </article>
+                            </div>
+
+                            <input id="profile-setup-avatar-gallery-input" type="file" accept="image/*" hidden onchange="handleProfileSetupMediaInput(event, 'avatar')">
+                            <input id="profile-setup-avatar-camera-input" type="file" accept="image/*" capture="user" hidden onchange="handleProfileSetupMediaInput(event, 'avatar')">
+                            <input id="profile-setup-cover-gallery-input" type="file" accept="image/*" hidden onchange="handleProfileSetupMediaInput(event, 'cover')">
+                            <input id="profile-setup-cover-camera-input" type="file" accept="image/*" capture="environment" hidden onchange="handleProfileSetupMediaInput(event, 'cover')">
+
+                            <div class="auth-field">
+                                <label class="auth-field-label" for="profile-setup-headline">Headline (opcional)</label>
+                                <div class="auth-input-shell">
+                                    <i class="ph-bold ph-sparkle auth-field-icon"></i>
+                                    <input type="text" id="profile-setup-headline" placeholder="Ex: Treinador de hipertrofia natural">
+                                </div>
+                            </div>
+
+                            <div class="auth-field">
+                                <label class="auth-field-label" for="profile-setup-bio">Bio profissional</label>
+                                <div class="auth-input-shell auth-input-shell-textarea">
+                                    <i class="ph-bold ph-text-align-left auth-field-icon"></i>
+                                    <textarea id="profile-setup-bio" rows="3" placeholder="Seu metodo, diferenciais e resultados dos alunos"></textarea>
+                                </div>
+                            </div>
+
+                            <div class="auth-field">
+                                <label class="auth-field-label" for="profile-setup-specialty-input">Especialidades</label>
+                                <div class="auth-input-shell">
+                                    <i class="ph-bold ph-medal auth-field-icon"></i>
+                                    <input type="text" id="profile-setup-specialty-input" placeholder="Ex: Hipertrofia">
+                                    <button type="button" class="auth-pass-toggle" onclick="addProfileSetupSpecialty()" aria-label="Adicionar especialidade">
+                                        <i class="ph-bold ph-plus"></i>
+                                    </button>
+                                </div>
+                                <div id="profile-setup-specialty-tags" class="settings-tag-list"></div>
+                            </div>
+
+                            <div class="auth-field">
+                                <label class="auth-field-label" for="profile-setup-handle">Usuario profissional</label>
+                                <div class="auth-input-shell">
+                                    <i class="ph-bold ph-at auth-field-icon"></i>
+                                    <input type="text" id="profile-setup-handle" placeholder="seuusuario">
+                                </div>
+                            </div>
+
+                            <div class="profile-social-grid">
+                                <div class="auth-field">
+                                    <label class="auth-field-label" for="profile-setup-instagram">Instagram</label>
+                                    <div class="auth-input-shell">
+                                        <i class="ph-bold ph-instagram-logo auth-field-icon"></i>
+                                        <input type="text" id="profile-setup-instagram" placeholder="@seuperfil ou link">
+                                    </div>
+                                </div>
+                                <div class="auth-field">
+                                    <label class="auth-field-label" for="profile-setup-whatsapp">WhatsApp</label>
+                                    <div class="auth-input-shell">
+                                        <i class="ph-bold ph-whatsapp-logo auth-field-icon"></i>
+                                        <input type="text" id="profile-setup-whatsapp" placeholder="+55 11 99999-9999">
+                                    </div>
+                                </div>
+                                <div class="auth-field">
+                                    <label class="auth-field-label" for="profile-setup-website">Website</label>
+                                    <div class="auth-input-shell">
+                                        <i class="ph-bold ph-globe auth-field-icon"></i>
+                                        <input type="url" id="profile-setup-website" placeholder="https://...">
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="profile-setup-step profile-setup-trainer-only" data-step="3" style="display:none;">
+                            <div class="auth-field">
+                                <label class="auth-field-label">Tema visual</label>
+                                <div class="profile-theme-grid">
+                                    <label class="profile-theme-option">
+                                        <input type="radio" name="profile-setup-theme" value="neon-lime">
+                                        <span>Neon Lime</span>
+                                    </label>
+                                    <label class="profile-theme-option">
+                                        <input type="radio" name="profile-setup-theme" value="ocean-blue">
+                                        <span>Ocean Blue</span>
+                                    </label>
+                                    <label class="profile-theme-option">
+                                        <input type="radio" name="profile-setup-theme" value="graphite">
+                                        <span>Graphite</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="auth-field">
+                                <label class="auth-field-label" for="profile-setup-cta-label">Texto do botao principal</label>
+                                <div class="auth-input-shell">
+                                    <i class="ph-bold ph-cursor-click auth-field-icon"></i>
+                                    <input type="text" id="profile-setup-cta-label" placeholder="Ex: Falar no WhatsApp">
+                                </div>
+                            </div>
+
+                            <div class="auth-field">
+                                <label class="auth-field-label" for="profile-setup-cta-url">Link do botao</label>
+                                <div class="auth-input-shell">
+                                    <i class="ph-bold ph-link auth-field-icon"></i>
+                                    <input type="url" id="profile-setup-cta-url" placeholder="https://wa.me/...">
+                                </div>
+                            </div>
+                        </section>
                     </div>
+
+                    <aside class="profile-setup-preview-pane profile-setup-trainer-only">
+                        <p class="auth-section-label">Preview social</p>
+                        <article id="profile-setup-preview-card" class="profile-preview-card theme-neon-lime">
+                            <div id="profile-setup-preview-cover" class="profile-preview-cover"></div>
+                            <div class="profile-preview-content">
+                                <div id="profile-setup-preview-avatar" class="profile-preview-avatar">
+                                    <i class="ph-bold ph-user"></i>
+                                </div>
+                                <h3 id="profile-setup-preview-name">Seu nome</h3>
+                                <p id="profile-setup-preview-handle" class="profile-preview-handle">@seuusuario</p>
+                                <p id="profile-setup-preview-consultoria" class="profile-preview-consultoria">Sua consultoria</p>
+                                <p id="profile-setup-preview-bio" class="profile-preview-bio">Sua bio aparecera aqui.</p>
+                                <div id="profile-setup-preview-specialties" class="settings-tag-list"></div>
+                                <div id="profile-setup-preview-social" class="profile-preview-social"></div>
+                                <button type="button" id="profile-setup-preview-cta" class="btn-primary profile-preview-cta">
+                                    Chamada principal
+                                </button>
+                            </div>
+                        </article>
+                    </aside>
                 </div>
 
-                <div class="auth-field">
-                    <label class="auth-field-label" for="profile-setup-avatar">Foto (URL)</label>
-                    <div class="auth-input-shell">
-                        <i class="ph-bold ph-image auth-field-icon"></i>
-                        <input type="url" id="profile-setup-avatar" placeholder="https://...">
-                    </div>
-                </div>
-
-                <div class="auth-field">
-                    <label class="auth-field-label" for="profile-setup-pass">Nova senha (opcional)</label>
-                    <div class="auth-input-shell">
-                        <i class="ph-bold ph-lock-key auth-field-icon"></i>
-                        <input type="password" id="profile-setup-pass" placeholder="Nova senha (opcional)">
-                    </div>
-                </div>
-
-                <div class="auth-field">
-                    <label class="auth-field-label" for="profile-setup-pass-confirm">Confirmar nova senha</label>
-                    <div class="auth-input-shell">
-                        <i class="ph-bold ph-lock-key auth-field-icon"></i>
-                        <input type="password" id="profile-setup-pass-confirm" placeholder="Repita a nova senha">
-                    </div>
-                </div>
-
-                <p id="profile-setup-student-hint" class="auth-helper" style="display:none; margin-top:-0.25rem;">
-                    Como aluno, a proxima etapa sera o preenchimento da anamnese.
-                </p>
                 <p id="profile-setup-feedback" class="auth-inline-feedback" style="display:none;"></p>
 
-                <button type="submit" class="btn-primary auth-submit" id="profile-setup-submit-btn">
-                    <span id="profile-setup-btn-text">Salvar e continuar</span>
-                    <span id="profile-setup-btn-spinner" class="auth-btn-spinner" style="display:none;"></span>
-                </button>
+                <div class="profile-setup-actions">
+                    <button type="button" class="btn-secondary" id="profile-setup-back-btn" onclick="prevProfileSetupStep()" style="display:none;">
+                        Voltar
+                    </button>
+                    <button type="button" class="btn-secondary" id="profile-setup-next-btn" onclick="nextProfileSetupStep()" style="display:none;">
+                        Continuar
+                    </button>
+                    <button type="submit" class="btn-primary auth-submit" id="profile-setup-submit-btn">
+                        <span id="profile-setup-btn-text">Salvar e continuar</span>
+                        <span id="profile-setup-btn-spinner" class="auth-btn-spinner" style="display:none;"></span>
+                    </button>
+                </div>
             </form>
         </article>
     </section>

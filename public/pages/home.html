@@ -1,32 +1,28 @@
 <div id="home-screen" class="screen active">
-    <section class="hero-home">
-        <div class="logo-icon glow">
-            <i class="ph-bold ph-barbell"></i>
-        </div>
-        <p class="hero-kicker">Consultoria Esportiva Premium</p>
-        <h1 class="main-title hero-title">Seu corpo, sua melhor versão com treino e dieta sob medida.</h1>
-        <p class="subtitle hero-subtitle">Acompanhamento próximo do treinador, ajustes inteligentes e progresso real
-            no seu ritmo.</p>
-        <button class="btn-primary hero-cta hero-cta-dominant" onclick="goToGlobalLogin()">
-            <i class="ph-bold ph-rocket-launch"></i> Iniciar Meu Protocolo
-        </button>
-        <button id="install-app-btn" class="btn-secondary-outline install-app-btn"
-            style="margin-top: 0.75rem; display: none; width: auto;">
-            Instalar Aplicativo
-        </button>
-    </section>
+    <section class="home-entry">
+        <div class="home-entry-card">
+            <div class="home-entry-logo logo-icon glow">
+                <i class="ph-bold ph-lightning"></i>
+            </div>
+            <p class="home-entry-kicker">Bem-vindo</p>
+            <h1 class="home-entry-title">Aplicativo-Consultoria</h1>
+            <p class="home-entry-subtitle">
+                Entre na sua conta ou crie um novo acesso para conectar com sua consultoria.
+            </p>
 
-    <section class="home-secondary-access">
-        <h2 class="home-secondary-title">Escolha seu acesso</h2>
-        <div class="role-quick-grid">
-            <button class="role-quick-btn student" onclick="goToGlobalLogin()">
-                <span class="role-quick-icon"><i class="ph-bold ph-barbell"></i></span>
-                <span>Entrar como Aluno</span>
+            <div class="home-entry-actions">
+                <button class="btn-primary home-entry-btn home-entry-btn-primary" onclick="goToGlobalLogin()">
+                    Entrar
+                </button>
+                <button class="btn-secondary home-entry-btn home-entry-btn-secondary" onclick="goToProfileCreate()">
+                    Criar conta
+                </button>
+            </div>
+
+            <button id="install-app-btn" class="btn-secondary-outline install-app-btn"
+                style="margin-top: 0.75rem; display: none; width: auto;">
+                Instalar Aplicativo
             </button>
-            <a class="role-quick-btn trainer" href="trainer.html">
-                <span class="role-quick-icon"><i class="ph-bold ph-clipboard-text"></i></span>
-                <span>Painel do Treinador</span>
-            </a>
         </div>
     </section>
 </div>

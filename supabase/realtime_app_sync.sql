@@ -5,19 +5,72 @@ create table if not exists public.app_trainers (
   code text primary key,
   owner_id uuid references auth.users(id),
   name text not null default 'Treinador',
+  display_name text,
   consultoria_name text,
   services text default 'treino',
+  headline text,
+  bio text,
+  avatar_url text,
+  cover_url text,
+  specialties jsonb not null default '[]'::jsonb,
+  social_links jsonb not null default '{}'::jsonb,
+  handle text,
+  cta_label text,
+  cta_url text,
+  theme_preset text not null default 'neon-lime',
+  onboarding_complete boolean not null default false,
   updated_at timestamptz not null default now()
 );
 
 alter table public.app_trainers
   add column if not exists owner_id uuid references auth.users(id);
+alter table public.app_trainers
+  add column if not exists display_name text;
+alter table public.app_trainers
+  add column if not exists headline text;
+alter table public.app_trainers
+  add column if not exists bio text;
+alter table public.app_trainers
+  add column if not exists avatar_url text;
+alter table public.app_trainers
+  add column if not exists cover_url text;
+alter table public.app_trainers
+  add column if not exists specialties jsonb not null default '[]'::jsonb;
+alter table public.app_trainers
+  add column if not exists social_links jsonb not null default '{}'::jsonb;
+alter table public.app_trainers
+  add column if not exists handle text;
+alter table public.app_trainers
+  add column if not exists cta_label text;
+alter table public.app_trainers
+  add column if not exists cta_url text;
+alter table public.app_trainers
+  add column if not exists theme_preset text not null default 'neon-lime';
+alter table public.app_trainers
+  add column if not exists onboarding_complete boolean not null default false;
 
 update public.app_trainers t
 set owner_id = p.id
 from public.profiles p
 where t.owner_id is null
   and p.trainer_code = t.code;
+
+with dedupe_owner as (
+  select
+    code,
+    owner_id,
+    row_number() over (
+      partition by owner_id
+      order by updated_at desc nulls last, code asc
+    ) as rn
+  from public.app_trainers
+  where owner_id is not null
+)
+update public.app_trainers t
+set owner_id = null
+from dedupe_owner d
+where t.code = d.code
+  and d.rn > 1;
 
 create table if not exists public.app_students (
   id text primary key,
@@ -540,6 +593,11 @@ create unique index if not exists app_foods_name_brand_unit_uniq
 create unique index if not exists app_food_portions_food_label_uniq
   on public.app_food_portions (food_id, (lower(label)));
 create index if not exists app_trainers_owner_id_idx on public.app_trainers(owner_id);
+create unique index if not exists app_trainers_owner_id_unique_idx
+  on public.app_trainers(owner_id)
+  where owner_id is not null;
+create index if not exists app_trainers_handle_idx on public.app_trainers((lower(handle)));
+create index if not exists app_trainers_theme_preset_idx on public.app_trainers(theme_preset);
 create index if not exists app_students_trainer_code_idx on public.app_students(trainer_code);
 create index if not exists app_students_updated_at_idx on public.app_students(updated_at desc);
 create index if not exists app_foods_name_idx on public.app_foods(name);

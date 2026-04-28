@@ -25,7 +25,7 @@
                     <label class="auth-field-label" for="reg-name">Nome completo</label>
                     <div class="auth-input-shell">
                         <i class="ph-bold ph-user auth-field-icon"></i>
-                        <input type="text" id="reg-name" placeholder="Ex: Nicolas Silveira" required autocomplete="name">
+                        <input type="text" id="reg-name" placeholder="Ex: Nicolas Silveira" required autocomplete="name" autocapitalize="words" enterkeyhint="next">
                     </div>
                 </div>
 
@@ -33,7 +33,7 @@
                     <label class="auth-field-label" for="reg-email">E-mail</label>
                     <div class="auth-input-shell">
                         <i class="ph-bold ph-envelope auth-field-icon"></i>
-                        <input type="email" id="reg-email" placeholder="seu@email.com" required autocomplete="email" inputmode="email">
+                        <input type="email" id="reg-email" placeholder="seu@email.com" required autocomplete="email" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="next">
                     </div>
                 </div>
 
@@ -41,7 +41,10 @@
                     <label class="auth-field-label" for="reg-pass">Criar senha</label>
                     <div class="auth-input-shell">
                         <i class="ph-bold ph-password auth-field-icon"></i>
-                        <input type="password" id="reg-pass" placeholder="Minimo 8 caracteres" required minlength="8" autocomplete="new-password">
+                        <input type="password" id="reg-pass" placeholder="Minimo 8 caracteres" required minlength="8" autocomplete="new-password" enterkeyhint="next">
+                        <button type="button" class="auth-pass-toggle" onclick="togglePasswordVisibility('reg-pass', this)" aria-label="Mostrar senha">
+                            <i class="ph-bold ph-eye"></i>
+                        </button>
                     </div>
                 </div>
 
@@ -49,9 +52,13 @@
                     <label class="auth-field-label" for="reg-pass-confirm">Confirmar senha</label>
                     <div class="auth-input-shell">
                         <i class="ph-bold ph-password auth-field-icon"></i>
-                        <input type="password" id="reg-pass-confirm" placeholder="Repita sua senha" required minlength="8" autocomplete="new-password">
+                        <input type="password" id="reg-pass-confirm" placeholder="Repita sua senha" required minlength="8" autocomplete="new-password" enterkeyhint="go">
+                        <button type="button" class="auth-pass-toggle" onclick="togglePasswordVisibility('reg-pass-confirm', this)" aria-label="Mostrar senha">
+                            <i class="ph-bold ph-eye"></i>
+                        </button>
                     </div>
                 </div>
+                <p id="signup-pass-hint" class="auth-helper auth-pass-hint">Use no minimo 8 caracteres com letras e numeros.</p>
 
                 <div class="auth-section">
                     <p class="auth-section-label">Voce e</p>
@@ -96,6 +103,11 @@
                     <span id="signup-btn-spinner" class="auth-btn-spinner" style="display:none;"></span>
                 </button>
             </form>
+
+            <p class="auth-footer">
+                Ja tem conta?
+                <a href="#" onclick="goToGlobalLogin(); return false;">Entrar</a>
+            </p>
         </article>
     </section>
 </div>
