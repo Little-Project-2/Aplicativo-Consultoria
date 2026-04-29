@@ -3549,7 +3549,7 @@ body {
     inset: 0;
     background: rgba(0, 0, 0, 0.62);
     backdrop-filter: blur(4px);
-    z-index: 980;
+    z-index: 3220;
     display: block;
     opacity: 0;
     visibility: hidden;
@@ -3573,7 +3573,7 @@ body {
     background: linear-gradient(160deg, rgba(16, 16, 16, 0.95), rgba(12, 13, 11, 0.92));
     border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 16px;
-    z-index: 981;
+    z-index: 3230;
     display: flex;
     flex-direction: column;
     opacity: 0;
@@ -3808,6 +3808,7 @@ body {
     font-size: 0.9rem;
     font-weight: 600;
     line-height: 1.25;
+    touch-action: manipulation;
     transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
     animation: dietPickerItemIn 180ms ease both;
 }
@@ -15211,6 +15212,12 @@ body {
     border-radius: 12px;
     min-height: 180px;
     max-height: 300px;
+    pointer-events: auto;
+}
+
+.food-quick-results.is-loading {
+    opacity: 0.62;
+    pointer-events: none;
 }
 
 .food-quick-item {
@@ -15230,6 +15237,8 @@ body {
     border-radius: 10px;
     padding: 0.5rem;
     cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
     transition: all 0.18s ease;
 }
 
@@ -15256,6 +15265,7 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.2);
     background: rgba(255, 255, 255, 0.03);
     color: #d4d4d8;
+    touch-action: manipulation;
 }
 
 .food-quick-fav-btn.active {
@@ -18744,7 +18754,7 @@ body {
     align-items: center;
     justify-content: center;
     padding: 1rem;
-    z-index: 1800;
+    z-index: 3360;
     opacity: 0;
     pointer-events: none;
     transition: opacity 180ms ease;
@@ -18794,6 +18804,30 @@ body {
     color: var(--text-muted);
 }
 
+.food-details-origin {
+    margin-top: 0.42rem;
+}
+
+.food-details-source-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    border-radius: 999px;
+    padding: 0.2rem 0.58rem;
+    font-size: 0.72rem;
+    letter-spacing: 0.01em;
+    font-weight: 600;
+    border: 1px solid rgba(161, 161, 170, 0.35);
+    color: #d4d4d8;
+    background: rgba(39, 39, 42, 0.65);
+}
+
+.food-details-source-badge.fatsecret {
+    border-color: rgba(163, 230, 53, 0.5);
+    color: #d9f99d;
+    background: rgba(101, 163, 13, 0.2);
+}
+
 .food-details-close {
     width: 34px;
     height: 34px;
@@ -18814,6 +18848,43 @@ body {
 .food-details-field {
     display: grid;
     gap: 0.3rem;
+}
+
+.food-details-portion-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.42rem;
+    margin-top: 0.5rem;
+}
+
+.food-details-portion-chip {
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-main);
+    border-radius: 999px;
+    min-height: 44px;
+    padding: 0.25rem 0.72rem;
+    font-size: 0.76rem;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: all 160ms ease;
+    touch-action: manipulation;
+}
+
+.food-details-portion-chip:hover {
+    border-color: rgba(163, 230, 53, 0.52);
+    background: rgba(163, 230, 53, 0.11);
+}
+
+.food-details-portion-chip.active {
+    border-color: rgba(163, 230, 53, 0.78);
+    background: rgba(163, 230, 53, 0.2);
+    color: #ecfccb;
+}
+
+.food-details-portion-chip:focus-visible {
+    outline: 2px solid rgba(163, 230, 53, 0.66);
+    outline-offset: 2px;
 }
 
 .food-details-amount-control {
@@ -18890,6 +18961,7 @@ body {
     gap: 0.6rem;
     padding: 0.9rem 1.1rem 1rem;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, rgba(9, 9, 11, 0.25), rgba(9, 9, 11, 0.75));
 }
 
 body.food-details-open {
@@ -18909,13 +18981,18 @@ body.food-details-open {
     }
 
     .food-details-footer {
+        position: sticky;
+        bottom: 0;
         justify-content: stretch;
         gap: 0.5rem;
+        padding-bottom: calc(0.88rem + env(safe-area-inset-bottom));
+        z-index: 4;
     }
 
     .food-details-footer .diet-modern-cancel-btn,
     .food-details-footer .diet-modern-save-btn {
         flex: 1;
+        min-height: 46px;
     }
 }
 
@@ -19597,10 +19674,19 @@ body.mobile-dashboard-mode #student-dashboard-screen #view-student-log-workout .
     z-index: 3200 !important;
 }
 
+#diet-food-picker-overlay.active {
+    z-index: 3220 !important;
+}
+
 #ex-modal.active,
 #food-modal.active,
 #remove-modal.active {
     z-index: 3210 !important;
+}
+
+#diet-food-picker-modal.active {
+    z-index: 3230 !important;
+    pointer-events: auto !important;
 }
 
 #p-tab-nutricao .plan-section-header {

@@ -1,5 +1,5 @@
-const PRECACHE_CACHE = "consultoria-precache-v10";
-const RUNTIME_CACHE = "consultoria-runtime-v10";
+﻿const PRECACHE_CACHE = "consultoria-precache-v11";
+const RUNTIME_CACHE = "consultoria-runtime-v11";
 const OFFLINE_URL = "./offline.html";
 
 const PRECACHE_URLS = [
@@ -111,14 +111,7 @@ async function navigationResponse(request) {
 }
 
 async function handleCompletedWorkoutsSync() {
-  // Stub de Background Sync para futuros envios ao backend.
-  // Aqui você pode buscar registros offline em IndexedDB e enviá-los para uma API.
-  try {
-    // Mantém a função resolvendo mesmo sem backend configurado.
-    return true;
-  } catch (err) {
-    return true;
-  }
+  return true;
 }
 
 self.addEventListener("sync", (event) => {
@@ -148,3 +141,4 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(staleWhileRevalidate(request));
 });
+

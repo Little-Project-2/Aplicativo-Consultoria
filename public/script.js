@@ -27,6 +27,20 @@ function activateScreen(screenId, options = {}) {
     return true;
 }
 
+function clearDashboardRuntimeTimers() {
+    if (trainerDashboardRefreshTimer) {
+        clearTimeout(trainerDashboardRefreshTimer);
+        trainerDashboardRefreshTimer = null;
+    }
+    if (studentDashboardRefreshTimer) {
+        clearTimeout(studentDashboardRefreshTimer);
+        studentDashboardRefreshTimer = null;
+    }
+    // Invalida boots pendentes do dashboard do aluno.
+    studentDashboardBootToken += 1;
+    studentDashboardBootPromise = null;
+}
+
 const MOBILE_DASHBOARD_BREAKPOINT = 900;
 const MOBILE_DASHBOARD_COARSE_MAX_WIDTH = 1100;
 let mobileDashboardModeRaf = 0;
@@ -136,6 +150,17 @@ let authStateListenerBound = false;
 let authRouteInFlight = null;
 let authLastProcessedUserId = '';
 let suppressSignedOutRedirectToHome = false;
+let authLastEventAt = 0;
+let authJustSignedInAt = 0;
+let trainerDashboardInitPromise = null;
+let trainerDashboardLastInitAt = 0;
+let trainerDashboardManualRefreshPromise = null;
+let trainerDashboardRefreshTimer = null;
+let studentDashboardInitPromise = null;
+let studentDashboardLastInitAt = 0;
+let studentDashboardBootPromise = null;
+let studentDashboardBootToken = 0;
+let studentDashboardRefreshTimer = null;
 let profileSetupTrainerSpecialties = [];
 const TRAINER_SERVICES_ALLOWED = ['treino', 'dieta', 'ambos'];
 const TRAINER_THEME_PRESETS = ['neon-lime', 'ocean-blue', 'graphite'];
@@ -227,6 +252,8 @@ function extractExplicitRoles(rolesLike, legacyRole = '') {
 function clearAuthRuntimeContext() {
     authLastProcessedUserId = '';
     suppressSignedOutRedirectToHome = false;
+    authJustSignedInAt = 0;
+    clearDashboardRuntimeTimers();
     currentTrainerIdentity = null;
     memoryRemoveItem('currentUserId');
     memoryRemoveItem('currentUserEmail');
@@ -472,11 +499,6 @@ function openStudentDashboardSession(student) {
     if (!student || !student.id) return false;
     const studentDashboardScreen = document.getElementById('student-dashboard-screen');
     if (!studentDashboardScreen) return false;
-    if (!ENABLE_DEMO_ACCESS && !memoryGetItem('currentUserId')) {
-        console.warn('Sessao de aluno bloqueada: usuario nao autenticado.');
-        goToGlobalLogin();
-        return false;
-    }
 
     memorySetItem('currentStudentId', String(student.id));
     memorySetItem('studentName', String(student.name || 'Aluno'));
@@ -494,9 +516,99 @@ function openStudentDashboardSession(student) {
     const app = document.getElementById('app');
     if (app) app.classList.add('wide');
     studentDashboardScreen.classList.add('active');
-    initStudentDashboard();
-    switchStudentView('home');
+    void bootStudentDashboardSession('home');
     return true;
+}
+
+function refreshStudentLegacyDetailViews() {
+    const workoutScreen = document.getElementById('student-workout-screen');
+    const dietScreen = document.getElementById('student-diet-screen');
+    if (workoutScreen && workoutScreen.classList.contains('active') && typeof openStudentWorkout === 'function') {
+        openStudentWorkout();
+    }
+    if (dietScreen && dietScreen.classList.contains('active') && typeof openStudentDiet === 'function') {
+        openStudentDiet();
+    }
+}
+
+function scheduleStudentDashboardRefresh(options = {}) {
+    const delayMs = Math.max(0, parseInt(options?.delayMs, 10) || 120);
+    const refreshLegacyViews = options?.refreshLegacyViews !== false;
+    if (studentDashboardRefreshTimer) clearTimeout(studentDashboardRefreshTimer);
+    studentDashboardRefreshTimer = setTimeout(async () => {
+        studentDashboardRefreshTimer = null;
+        const studentDash = document.getElementById('student-dashboard-screen');
+        if (!studentDash || !studentDash.classList.contains('active')) return;
+        try {
+            await initStudentDashboard({ remoteSync: false, force: true });
+            if (refreshLegacyViews) {
+                refreshStudentLegacyDetailViews();
+            }
+        } catch (err) {
+            console.warn('Falha ao atualizar dashboard do aluno.', err);
+        }
+    }, delayMs);
+}
+
+async function bootStudentDashboardSession(defaultView = 'home') {
+    const nextToken = ++studentDashboardBootToken;
+    const targetView = String(defaultView || 'home').trim() || 'home';
+    if (studentDashboardBootPromise) {
+        try {
+            await studentDashboardBootPromise;
+        } catch (err) {
+            // Ignora falha anterior e tenta reabrir com o estado atual.
+        }
+    }
+    const bootPromise = (async () => {
+        await initStudentDashboard({ force: true });
+        if (nextToken !== studentDashboardBootToken) return false;
+        await switchStudentView(targetView);
+        return true;
+    })();
+    studentDashboardBootPromise = bootPromise;
+    try {
+        return await bootPromise;
+    } finally {
+        if (studentDashboardBootPromise === bootPromise) {
+            studentDashboardBootPromise = null;
+        }
+    }
+}
+
+function refreshTrainerProfilePanelFromStorage(studentsSnapshot = null) {
+    const profileScreen = document.getElementById('trainer-student-profile-screen');
+    if (!profileScreen || !profileScreen.classList.contains('active')) return;
+    if (currentStudentIdx === null && !currentTrainerStudentId) return;
+
+    const sourceStudents = Array.isArray(studentsSnapshot)
+        ? studentsSnapshot
+        : readStorageJSON('trainerStudents', []);
+    const selection = resolveCurrentTrainerStudentSelection(sourceStudents);
+    if (!selection.student) return;
+
+    workoutBlocks = selection.student.workoutBlocks || [];
+    mealBlocks = selection.student.mealBlocks || [];
+    if (typeof renderWorkouts === 'function') renderWorkouts();
+    if (typeof renderMeals === 'function') renderMeals();
+    if (currentTrainerStudentId) {
+        renderTrainerWorkoutHistory(currentTrainerStudentId);
+    }
+}
+
+function scheduleTrainerDashboardRefresh(options = {}) {
+    const delayMs = Math.max(0, parseInt(options?.delayMs, 10) || 90);
+    const refreshProfile = options?.refreshProfile !== false;
+    if (trainerDashboardRefreshTimer) clearTimeout(trainerDashboardRefreshTimer);
+    trainerDashboardRefreshTimer = setTimeout(() => {
+        trainerDashboardRefreshTimer = null;
+        if (document.getElementById('dash-stats-grid')) {
+            updateTrainerStats(options?.filterText);
+        }
+        if (refreshProfile) {
+            refreshTrainerProfilePanelFromStorage(options?.students || null);
+        }
+    }, delayMs);
 }
 
 function sanitizeUserInput(value, options = {}) {
@@ -1237,6 +1349,7 @@ function ensureAdminStudent() {
 
 function goToHome() {
     stopSupabaseRealtimeSync();
+    clearDashboardRuntimeTimers();
     memoryRemoveItem('currentStudentId');
     memoryRemoveItem('connectedTrainerCode');
     memoryRemoveItem('studentName');
@@ -1300,6 +1413,10 @@ let supabaseStudentsChannel = null;
 let supabaseTrainerChannel = null;
 let supabaseRealtimeTrainerCode = '';
 let supabaseRealtimeRefreshTimer = null;
+let supabaseRealtimeRefreshInFlight = false;
+let supabaseRealtimeRefreshQueuedCode = '';
+let supabaseRealtimeLastEventSignature = '';
+let supabaseRealtimeLastEventAt = 0;
 
 function isSupabaseReady() {
     return typeof window.supabase?.from === 'function';
@@ -1703,8 +1820,12 @@ function normalizeFoodCatalogRow(row) {
         protein: Math.max(0, parseDecimalSafe(row.protein || row.prot)),
         carb: Math.max(0, parseDecimalSafe(row.carb)),
         fat: Math.max(0, parseDecimalSafe(row.fat || row.gord)),
-        source: sanitizeUserInput(row.source || 'manual', { maxLen: 40 }) || 'manual',
+        source: sanitizeUserInput(row.source || 'manual', { maxLen: 80 }) || 'manual',
         created_by: sanitizeUserInput(row.created_by || '', { maxLen: 80 }),
+        provider: sanitizeUserInput(row.provider || row.data_provider || '', { maxLen: 30 }).toLowerCase(),
+        provider_food_id: sanitizeUserInput(row.provider_food_id || row.providerFoodId || '', { maxLen: 80 }),
+        provider_serving_id: sanitizeUserInput(row.provider_serving_id || row.providerServingId || '', { maxLen: 80 }),
+        verified_at: sanitizeUserInput(row.verified_at || row.verifiedAt || '', { maxLen: 40 }),
         family_key: familyKey,
         variant_key: variantKey,
         variant_label: variantLabel,
@@ -2180,6 +2301,223 @@ async function hydrateFoodRowsWithPortions(foodRows = []) {
     }));
 }
 
+const FATSECRET_FUNCTION_NAME = 'fatsecret-foods';
+const FATSECRET_SOURCE_PREFIX = 'fatsecret:';
+let fatSecretProviderDisabledUntil = 0;
+let fatSecretProviderLastErrorAt = 0;
+
+function isFatSecretSource(source = '') {
+    return String(source || '').toLowerCase().startsWith(FATSECRET_SOURCE_PREFIX);
+}
+
+function extractFatSecretProviderFoodId(foodLike = {}) {
+    const providerId = sanitizeUserInput(
+        foodLike?.provider_food_id || foodLike?.providerFoodId || '',
+        { maxLen: 80 }
+    );
+    if (providerId) return providerId;
+    const rawId = String(foodLike?.id || foodLike?.foodId || '').trim();
+    if (rawId.toLowerCase().startsWith(FATSECRET_SOURCE_PREFIX)) {
+        return rawId.slice(FATSECRET_SOURCE_PREFIX.length);
+    }
+    const source = String(foodLike?.source || '').trim();
+    if (source.toLowerCase().startsWith(FATSECRET_SOURCE_PREFIX)) {
+        return source.slice(FATSECRET_SOURCE_PREFIX.length);
+    }
+    return '';
+}
+
+function mapFatSecretItemToCatalogRow(rawItem = {}) {
+    const providerFoodId = extractFatSecretProviderFoodId(rawItem);
+    const row = normalizeFoodCatalogRow({
+        id: providerFoodId ? `${FATSECRET_SOURCE_PREFIX}${providerFoodId}` : String(rawItem.id || ''),
+        name: rawItem.name || rawItem.food_name || '',
+        brand: rawItem.brand || rawItem.brand_name || '',
+        base_qty: rawItem.base_qty || rawItem.baseQty || 100,
+        base_unit: rawItem.base_unit || rawItem.baseUnit || 'g',
+        kcal: rawItem.kcal,
+        protein: rawItem.protein || rawItem.prot,
+        carb: rawItem.carb,
+        fat: rawItem.fat || rawItem.gord,
+        source: providerFoodId ? `${FATSECRET_SOURCE_PREFIX}${providerFoodId}` : (rawItem.source || 'fatsecret'),
+        provider: 'fatsecret',
+        provider_food_id: providerFoodId,
+        verified_at: rawItem.verified_at || rawItem.verifiedAt || new Date().toISOString(),
+        portions: Array.isArray(rawItem.portions) ? rawItem.portions : []
+    });
+    return row
+        ? {
+            ...row,
+            portions: getFoodPortions(row)
+        }
+        : null;
+}
+
+async function invokeFatSecretFunction(action, payload = {}) {
+    if (!action) return null;
+    const safeAction = String(action || '').trim().toLowerCase();
+    const body = { action: safeAction, ...payload };
+
+    if (typeof window.supabase?.functions?.invoke === 'function') {
+        const { data, error } = await window.supabase.functions.invoke(FATSECRET_FUNCTION_NAME, { body });
+        if (error) {
+            throw new Error(error.message || 'Falha ao consultar provider de alimentos.');
+        }
+        return data || null;
+    }
+
+    const appConfig = window.__APP_CONFIG__ || {};
+    const supabaseUrl = String(appConfig.supabaseUrl || '').trim();
+    const supabaseAnonKey = String(appConfig.supabaseAnonKey || '').trim();
+    if (!supabaseUrl || !supabaseAnonKey) return null;
+
+    const endpoint = `${supabaseUrl.replace(/\/+$/, '')}/functions/v1/${FATSECRET_FUNCTION_NAME}`;
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            apikey: supabaseAnonKey,
+            Authorization: `Bearer ${supabaseAnonKey}`
+        },
+        body: JSON.stringify(body)
+    });
+    const json = await response.json().catch(() => null);
+    if (!response.ok) {
+        const message = String(json?.message || json?.error || 'Falha ao consultar provider de alimentos.');
+        throw new Error(message);
+    }
+    return json;
+}
+
+async function searchFoodsFatSecret(query, limit = 12) {
+    if (Date.now() < fatSecretProviderDisabledUntil) return [];
+    const q = sanitizeUserInput(query || '', { maxLen: 90 });
+    if (!q || q.length < 2) return [];
+    const safeLimit = Math.max(1, Math.min(24, parseInt(limit, 10) || 12));
+    try {
+        const data = await invokeFatSecretFunction('search', {
+            query: q,
+            limit: safeLimit
+        });
+        const items = Array.isArray(data?.items) ? data.items : [];
+        return items
+            .map(mapFatSecretItemToCatalogRow)
+            .filter(Boolean)
+            .slice(0, safeLimit);
+    } catch (error) {
+        const now = Date.now();
+        fatSecretProviderDisabledUntil = now + 45000;
+        if ((now - fatSecretProviderLastErrorAt) > 15000) {
+            fatSecretProviderLastErrorAt = now;
+            console.warn('FatSecret search failed', error);
+        }
+        return [];
+    }
+}
+
+async function getFoodDetailsFatSecret(foodIdOrObject) {
+    if (Date.now() < fatSecretProviderDisabledUntil) return null;
+    const providerFoodId = extractFatSecretProviderFoodId(
+        typeof foodIdOrObject === 'string'
+            ? { id: String(foodIdOrObject || '') }
+            : (foodIdOrObject || {})
+    );
+    if (!providerFoodId) return null;
+    try {
+        const data = await invokeFatSecretFunction('get', { foodId: providerFoodId });
+        const normalized = mapFatSecretItemToCatalogRow(data?.item || {});
+        return normalized || null;
+    } catch (error) {
+        const now = Date.now();
+        fatSecretProviderDisabledUntil = now + 45000;
+        if ((now - fatSecretProviderLastErrorAt) > 15000) {
+            fatSecretProviderLastErrorAt = now;
+            console.warn('FatSecret get failed', error);
+        }
+        return null;
+    }
+}
+
+async function searchFoodsProviderFirst(query, opts = {}) {
+    const q = sanitizeUserInput(query || '', { maxLen: 90 });
+    if (!q || q.length < 2) return [];
+    const safeLimit = Math.max(1, Math.min(60, parseInt(opts.limit ?? 12, 10) || 12));
+    const [fatSecretMatches, localMatches] = await Promise.all([
+        searchFoodsFatSecret(q, safeLimit),
+        searchFoodsCatalog(q, safeLimit)
+    ]);
+    if (!fatSecretMatches.length) {
+        return localMatches;
+    }
+    return mergeFoodCatalogSources(fatSecretMatches, localMatches, safeLimit);
+}
+
+async function getFoodDetailsProviderFirst(foodIdOrObject) {
+    const sourceObject = typeof foodIdOrObject === 'string'
+        ? { id: String(foodIdOrObject || '') }
+        : (foodIdOrObject || {});
+    const normalizedSource = normalizeFoodCatalogRow(sourceObject);
+    const providerFoodId = extractFatSecretProviderFoodId(sourceObject);
+    if (providerFoodId) {
+        const providerFood = await getFoodDetailsFatSecret(providerFoodId);
+        if (providerFood) return providerFood;
+    }
+    if (normalizedSource?.id) {
+        const cacheMatch = (foodCatalogCache || []).find((food) => String(food.id || '') === String(normalizedSource.id || ''));
+        if (cacheMatch) {
+            return {
+                ...cacheMatch,
+                portions: getFoodPortions(cacheMatch)
+            };
+        }
+    }
+    return normalizedSource
+        ? {
+            ...normalizedSource,
+            portions: getFoodPortions(normalizedSource)
+        }
+        : null;
+}
+
+async function replaceFoodPortionsRemote(foodId, portions = []) {
+    const safeFoodId = String(foodId || '').trim();
+    if (!safeFoodId || !isSupabaseReady()) return false;
+    const normalizedPortions = (Array.isArray(portions) ? portions : [])
+        .map(normalizeFoodPortionRow)
+        .filter(Boolean)
+        .slice(0, 24);
+    if (!normalizedPortions.length) return false;
+
+    const portionRows = normalizedPortions.map((portion, index) => ({
+        food_id: safeFoodId,
+        label: portion.label,
+        amount: Math.max(0.1, parseDecimalSafe(portion.amount) || 1),
+        unit_key: normalizeFoodUnitKey(portion.unit_key || 'g'),
+        base_qty_equivalent: Math.max(0.1, parseDecimalSafe(portion.base_qty_equivalent) || parseDecimalSafe(portion.amount) || 1),
+        is_default: index === 0 ? true : !!portion.is_default,
+        sort_order: Number.isFinite(Number(portion.sort_order)) ? Number(portion.sort_order) : (index * 10),
+        updated_at: new Date().toISOString()
+    }));
+
+    const { error: deleteError } = await window.supabase
+        .from(SUPABASE_TABLES.foodPortions)
+        .delete()
+        .eq('food_id', safeFoodId);
+    if (deleteError) {
+        console.warn('Supabase food portions clear failed', deleteError.message);
+        return false;
+    }
+
+    const { error: insertError } = await window.supabase
+        .from(SUPABASE_TABLES.foodPortions)
+        .insert(portionRows);
+    if (insertError) {
+        console.warn('Supabase food portions insert failed', insertError.message);
+        return false;
+    }
+    return true;
+}
+
 async function searchFoodsCatalog(query, limit = 12) {
     const q = sanitizeUserInput(query || '', { maxLen: 90 });
     if (!q || q.length < 2) return [];
@@ -2234,7 +2572,16 @@ async function insertFoodIntoCatalog(foodPayload = {}) {
         && normalizeText(item.brand || '') === normalizedBrand
         && String(item.base_unit || 'g') === String(normalized.base_unit || 'g')
     );
-    if (localMatch) return localMatch;
+    if (localMatch) {
+        const mergedLocal = {
+            ...localMatch,
+            ...normalized,
+            id: localMatch.id || normalized.id || '',
+            portions: normalized.portions?.length ? getFoodPortions(normalized) : getFoodPortions(localMatch)
+        };
+        foodCatalogCache = [mergedLocal, ...foodCatalogCache.filter((x) => String(x.id || '') !== String(mergedLocal.id || ''))];
+        return mergedLocal;
+    }
 
     if (!isSupabaseReady()) {
         const fake = {
@@ -2263,6 +2610,9 @@ async function insertFoodIntoCatalog(foodPayload = {}) {
                 && String(item.base_unit || 'g') === String(normalized.base_unit || 'g')
             );
         if (existing) {
+            if (normalized.portions?.length) {
+                await replaceFoodPortionsRemote(existing.id, normalized.portions);
+            }
             const [hydratedExisting] = await hydrateFoodRowsWithPortions([existing]);
             const safeExisting = hydratedExisting || { ...existing, portions: getFoodPortions(existing) };
             foodCatalogCache = [safeExisting, ...foodCatalogCache.filter((x) => String(x.id) !== String(safeExisting.id))];
@@ -2279,6 +2629,9 @@ async function insertFoodIntoCatalog(foodPayload = {}) {
         protein: normalized.protein,
         carb: normalized.carb,
         fat: normalized.fat,
+        family_key: normalized.family_key || null,
+        variant_key: normalized.variant_key || null,
+        variant_label: normalized.variant_label || null,
         source: normalized.source || 'manual',
         created_by: normalized.created_by || getCurrentFoodCreatorId(),
         updated_at: new Date().toISOString()
@@ -2295,6 +2648,9 @@ async function insertFoodIntoCatalog(foodPayload = {}) {
             !(normalizeText(x.name) === normalizedName && normalizeText(x.brand || '') === normalizedBrand)
         )];
         return fallback;
+    }
+    if (normalized.portions?.length) {
+        await replaceFoodPortionsRemote(data?.id, normalized.portions);
     }
     const [inserted] = await hydrateFoodRowsWithPortions([data]);
     if (inserted) {
@@ -2889,10 +3245,49 @@ async function syncStudentsFromSupabase(trainerCode) {
         }
     });
 
+    if (studentConfigDirty && currentTrainerStudentId) {
+        const editingId = String(currentTrainerStudentId || '');
+        const localEditingStudent = localScopedById.get(editingId);
+        const mergedEditingStudent = mergedScopedById.get(editingId);
+        if (localEditingStudent && mergedEditingStudent) {
+            mergedScopedById.set(editingId, normalizeStudentDietSchema({
+                ...mergedEditingStudent,
+                workoutBlocks: Array.isArray(localEditingStudent.workoutBlocks)
+                    ? localEditingStudent.workoutBlocks
+                    : mergedEditingStudent.workoutBlocks,
+                mealBlocks: Array.isArray(localEditingStudent.mealBlocks)
+                    ? localEditingStudent.mealBlocks
+                    : mergedEditingStudent.mealBlocks,
+                dietMeta: localEditingStudent.dietMeta && typeof localEditingStudent.dietMeta === 'object'
+                    ? localEditingStudent.dietMeta
+                    : mergedEditingStudent.dietMeta,
+                billingStartDate: localEditingStudent.billingStartDate ?? mergedEditingStudent.billingStartDate,
+                billingCurrentStatus: localEditingStudent.billingCurrentStatus ?? mergedEditingStudent.billingCurrentStatus,
+                billingMonthlyAmount: localEditingStudent.billingMonthlyAmount ?? mergedEditingStudent.billingMonthlyAmount,
+                billingCurrentPaidAt: localEditingStudent.billingCurrentPaidAt ?? mergedEditingStudent.billingCurrentPaidAt,
+                billingNotes: localEditingStudent.billingNotes ?? mergedEditingStudent.billingNotes,
+                billingHistory: Array.isArray(localEditingStudent.billingHistory)
+                    ? localEditingStudent.billingHistory
+                    : mergedEditingStudent.billingHistory
+            }));
+        }
+    }
+
     const students = normalizeStudentsDietSchema([
         ...localOthers,
         ...Array.from(mergedScopedById.values()).filter(Boolean)
     ]);
+
+    if (currentTrainerStudentId) {
+        const editingId = String(currentTrainerStudentId);
+        const nextIdx = students.findIndex((student) => String(student?.id || '') === editingId);
+        if (nextIdx >= 0) {
+            currentStudentIdx = nextIdx;
+        } else {
+            currentStudentIdx = null;
+            currentTrainerStudentId = null;
+        }
+    }
 
     if (isSupabaseReady()) {
         const fallbackName = scopedTrainerCode === '00001' ? 'Administrador Teste' : 'Treinador';
@@ -2903,9 +3298,7 @@ async function syncStudentsFromSupabase(trainerCode) {
     saveStudentData(students, { skipSupabaseSync: true });
     mergeWorkoutHistoryFromStudents(students);
     syncChatMessagesFromStudents(students);
-    renderStudents();
-    renderPendingRequests();
-    updateTrainerStats();
+    scheduleTrainerDashboardRefresh({ delayMs: 0, refreshProfile: true, students });
     setStudentSyncState('synced', 'Sincronizado');
 }
 
@@ -2926,6 +3319,7 @@ function ensureSupabaseStudentsPolling(trainerCode) {
 
 function stopSupabaseRealtimeSync() {
     clearSupabaseStudentsPolling();
+    clearDashboardRuntimeTimers();
     if (supabaseRealtimeRefreshTimer) {
         clearTimeout(supabaseRealtimeRefreshTimer);
         supabaseRealtimeRefreshTimer = null;
@@ -2943,13 +3337,58 @@ function stopSupabaseRealtimeSync() {
     supabaseTrainerChannel = null;
     supabaseFoodsChannel = null;
     supabaseRealtimeTrainerCode = '';
+    supabaseRealtimeRefreshInFlight = false;
+    supabaseRealtimeRefreshQueuedCode = '';
+    supabaseRealtimeLastEventSignature = '';
+    supabaseRealtimeLastEventAt = 0;
 }
 
-function scheduleRealtimeStudentsRefresh(trainerCode, delayMs = 350) {
+function buildRealtimeEventSignature(payload, source = '') {
+    if (!payload || typeof payload !== 'object') return '';
+    const eventType = String(payload.eventType || payload.type || '*');
+    const commitTs = String(payload.commit_timestamp || payload.commitTimestamp || '');
+    const newId = String(payload.new?.id || '');
+    const oldId = String(payload.old?.id || '');
+    const newUpdatedAt = String(payload.new?.updated_at || '');
+    const oldUpdatedAt = String(payload.old?.updated_at || '');
+    return [String(source || ''), eventType, commitTs, newId, oldId, newUpdatedAt, oldUpdatedAt].join('|');
+}
+
+async function runRealtimeStudentsRefresh(trainerCode) {
+    const safeCode = sanitizeCodeInput(trainerCode, 5);
+    if (!safeCode || safeCode !== supabaseRealtimeTrainerCode) return;
+    if (supabaseRealtimeRefreshInFlight) {
+        supabaseRealtimeRefreshQueuedCode = safeCode;
+        return;
+    }
+    supabaseRealtimeRefreshInFlight = true;
+    try {
+        await syncStudentsFromSupabase(safeCode);
+    } finally {
+        supabaseRealtimeRefreshInFlight = false;
+        const queuedCode = supabaseRealtimeRefreshQueuedCode;
+        supabaseRealtimeRefreshQueuedCode = '';
+        if (queuedCode && queuedCode === safeCode) {
+            scheduleRealtimeStudentsRefresh(safeCode, 260);
+        }
+    }
+}
+
+function scheduleRealtimeStudentsRefresh(trainerCode, delayMs = 350, payload = null, source = '') {
     if (!trainerCode) return;
+    const eventSignature = buildRealtimeEventSignature(payload, source);
+    const now = Date.now();
+    if (eventSignature && eventSignature === supabaseRealtimeLastEventSignature && (now - supabaseRealtimeLastEventAt) < 1200) {
+        return;
+    }
+    if (eventSignature) {
+        supabaseRealtimeLastEventSignature = eventSignature;
+        supabaseRealtimeLastEventAt = now;
+    }
     if (supabaseRealtimeRefreshTimer) clearTimeout(supabaseRealtimeRefreshTimer);
     supabaseRealtimeRefreshTimer = setTimeout(() => {
-        syncStudentsFromSupabase(trainerCode);
+        supabaseRealtimeRefreshTimer = null;
+        runRealtimeStudentsRefresh(trainerCode);
     }, delayMs);
 }
 
@@ -2972,7 +3411,7 @@ function startSupabaseRealtimeSync(trainerCode) {
         .on(
             'postgres_changes',
             { event: '*', schema: 'public', table: SUPABASE_TABLES.students, filter: `trainer_code=eq.${code}` },
-            () => scheduleRealtimeStudentsRefresh(code, 180)
+            (payload) => scheduleRealtimeStudentsRefresh(code, 180, payload, 'students')
         )
         .subscribe((status) => {
             if (status === 'SUBSCRIBED') {
@@ -2988,7 +3427,7 @@ function startSupabaseRealtimeSync(trainerCode) {
         .on(
             'postgres_changes',
             { event: '*', schema: 'public', table: SUPABASE_TABLES.trainers, filter: `code=eq.${code}` },
-            () => scheduleRealtimeStudentsRefresh(code, 180)
+            (payload) => scheduleRealtimeStudentsRefresh(code, 180, payload, 'trainers')
         )
         .subscribe((status) => {
             if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
@@ -2998,7 +3437,10 @@ function startSupabaseRealtimeSync(trainerCode) {
 }
 
 function scheduleBatchedStudentsSync(students, delayMs = BATCHED_STUDENTS_SYNC_DEFAULT_DELAY_MS) {
-    if (!isSupabaseReady()) return;
+    if (!isSupabaseReady()) {
+        setStudentSyncState('synced', 'Salvo localmente');
+        return;
+    }
     batchedStudentsSyncPayload = normalizeStudentsDietSchema(JSON.parse(JSON.stringify(students || [])));
     const safeDelay = Math.max(450, parseInt(delayMs, 10) || BATCHED_STUDENTS_SYNC_DEFAULT_DELAY_MS);
     if (batchedStudentsSyncTimer) clearTimeout(batchedStudentsSyncTimer);
@@ -3018,8 +3460,160 @@ function scheduleBatchedStudentsSync(students, delayMs = BATCHED_STUDENTS_SYNC_D
     }, safeDelay);
 }
 
+async function performSupabaseStudentsSync(payload, options = {}) {
+    const suppressState = !!options?.suppressState;
+    if (!isSupabaseReady()) {
+        if (!suppressState) setStudentSyncState('synced', 'Salvo localmente');
+        return { ok: false, reason: 'supabase-unavailable', syncedCount: 0, failedCount: 0, skippedUnauthorized: 0, totalRows: 0 };
+    }
+    if (navigator.onLine === false) {
+        if (!suppressState) setStudentSyncState('offline', 'Sem conexão');
+        return { ok: false, reason: 'offline', syncedCount: 0, failedCount: 0, skippedUnauthorized: 0, totalRows: 0 };
+    }
+
+    const sessionUser = await getSupabaseSessionUser();
+    if (!sessionUser?.id) {
+        if (!suppressState) setStudentSyncState('error', 'Faça login para sincronizar');
+        return { ok: false, reason: 'unauthenticated', syncedCount: 0, failedCount: 0, skippedUnauthorized: 0, totalRows: 0 };
+    }
+
+    const actorUserId = String(sessionUser.id);
+    const profile = await getProfileByUserId(actorUserId);
+    const actorRoles = normalizeAppRoles(
+        profile?.roles || sessionUser?.user_metadata?.roles,
+        profile?.role || sessionUser?.user_metadata?.role
+    );
+    const canActAsTrainer = actorRoles.includes('trainer');
+    const canActAsStudent = actorRoles.includes('student');
+    const ownedTrainerCodes = canActAsTrainer
+        ? await getOwnedTrainerCodesForUser(actorUserId)
+        : new Set();
+    const inferredTrainerCode = sanitizeCodeInput(
+        profile?.trainer_code || memoryGetItem('currentTrainerCode') || '',
+        5
+    );
+    if (canActAsTrainer && inferredTrainerCode) {
+        ownedTrainerCodes.add(inferredTrainerCode);
+    }
+
+    const normalizedPayload = normalizeStudentsDietSchema(JSON.parse(JSON.stringify(payload || [])));
+    let skippedUnauthorized = 0;
+    const permittedStudents = normalizedPayload.filter((student) => {
+        const studentId = String(student?.id || '').trim();
+        const trainerCode = getStudentTrainerCodeValue(student);
+        const studentUserId = getStudentUserIdValue(student);
+        if (!studentId || !trainerCode) {
+            skippedUnauthorized += 1;
+            console.warn(`[students-sync] Registro ignorado (id/trainer_code ausente). id=${studentId || '-'} trainer_code=${trainerCode || '-'}`);
+            return false;
+        }
+        const allowByStudent = canActAsStudent && studentUserId === actorUserId;
+        const allowByTrainer = canActAsTrainer && ownedTrainerCodes.has(trainerCode);
+        if (!allowByStudent && !allowByTrainer) {
+            skippedUnauthorized += 1;
+            console.warn(
+                `[students-sync] Registro sem permissão, ignorado. id=${studentId} trainer_code=${trainerCode} user_id=${studentUserId || '-'} actor=${actorUserId} roles=${actorRoles.join(',')}`
+            );
+            return false;
+        }
+        return true;
+    });
+
+    if (permittedStudents.length === 0) {
+        if (skippedUnauthorized > 0) {
+            console.warn(`[students-sync] Nenhum registro permitido para sync. ignorados=${skippedUnauthorized}`);
+        }
+        const emptyResult = { ok: true, reason: 'no-permitted-records', syncedCount: 0, failedCount: 0, skippedUnauthorized, totalRows: 0 };
+        if (!suppressState) setStudentSyncState('pending', 'Sem alterações para sincronizar');
+        return emptyResult;
+    }
+
+    const ids = permittedStudents.map((student) => String(student.id || '')).filter(Boolean);
+    let remoteById = new Map();
+    if (ids.length > 0) {
+        const { data: remoteRows } = await window.supabase
+            .from(SUPABASE_TABLES.students)
+            .select('id,data')
+            .in('id', ids);
+        if (Array.isArray(remoteRows)) {
+            remoteById = new Map(remoteRows.map((row) => [String(row.id || ''), normalizeStudentRow(row)]));
+        }
+    }
+
+    const rows = permittedStudents.map((student) => {
+        const id = String(student.id || '');
+        const remote = remoteById.get(id);
+        const mergedStudent = mergeStudentRemoteLocal(student, remote || student);
+        const trainerCode = getStudentTrainerCodeValue(mergedStudent);
+        const studentUserId = getStudentUserIdValue(mergedStudent);
+        if (!trainerCode) return null;
+        return {
+            id: String(mergedStudent.id || id),
+            trainer_code: trainerCode,
+            data: {
+                ...mergedStudent,
+                trainerCode,
+                userId: studentUserId || actorUserId,
+                pending: Boolean(mergedStudent?.pending),
+                active: Boolean(mergedStudent?.active)
+            },
+            updated_at: new Date().toISOString()
+        };
+    }).filter((row) => row?.id && row?.trainer_code);
+
+    if (rows.length === 0) {
+        const noRowsResult = { ok: true, reason: 'no-rows', syncedCount: 0, failedCount: 0, skippedUnauthorized, totalRows: 0 };
+        if (!suppressState) setStudentSyncState('pending', 'Sem alterações para sincronizar');
+        return noRowsResult;
+    }
+
+    let syncedCount = 0;
+    let failedCount = 0;
+    for (const row of rows) {
+        const { error: rowError } = await window.supabase
+            .from(SUPABASE_TABLES.students)
+            .upsert(row, { onConflict: 'id' });
+        if (rowError) {
+            failedCount += 1;
+            console.warn(
+                `[students-sync] Upsert falhou para id=${row.id} trainer_code=${row.trainer_code} actor=${actorUserId}. ${rowError.message || rowError}`
+            );
+            continue;
+        }
+        syncedCount += 1;
+    }
+
+    if (failedCount > 0 || skippedUnauthorized > 0) {
+        console.warn(
+            `[students-sync] Resumo sync: enviados=${rows.length} sucesso=${syncedCount} falhas=${failedCount} ignorados=${skippedUnauthorized}`
+        );
+    }
+
+    if (!suppressState) {
+        if (failedCount > 0) {
+            setStudentSyncState('error', `Falha em ${failedCount} registro(s)`);
+        } else if (syncedCount > 0) {
+            setStudentSyncState('synced', 'Sincronizado');
+        } else {
+            setStudentSyncState('pending', 'Sem alterações para sincronizar');
+        }
+    }
+
+    return {
+        ok: failedCount === 0,
+        reason: failedCount > 0 ? 'partial-failure' : 'ok',
+        syncedCount,
+        failedCount,
+        skippedUnauthorized,
+        totalRows: rows.length
+    };
+}
+
 function queueSupabaseStudentsSync(students) {
-    if (!isSupabaseReady()) return;
+    if (!isSupabaseReady()) {
+        setStudentSyncState('synced', 'Salvo localmente');
+        return;
+    }
     if (navigator.onLine === false) {
         setStudentSyncState('offline', 'Sem conexão');
         return;
@@ -3028,118 +3622,8 @@ function queueSupabaseStudentsSync(students) {
     if (supabaseStudentsSyncTimer) clearTimeout(supabaseStudentsSyncTimer);
     const payload = normalizeStudentsDietSchema(JSON.parse(JSON.stringify(students || [])));
     supabaseStudentsSyncTimer = setTimeout(async () => {
-        const sessionUser = await getSupabaseSessionUser();
-        if (!sessionUser?.id) return;
-        const actorUserId = String(sessionUser.id);
-        const profile = await getProfileByUserId(actorUserId);
-        const actorRoles = normalizeAppRoles(
-            profile?.roles || sessionUser?.user_metadata?.roles,
-            profile?.role || sessionUser?.user_metadata?.role
-        );
-        const canActAsTrainer = actorRoles.includes('trainer');
-        const canActAsStudent = actorRoles.includes('student');
-        const ownedTrainerCodes = canActAsTrainer
-            ? await getOwnedTrainerCodesForUser(actorUserId)
-            : new Set();
-        const inferredTrainerCode = sanitizeCodeInput(
-            profile?.trainer_code || memoryGetItem('currentTrainerCode') || '',
-            5
-        );
-        if (canActAsTrainer && inferredTrainerCode) {
-            ownedTrainerCodes.add(inferredTrainerCode);
-        }
-
-        let skippedUnauthorized = 0;
-        const permittedStudents = payload.filter((student) => {
-            const studentId = String(student?.id || '').trim();
-            const trainerCode = getStudentTrainerCodeValue(student);
-            const studentUserId = getStudentUserIdValue(student);
-            if (!studentId || !trainerCode) {
-                skippedUnauthorized += 1;
-                console.warn(`[students-sync] Registro ignorado (id/trainer_code ausente). id=${studentId || '-'} trainer_code=${trainerCode || '-'}`);
-                return false;
-            }
-            const allowByStudent = canActAsStudent && studentUserId === actorUserId;
-            const allowByTrainer = canActAsTrainer && ownedTrainerCodes.has(trainerCode);
-            if (!allowByStudent && !allowByTrainer) {
-                skippedUnauthorized += 1;
-                console.warn(
-                    `[students-sync] Registro sem permissão, ignorado. id=${studentId} trainer_code=${trainerCode} user_id=${studentUserId || '-'} actor=${actorUserId} roles=${actorRoles.join(',')}`
-                );
-                return false;
-            }
-            return true;
-        });
-
-        if (permittedStudents.length === 0) {
-            if (skippedUnauthorized > 0) {
-                console.warn(`[students-sync] Nenhum registro permitido para sync. ignorados=${skippedUnauthorized}`);
-            }
-            return;
-        }
-
-        const ids = permittedStudents.map((student) => String(student.id || '')).filter(Boolean);
-        let remoteById = new Map();
-        if (ids.length > 0) {
-            const { data: remoteRows } = await window.supabase
-                .from(SUPABASE_TABLES.students)
-                .select('id,data')
-                .in('id', ids);
-            if (Array.isArray(remoteRows)) {
-                remoteById = new Map(remoteRows.map((row) => [String(row.id || ''), normalizeStudentRow(row)]));
-            }
-        }
-
-        const rows = permittedStudents.map((student) => {
-            const id = String(student.id || '');
-            const remote = remoteById.get(id);
-            const mergedStudent = mergeStudentRemoteLocal(student, remote || student);
-            const trainerCode = getStudentTrainerCodeValue(mergedStudent);
-            const studentUserId = getStudentUserIdValue(mergedStudent);
-            if (!trainerCode) return null;
-            return {
-                id: String(mergedStudent.id || id),
-                trainer_code: trainerCode,
-                data: {
-                    ...mergedStudent,
-                    trainerCode,
-                    userId: studentUserId || actorUserId,
-                    pending: Boolean(mergedStudent?.pending),
-                    active: Boolean(mergedStudent?.active)
-                },
-                updated_at: new Date().toISOString()
-            };
-        }).filter((row) => row?.id && row?.trainer_code);
-        if (rows.length === 0) return;
-
-        let syncedCount = 0;
-        let failedCount = 0;
-        for (const row of rows) {
-            const { error: rowError } = await window.supabase
-                .from(SUPABASE_TABLES.students)
-                .upsert(row, { onConflict: 'id' });
-            if (rowError) {
-                failedCount += 1;
-                console.warn(
-                    `[students-sync] Upsert falhou para id=${row.id} trainer_code=${row.trainer_code} actor=${actorUserId}. ${rowError.message || rowError}`
-                );
-                continue;
-            }
-            syncedCount += 1;
-        }
-
-        if (failedCount > 0 || skippedUnauthorized > 0) {
-            console.warn(
-                `[students-sync] Resumo sync: enviados=${rows.length} sucesso=${syncedCount} falhas=${failedCount} ignorados=${skippedUnauthorized}`
-            );
-        }
-        if (failedCount > 0) {
-            setStudentSyncState('error', `Falha em ${failedCount} registro(s)`);
-        } else if (syncedCount > 0) {
-            setStudentSyncState('synced', 'Sincronizado');
-        } else {
-            setStudentSyncState('pending', 'Sem alterações para sincronizar');
-        }
+        supabaseStudentsSyncTimer = null;
+        await performSupabaseStudentsSync(payload);
     }, 400);
 }
 
@@ -3372,6 +3856,37 @@ function getActiveSyncTrainerCode() {
     );
 }
 
+function getStudentsScopedToActiveSession(students = []) {
+    const normalizedStudents = normalizeStudentsDietSchema(Array.isArray(students) ? students : []);
+    if (!normalizedStudents.length) return [];
+
+    const currentTrainerCode = sanitizeCodeInput(
+        memoryGetItem('currentTrainerCode') || memoryGetItem('trainerCodeDefault') || '',
+        5
+    );
+    if (currentTrainerCode) {
+        return normalizedStudents.filter((student) => getStudentTrainerCodeValue(student) === currentTrainerCode);
+    }
+
+    const connectedTrainerCode = sanitizeCodeInput(memoryGetItem('connectedTrainerCode') || '', 5);
+    const currentStudentId = String(memoryGetItem('currentStudentId') || '').trim();
+    const currentUserId = String(memoryGetItem('currentUserId') || '').trim();
+
+    if (!connectedTrainerCode && !currentStudentId && !currentUserId) {
+        return [];
+    }
+
+    return normalizedStudents.filter((student) => {
+        const trainerCode = getStudentTrainerCodeValue(student);
+        const studentId = String(student?.id || '').trim();
+        const studentUserId = String(student?.userId || '').trim();
+        if (connectedTrainerCode && trainerCode !== connectedTrainerCode) return false;
+        if (currentStudentId && studentId === currentStudentId) return true;
+        if (currentUserId && studentUserId === currentUserId) return true;
+        return !currentStudentId && !currentUserId;
+    });
+}
+
 function setStudentSyncState(status = 'synced', message = '', options = {}) {
     const normalizedStatus = String(status || 'synced').toLowerCase();
     const validStatus = ['synced', 'pending', 'offline', 'error'].includes(normalizedStatus)
@@ -3531,34 +4046,13 @@ function startSyncPolling() {
 function handleRemoteStateApplied() {
     // Trainer dashboard refresh
     if (document.getElementById('dash-stats-grid')) {
-        updateTrainerStats();
-        renderStudents();
-        renderPendingRequests();
-    }
-
-    // Trainer profile refresh
-    const profileScreen = document.getElementById('trainer-student-profile-screen');
-    if (profileScreen && profileScreen.classList.contains('active') && currentStudentIdx !== null) {
-        const students = readStorageJSON('trainerStudents', []);
-        if (students[currentStudentIdx]) {
-            workoutBlocks = students[currentStudentIdx].workoutBlocks || [];
-            mealBlocks = students[currentStudentIdx].mealBlocks || [];
-            if (typeof renderWorkouts === 'function') renderWorkouts();
-            if (typeof renderMeals === 'function') renderMeals();
-            if (currentTrainerStudentId) {
-                renderTrainerWorkoutHistory(currentTrainerStudentId);
-            }
-        }
+        scheduleTrainerDashboardRefresh({ delayMs: 80, refreshProfile: true });
     }
 
     // Student dashboard refresh
     const studentDash = document.getElementById('student-dashboard-screen');
     if (studentDash && studentDash.classList.contains('active')) {
-        initStudentDashboard();
-        const workoutScreen = document.getElementById('student-workout-screen');
-        const dietScreen = document.getElementById('student-diet-screen');
-        if (workoutScreen && workoutScreen.classList.contains('active')) openStudentWorkout();
-        if (dietScreen && dietScreen.classList.contains('active')) openStudentDiet();
+        scheduleStudentDashboardRefresh({ delayMs: 90, refreshLegacyViews: true });
     }
 }
 
@@ -3619,7 +4113,7 @@ syncChannel.onmessage = (event) => {
         // If student is logged in, they might need to see the "Ready" status
         const studentId = memoryGetItem('currentStudentId');
         if (studentId) {
-            initStudentDashboard();
+            scheduleStudentDashboardRefresh({ delayMs: 120, refreshLegacyViews: true });
         }
     }
 };
@@ -3691,11 +4185,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             closeExModal('escape');
             return;
         }
+        if (foodDetailsState?.open) return;
         const foodModal = document.getElementById('food-modal');
         if (foodModal?.classList.contains('active')) {
             if (event.key === 'Escape') {
                 event.preventDefault();
-                closeFoodModal();
+                closeFoodModal('escape');
                 return;
             }
             if (event.key === 'Enter' && event.target?.id === 'food-qtd') {
@@ -3706,7 +4201,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (dietFoodPickerState?.open && event.key === 'Escape') {
             event.preventDefault();
-            closeDietFoodPicker();
+            closeDietFoodPicker('escape');
         }
     });
 
@@ -3728,6 +4223,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
+    const trainerDashRoot = document.getElementById('trainer-dashboard-screen');
+    if (trainerDashRoot && isTrainerDashboardContext()) {
+        await initTrainerDashboard();
+        return;
+    }
+
     const login = document.getElementById('global-login-screen');
     if (login) {
         await goToGlobalLogin();
@@ -3735,11 +4236,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 window.addEventListener('online', () => {
-    setStudentSyncState('pending', 'Reconectado, sincronizando...');
     const students = readStorageJSON('trainerStudents', []);
-    if (Array.isArray(students) && students.length > 0) {
-        queueSupabaseStudentsSync(students);
+    const scopedStudents = getStudentsScopedToActiveSession(students);
+    if (!Array.isArray(scopedStudents) || scopedStudents.length === 0) {
+        setStudentSyncState('synced', 'Conectado');
+        return;
     }
+    setStudentSyncState('pending', 'Reconectado, sincronizando...');
+    queueSupabaseStudentsSync(scopedStudents);
 });
 
 window.addEventListener('offline', () => {
@@ -3752,21 +4256,7 @@ window.addEventListener('storage', (e) => {
     if (e.key === 'trainerStudents' || e.key === 'trainerNotifications') {
         // If we are on trainer dashboard (identified by presence of specific elements)
         if (document.getElementById('dash-stats-grid')) {
-            updateTrainerStats();
-            renderStudents();
-            renderPendingRequests();
-
-            // If a profile is open, refresh its data too
-            if (currentStudentIdx !== null) {
-                const students = readStorageJSON('trainerStudents', []);
-                if (students[currentStudentIdx]) {
-                    // Update global cached blocks before re-rendering
-                    workoutBlocks = students[currentStudentIdx].workoutBlocks || [];
-                    mealBlocks = students[currentStudentIdx].mealBlocks || [];
-                    if (typeof renderWorkouts === 'function') renderWorkouts();
-                    if (typeof renderMeals === 'function') renderMeals();
-                }
-            }
+            scheduleTrainerDashboardRefresh({ delayMs: 90, refreshProfile: true });
         }
     }
 
@@ -3782,14 +4272,7 @@ window.addEventListener('storage', (e) => {
         const studentId = memoryGetItem('currentStudentId');
         const studentDash = document.getElementById('student-dashboard-screen');
         if (studentId && studentDash && studentDash.classList.contains('active')) {
-            initStudentDashboard();
-
-            // If detail views are open, they will be refreshed next time they open, 
-            // but we can also trigger a refresh if they are currently visible
-            const workoutScreen = document.getElementById('student-workout-screen');
-            const dietScreen = document.getElementById('student-diet-screen');
-            if (workoutScreen && workoutScreen.classList.contains('active')) openStudentWorkout();
-            if (dietScreen && dietScreen.classList.contains('active')) openStudentDiet();
+            scheduleStudentDashboardRefresh({ delayMs: 110, refreshLegacyViews: true });
         }
     }
 });
@@ -3913,11 +4396,38 @@ function closeTrainerProfileMenu() {
     }, 220);
 }
 
-function logoutTrainerFromMenu() {
+function showTrainerRuntimeMessage(message = '', type = 'info') {
+    const text = sanitizeUserInput(message || '', { maxLen: 220 });
+    if (!text) return;
+    let toast = document.getElementById('trainer-runtime-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'trainer-runtime-toast';
+        toast.className = 'diet-runtime-toast trainer-runtime-toast';
+        document.body.appendChild(toast);
+    }
+    toast.classList.remove('show', 'success', 'error', 'info');
+    toast.classList.add(type || 'info');
+    toast.textContent = text;
+    requestAnimationFrame(() => toast.classList.add('show'));
+    clearTimeout(window.__trainerRuntimeToastTimer);
+    window.__trainerRuntimeToastTimer = setTimeout(() => toast.classList.remove('show'), 2800);
+}
+
+async function logoutTrainerFromMenu() {
     stopSupabaseRealtimeSync();
+    clearAuthRuntimeContext();
     currentTrainerIdentity = null;
     memoryRemoveItem('trainerName');
     memoryRemoveItem('currentTrainerCode');
+    try {
+        if (typeof window.supabase?.auth?.signOut === 'function') {
+            suppressSignedOutRedirectToHome = true;
+            await window.supabase.auth.signOut();
+        }
+    } catch (err) {
+        console.warn('Falha ao encerrar sessao do treinador.', err);
+    }
     window.location.href = 'index.html';
 }
 
@@ -3935,7 +4445,7 @@ function viewTrainerStats() {
     const active = myStudents.filter(s => s.active).length;
     const pending = myStudents.filter(s => s.pending).length;
 
-    alert(`?? Estatísticas\n\nTotal de Alunos: ${total}\nAtivos: ${active}\nPendentes: ${pending}\n\nVisita a aba "Alunos" para gerenciar.`);
+    showTrainerRuntimeMessage(`Alunos: ${total} total · ${active} ativos · ${pending} pendentes.`, 'info');
     closeTrainerProfileMenu();
     switchDashView('alunos');
 }
@@ -3943,14 +4453,17 @@ function viewTrainerStats() {
 function shareTrainerCode() {
     const trainerCode = memoryGetItem('currentTrainerCode') || '00001';
     const message = `Meu código de consultoria: ${trainerCode}\n\nJunte-se ao meu programa de treino e nutrição!`;
-
     if (navigator.share) {
         navigator.share({
             title: 'Código de Consultoria',
             text: message
-        });
+        }).catch(() => null);
+    } else if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(trainerCode)
+            .then(() => showTrainerRuntimeMessage('Código copiado para a área de transferência.', 'success'))
+            .catch(() => showTrainerRuntimeMessage(`Código: ${trainerCode}`, 'info'));
     } else {
-        alert(`?? Código para compartilhar:\n\n${trainerCode}\n\nCopie este código e compartilhe com seus alunos.`);
+        showTrainerRuntimeMessage(`Código: ${trainerCode}`, 'info');
     }
     closeTrainerProfileMenu();
 }
@@ -4004,6 +4517,17 @@ async function openTrainerArea() {
         alert('Sua conta não possui acesso de treinador.');
         return;
     }
+    if (isTrainerDashboardContext()) {
+        const trainerDash = document.getElementById('trainer-dashboard-screen');
+        if (trainerDash) {
+            hideAllScreens();
+            trainerDash.classList.add('active');
+        }
+        if (typeof initTrainerDashboard === 'function') {
+            void initTrainerDashboard();
+        }
+        return;
+    }
     window.location.href = 'trainer.html';
 }
 
@@ -4047,6 +4571,13 @@ function isAuthEntryScreenActive() {
         'student-screen'
     ];
     return authScreens.some((screenId) => document.getElementById(screenId)?.classList.contains('active'));
+}
+
+function isTrainerDashboardContext() {
+    const path = String(window.location.pathname || '').toLowerCase();
+    return path.endsWith('/trainer.html')
+        || path === '/trainer.html'
+        || !!document.getElementById('trainer-dashboard-screen');
 }
 
 async function routeAuthenticatedSessionUser(user, { force = false } = {}) {
@@ -4093,6 +4624,8 @@ async function routeAuthenticatedSessionUser(user, { force = false } = {}) {
 
 async function handleSupabaseAuthStateEvent(event, session) {
     const normalizedEvent = String(event || '').toUpperCase();
+    const now = Date.now();
+    authLastEventAt = now;
 
     if (normalizedEvent === 'PASSWORD_RECOVERY') {
         await goToGlobalLogin();
@@ -4108,6 +4641,10 @@ async function handleSupabaseAuthStateEvent(event, session) {
     if (normalizedEvent === 'SIGNED_OUT') {
         const keepInLoginFlow = suppressSignedOutRedirectToHome;
         suppressSignedOutRedirectToHome = false;
+        const hasRuntimeUser = !!String(memoryGetItem('currentUserId') || '').trim();
+        if (!keepInLoginFlow && hasRuntimeUser && (now - authJustSignedInAt) < 1800) {
+            return;
+        }
         clearAuthRuntimeContext();
         if (keepInLoginFlow) {
             await goToGlobalLogin();
@@ -4128,19 +4665,35 @@ async function handleSupabaseAuthStateEvent(event, session) {
 
     if (!['INITIAL_SESSION', 'SIGNED_IN'].includes(normalizedEvent)) return;
 
-    const sessionUser = session?.user || await getSupabaseSessionUser();
     if (normalizedEvent === 'INITIAL_SESSION') {
-        authLastProcessedUserId = '';
-        clearAuthRuntimeContext();
-        const hasHome = !!document.getElementById('home-screen');
-        if (hasHome) {
-            goToHome();
-        } else {
-            await goToGlobalLogin();
+        const sessionUser = session?.user || await getSupabaseSessionUser();
+        if (!sessionUser) {
+            authLastProcessedUserId = '';
+            clearAuthRuntimeContext();
+            const hasHome = !!document.getElementById('home-screen');
+            if (hasHome) {
+                goToHome();
+            } else {
+                await goToGlobalLogin();
+            }
+            return;
         }
+        if (!isEmailConfirmed(sessionUser)) {
+            const pendingEmail = sanitizeEmailInput(sessionUser?.email || '');
+            if (pendingEmail) memorySetItem('pendingVerificationEmail', pendingEmail);
+            await goToGlobalLogin();
+            setAuthInlineFeedback(
+                'login-inline-feedback',
+                'Seu e-mail ainda não foi verificado. Use "Reenviar verificacao de e-mail".',
+                'warning'
+            );
+            return;
+        }
+        await routeAuthenticatedSessionUser(sessionUser, { force: false });
         return;
     }
 
+    const sessionUser = session?.user || await getSupabaseSessionUser();
     if (!sessionUser) {
         return;
     }
@@ -4159,6 +4712,10 @@ async function handleSupabaseAuthStateEvent(event, session) {
             );
         }
         return;
+    }
+
+    if (normalizedEvent === 'SIGNED_IN') {
+        authJustSignedInAt = now;
     }
 
     await routeAuthenticatedSessionUser(sessionUser, {
@@ -4343,7 +4900,7 @@ async function openStudentDashboardForUser(userId, trainerCode = '') {
                 ...students.filter((s) => String(s.id) !== String(remoteStudent.id)),
                 remoteStudent
             ]);
-            saveStudentData(mergedStudents);
+            saveStudentData(mergedStudents, { skipSupabaseSync: true });
             student = remoteStudent;
             const remoteTrainerCode = getStudentTrainerCodeValue(remoteStudent);
             if (remoteTrainerCode) {
@@ -4837,7 +5394,11 @@ function showTrainerConnectScreen() {
     const subtitle = document.getElementById('student-connect-subtitle');
     const trainerCodeInput = document.getElementById('trainer-code');
     const currentCode = sanitizeCodeInput(
-        memoryGetItem('connectedTrainerCode') || memoryGetItem('currentTrainerCode') || '',
+        pendingTrainerCandidate?.code
+        || pendingTrainerCode
+        || memoryGetItem('connectedTrainerCode')
+        || memoryGetItem('currentTrainerCode')
+        || '',
         5
     );
     if (title) title.textContent = 'Conectar com Treinador';
@@ -4847,6 +5408,97 @@ function showTrainerConnectScreen() {
             : 'Adicione o código do treinador para concluir seu acesso como aluno.';
     }
     if (trainerCodeInput) trainerCodeInput.value = currentCode || '';
+}
+
+function buildTrainerCandidateFromRecord(code, trainerRecord = {}) {
+    const safeName = sanitizeUserInput(
+        trainerRecord?.displayName
+        || trainerRecord?.name
+        || trainerRecord?.trainerName
+        || '',
+        { maxLen: 90 }
+    ) || 'Treinador';
+    const safeConsultoria = sanitizeUserInput(
+        trainerRecord?.consultoria_name
+        || trainerRecord?.consultoriaName
+        || trainerRecord?.consultoria
+        || `Consultoria de ${safeName.split(' ')[0]}`,
+        { maxLen: 120 }
+    ) || `Consultoria de ${safeName.split(' ')[0]}`;
+    const safeAvatar = sanitizeStrictUrl(
+        trainerRecord?.profile_photo
+        || trainerRecord?.profilePhoto
+        || trainerRecord?.avatar
+        || trainerRecord?.avatar_url
+        || '',
+        { maxLen: 600, allowStorage: true }
+    );
+    const safeCode = sanitizeCodeInput(code || '', 5);
+    return {
+        code: safeCode,
+        name: safeName,
+        consultoria: safeConsultoria,
+        avatar: safeAvatar || ''
+    };
+}
+
+function renderTrainerConnectionConfirmation(candidate = null) {
+    const safeCandidate = candidate && typeof candidate === 'object' ? candidate : pendingTrainerCandidate;
+    if (!safeCandidate) {
+        showTrainerConnectScreen();
+        return;
+    }
+
+    pendingTrainerCandidate = safeCandidate;
+    pendingTrainerCode = sanitizeCodeInput(safeCandidate.code || pendingTrainerCode, 5);
+    activateScreen('student-confirm-screen', { animate: true });
+
+    const questionEl = document.getElementById('confirm-trainer-question');
+    const trainerNameEl = document.getElementById('confirm-trainer-name');
+    const consultoriaEl = document.getElementById('confirm-consultoria-name');
+    const codeEl = document.getElementById('confirm-trainer-code');
+    const avatarEl = document.getElementById('confirm-trainer-avatar');
+
+    if (questionEl) questionEl.textContent = 'Esse é seu treinador?';
+    if (trainerNameEl) trainerNameEl.textContent = safeCandidate.name || 'Treinador';
+    if (consultoriaEl) consultoriaEl.textContent = safeCandidate.consultoria || 'Consultoria';
+    if (codeEl) codeEl.textContent = `Código: ${safeCandidate.code || '-----'}`;
+
+    if (avatarEl) {
+        const initials = String(safeCandidate.name || 'T')
+            .trim()
+            .split(/\s+/)
+            .slice(0, 2)
+            .map((part) => part.charAt(0).toUpperCase())
+            .join('') || 'T';
+        avatarEl.textContent = initials;
+        avatarEl.classList.remove('has-image');
+        const avatarRef = String(safeCandidate.avatar || '').trim();
+        if (avatarRef) {
+            const applyAvatar = (avatarUrl) => {
+                if (!avatarUrl) return;
+                const stillSameCandidate = String(pendingTrainerCandidate?.code || '') === String(safeCandidate.code || '');
+                if (!stillSameCandidate) return;
+                avatarEl.innerHTML = `<img src="${escHtml(avatarUrl)}" alt="Foto do treinador" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover;">`;
+                avatarEl.classList.add('has-image');
+            };
+            if (avatarRef.startsWith('storage://')) {
+                resolveStorageRefUrl(avatarRef, 2400)
+                    .then((signedUrl) => applyAvatar(signedUrl || ''))
+                    .catch(() => null);
+            } else {
+                applyAvatar(avatarRef);
+            }
+        }
+    }
+}
+
+function rejectTrainerConnectionCandidate() {
+    const codeInput = document.getElementById('trainer-code');
+    if (codeInput && pendingTrainerCandidate?.code) {
+        codeInput.value = pendingTrainerCandidate.code;
+    }
+    showTrainerConnectScreen();
 }
 
 function openStudentQuestionnaireScreen(displayName = '') {
@@ -4905,6 +5557,17 @@ async function routeByOnboarding(user, profile, roles) {
                 profile_complete: true
             });
             memorySetItem('currentOnboardingStep', 'done');
+        }
+        if (isTrainerDashboardContext()) {
+            const trainerDash = document.getElementById('trainer-dashboard-screen');
+            if (trainerDash) {
+                hideAllScreens();
+                trainerDash.classList.add('active');
+            }
+            if (typeof initTrainerDashboard === 'function') {
+                void initTrainerDashboard();
+            }
+            return;
         }
         window.location.href = 'trainer.html';
         return;
@@ -5859,6 +6522,7 @@ if (typeof window !== 'undefined') {
         handleProfileSetupMediaInput,
         connectStudent,
         confirmConnection,
+        rejectTrainerConnectionCandidate,
         openTrainerArea,
         goToTrainerArea,
         goToTrainerCreate,
@@ -5897,6 +6561,10 @@ async function switchStudentView(view) {
     if (protectedViews.includes(view) && !ENABLE_DEMO_ACCESS) {
         const activeUser = await getSupabaseSessionUser();
         if (!activeUser || !isEmailConfirmed(activeUser)) {
+            const hasCachedSession = !!String(memoryGetItem('currentUserId') || '').trim();
+            if (hasCachedSession && (Date.now() - authLastEventAt) < 2200) {
+                return;
+            }
             clearAuthRuntimeContext();
             goToGlobalLogin();
             return;
@@ -6014,7 +6682,10 @@ function updateStudentWorkoutBlocks(studentId, mutator) {
         student.pending = false;
     }
     students[idx] = student;
-    saveStudentData(students);
+    saveStudentData(students, {
+        syncMode: 'batched',
+        syncDelayMs: 2400
+    });
     return student;
 }
 
@@ -8295,6 +8966,58 @@ let dietFoodPickerState = {
     }
 };
 let dietFoodPickerTimer = null;
+let dietFoodPickerSelectionLockUntil = 0;
+let dietFoodPickerResultDelegationBound = false;
+let dietFoodPickerLastTouchPointerUpAt = 0;
+
+function lockDietFoodPickerSelection(ms = 240) {
+    dietFoodPickerSelectionLockUntil = Date.now() + Math.max(100, Number(ms) || 0);
+}
+
+function isDietFoodPickerSelectionLocked() {
+    return Date.now() < dietFoodPickerSelectionLockUntil;
+}
+
+function setupDietFoodPickerResultDelegation(modalRoot) {
+    if (dietFoodPickerResultDelegationBound || !modalRoot) return;
+    const results = modalRoot.querySelector('#diet-food-picker-results');
+    if (!results) return;
+
+    const triggerSelection = (event) => {
+        const button = event.target.closest('[data-diet-food-index]');
+        if (!button || !results.contains(button)) return;
+        const idx = Number(button.getAttribute('data-diet-food-index'));
+        if (!Number.isFinite(idx)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        lockDietFoodPickerSelection();
+        selectDietFoodPickerResult(idx);
+    };
+
+    results.addEventListener('pointerup', (event) => {
+        if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
+        dietFoodPickerLastTouchPointerUpAt = Date.now();
+        triggerSelection(event);
+    });
+
+    results.addEventListener('click', (event) => {
+        if ((Date.now() - dietFoodPickerLastTouchPointerUpAt) < 250) return;
+        triggerSelection(event);
+    });
+
+    results.addEventListener('keydown', (event) => {
+        const button = event.target.closest('[data-diet-food-index]');
+        if (!button) return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        const idx = Number(button.getAttribute('data-diet-food-index'));
+        if (!Number.isFinite(idx)) return;
+        lockDietFoodPickerSelection();
+        selectDietFoodPickerResult(idx);
+    });
+
+    dietFoodPickerResultDelegationBound = true;
+}
 
 function setStudentDietDate(dateKey) {
     const safe = /^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || '')) ? String(dateKey) : getTodayDateKey();
@@ -8416,7 +9139,7 @@ function updateStudentMealDraftName(value) {
         return;
     }
     studentDietFoodSearchTimer = setTimeout(async () => {
-        studentDietFoodSearchResults = await searchFoodsCatalog(term, 8);
+        studentDietFoodSearchResults = await searchFoodsProviderFirst(term, { limit: 8 });
         refreshStudentDietViews();
     }, 220);
 }
@@ -8608,7 +9331,10 @@ function persistStudentDietLog(updateFn) {
     if (!student.dietLogs[dateKey].meals || typeof student.dietLogs[dateKey].meals !== 'object') student.dietLogs[dateKey].meals = {};
     updateFn(student.dietLogs[dateKey], student);
     students[idx] = student;
-    saveStudentData(students);
+    saveStudentData(students, {
+        syncMode: 'batched',
+        syncDelayMs: 2400
+    });
     queueEntityDietLogsSync(student, dateKey);
     setStudentSyncState('pending', 'Sincronização pendente');
     refreshStudentDietViews();
@@ -8624,7 +9350,10 @@ function persistStudentMealBlocks(updateFn) {
     const student = students[idx];
     updateFn(student);
     students[idx] = student;
-    saveStudentData(normalizeStudentsDietSchema(students));
+    saveStudentData(normalizeStudentsDietSchema(students), {
+        syncMode: 'batched',
+        syncDelayMs: 2400
+    });
     queueEntityDietLogsSync(student, studentDietSelectedDateKey || getTodayDateKey());
     setStudentSyncState('pending', 'Sincronização pendente');
 }
@@ -9030,7 +9759,11 @@ function ensureDietFoodPickerModal() {
     const overlay = document.createElement('div');
     overlay.id = 'diet-food-picker-overlay';
     overlay.className = 'diet-food-picker-overlay';
-    overlay.addEventListener('click', closeDietFoodPicker);
+    overlay.addEventListener('click', (event) => {
+        if (event.target !== overlay) return;
+        if (isDietFoodPickerSelectionLocked()) return;
+        // Fechamento por clique fora desativado para evitar fechamento acidental.
+    });
 
     const modal = document.createElement('div');
     modal.id = 'diet-food-picker-modal';
@@ -9044,7 +9777,7 @@ function ensureDietFoodPickerModal() {
                 </button>
                 <h3 id="diet-food-picker-title">Substituir alimento</h3>
             </div>
-            <button type="button" class="diet-food-picker-close" onclick="closeDietFoodPicker()"><i class="ph-bold ph-x"></i></button>
+            <button type="button" class="diet-food-picker-close" onclick="closeDietFoodPicker('cancel')"><i class="ph-bold ph-x"></i></button>
         </div>
         <div class="diet-food-picker-body">
             <div id="diet-food-picker-context" class="diet-food-picker-context"></div>
@@ -9076,7 +9809,7 @@ function ensureDietFoodPickerModal() {
             </div>
         </div>
         <div class="diet-food-picker-footer">
-            <button type="button" class="diet-modern-cancel-btn" onclick="closeDietFoodPicker()">Cancelar</button>
+            <button type="button" class="diet-modern-cancel-btn" onclick="closeDietFoodPicker('cancel')">Cancelar</button>
             <button id="diet-food-picker-confirm" type="button" class="diet-modern-save-btn" onclick="confirmDietFoodPickerSelection()">Adicionar alimento</button>
         </div>
     `;
@@ -9084,6 +9817,7 @@ function ensureDietFoodPickerModal() {
     document.body.appendChild(overlay);
     document.body.appendChild(modal);
     modal.addEventListener('keydown', handleDietFoodPickerKeydown);
+    setupDietFoodPickerResultDelegation(modal);
 
     const searchInput = modal.querySelector('#diet-food-picker-search');
     const qtyInput = modal.querySelector('#diet-food-picker-qty');
@@ -9143,7 +9877,7 @@ function handleDietFoodPickerKeydown(event) {
         if (dietFoodPickerState.view === 'detail') {
             backDietFoodPickerToList();
         } else {
-            closeDietFoodPicker();
+            closeDietFoodPicker('escape');
         }
         return;
     }
@@ -9243,7 +9977,8 @@ function renderDietFoodPickerModal() {
     }
 }
 
-function closeDietFoodPicker() {
+function closeDietFoodPicker(reason = 'manual') {
+    if (reason === 'overlay' && isDietFoodPickerSelectionLocked()) return;
     dietFoodPickerState = {
         open: false,
         view: 'list',
@@ -9269,6 +10004,7 @@ function closeDietFoodPicker() {
     document.body.classList.remove('diet-food-picker-open');
     setDietFoodPickerFeedback('');
     renderDietFoodPickerModal();
+    dietFoodPickerSelectionLockUntil = 0;
 }
 
 function openDietFoodPicker(context, mealIdx, itemIdx) {
@@ -9423,33 +10159,9 @@ async function loadDietFoodPickerInitialResults(baseName = '') {
 async function searchFoodsWithFallback(query, limit = 12) {
     const term = String(query || '').trim();
     if (term.length < 2) return [];
-    const catalogResults = await searchFoodsCatalog(term, limit);
-    if (catalogResults.length > 0) return catalogResults;
-
-    try {
-        const url = `https://br.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(term)}&search_simple=1&action=process&json=1&page_size=${Math.min(limit, 12)}`;
-        const resp = await fetch(url, { headers: { 'User-Agent': 'AplicativoConsultoria - Browser - v1.0' } });
-        const data = await resp.json();
-        return (data.products || []).map((item) => normalizeFoodCatalogRow({
-            id: '',
-            name: item.product_name || item.generic_name || '',
-            brand: item.brands || '',
-            base_qty: 100,
-            base_unit: 'g',
-            kcal: parseDecimalSafe(item.nutriments?.['energy-kcal_100g']),
-            protein: parseDecimalSafe(item.nutriments?.proteins_100g),
-            carb: parseDecimalSafe(item.nutriments?.carbohydrates_100g),
-            fat: parseDecimalSafe(item.nutriments?.fat_100g),
-            source: 'openfoodfacts',
-            portions: getFallbackFoodPortions({
-                name: item.product_name || item.generic_name || '',
-                base_unit: 'g'
-            })
-        })).filter(Boolean);
-    } catch (error) {
-        console.warn('OpenFoodFacts search failed', error);
-        return [];
-    }
+    const providerResults = await searchFoodsProviderFirst(term, { limit });
+    if (providerResults.length > 0) return providerResults;
+    return searchFoodsCatalog(term, limit);
 }
 
 function scheduleDietFoodPickerSearch(query) {
@@ -9597,7 +10309,7 @@ function renderDietFoodPickerResults() {
             && getFoodItemKey(dietFoodPickerState.selected) === getFoodItemKey(item);
         const highlighted = dietFoodPickerState.highlightIndex === index;
         return `
-            <button type="button" class="diet-food-picker-item ${selected ? 'active' : ''} ${highlighted ? 'is-highlight' : ''}" onclick="selectDietFoodPickerResult(${index})" aria-pressed="${selected ? 'true' : 'false'}" data-food-key="${escHtml(getFoodItemKey(item))}">
+            <button type="button" class="diet-food-picker-item ${selected ? 'active' : ''} ${highlighted ? 'is-highlight' : ''}" aria-pressed="${selected ? 'true' : 'false'}" data-food-key="${escHtml(getFoodItemKey(item))}" data-diet-food-index="${index}">
                 <span>${renderDietFoodPickerResultName(item.name, dietFoodPickerState.query)}</span>
             </button>
         `;
@@ -9636,7 +10348,11 @@ function renderDietFoodPickerPreview() {
 
 async function ensurePickerFoodSaved(food) {
     if (!food) return null;
-    if (food.id) return food;
+    const safeId = String(food.id || '').trim();
+    const isPersistentCatalogId = safeId && !safeId.startsWith('local-') && !safeId.startsWith(FATSECRET_SOURCE_PREFIX);
+    if (isPersistentCatalogId) return food;
+    const providerFoodId = extractFatSecretProviderFoodId(food);
+    const source = providerFoodId ? `${FATSECRET_SOURCE_PREFIX}${providerFoodId}` : (food.source || 'manual');
     const inserted = await insertFoodIntoCatalog({
         name: food.name,
         brand: food.brand || '',
@@ -9646,7 +10362,11 @@ async function ensurePickerFoodSaved(food) {
         protein: food.protein || 0,
         carb: food.carb || 0,
         fat: food.fat || 0,
-        source: food.source || 'manual',
+        source,
+        provider: providerFoodId ? 'fatsecret' : (food.provider || ''),
+        provider_food_id: providerFoodId || food.provider_food_id || '',
+        verified_at: food.verified_at || new Date().toISOString(),
+        portions: getFoodPortions(food),
         created_by: getCurrentFoodCreatorId()
     });
     return inserted || food;
@@ -9719,7 +10439,7 @@ async function confirmDietFoodPickerSelection() {
             };
         });
     }
-    closeDietFoodPicker();
+    closeDietFoodPicker('confirm');
     if (usedQtyFallback) {
         showDietRuntimeMessage('Quantidade inválida ajustada para o padrão do alimento.', 'info');
     } else {
@@ -9824,7 +10544,10 @@ function ensureFoodDetailsModal() {
     overlay.id = 'food-details-overlay';
     overlay.className = 'food-details-overlay';
     overlay.onclick = (event) => {
-        if (event.target?.id === 'food-details-overlay') closeFoodDetailsModal();
+        if (event.target?.id === 'food-details-overlay') {
+            event.preventDefault();
+            event.stopPropagation();
+        }
     };
 
     const modal = document.createElement('div');
@@ -9835,6 +10558,7 @@ function ensureFoodDetailsModal() {
             <div>
                 <h3 id="food-details-title">Detalhes do alimento</h3>
                 <small id="food-details-subtitle"></small>
+                <div id="food-details-origin" class="food-details-origin"></div>
             </div>
             <button type="button" class="food-details-close" onclick="closeFoodDetailsModal()">
                 <i class="ph-bold ph-x"></i>
@@ -9852,6 +10576,7 @@ function ensureFoodDetailsModal() {
             <div class="food-details-field">
                 <label>Medida</label>
                 <select id="food-details-unit" class="diet-modern-input" onchange="selectFoodDetailsPortion(this.value)"></select>
+                <div id="food-details-portion-chips" class="food-details-portion-chips"></div>
             </div>
             <div class="food-details-field" id="food-details-variant-field" style="display:none;">
                 <label>Tipo do alimento</label>
@@ -9862,8 +10587,8 @@ function ensureFoodDetailsModal() {
             <div id="food-details-preview" class="food-details-preview"></div>
         </div>
         <div class="food-details-footer">
-            <button type="button" class="diet-modern-cancel-btn" onclick="closeFoodDetailsModal()">Cancelar</button>
-            <button type="button" class="diet-modern-save-btn" onclick="confirmFoodDetailsModal()">Salvar</button>
+            <button type="button" id="food-details-cancel-btn" class="diet-modern-cancel-btn" onclick="closeFoodDetailsModal()">Cancelar</button>
+            <button type="button" id="food-details-save-btn" class="diet-modern-save-btn" onclick="confirmFoodDetailsModal()">Salvar</button>
         </div>
     `;
     overlay.appendChild(modal);
@@ -9927,14 +10652,18 @@ function renderFoodDetailsModal() {
     const overlay = document.getElementById('food-details-overlay');
     const title = document.getElementById('food-details-title');
     const subtitle = document.getElementById('food-details-subtitle');
+    const originEl = document.getElementById('food-details-origin');
     const amountInput = document.getElementById('food-details-amount');
     const unitSelect = document.getElementById('food-details-unit');
+    const portionChips = document.getElementById('food-details-portion-chips');
     const variantField = document.getElementById('food-details-variant-field');
     const variantSelect = document.getElementById('food-details-variant');
     const baseEl = document.getElementById('food-details-base');
     const qtyEl = document.getElementById('food-details-qty');
     const preview = document.getElementById('food-details-preview');
-    if (!overlay || !title || !subtitle || !amountInput || !unitSelect || !baseEl || !qtyEl || !preview || !variantField || !variantSelect) return;
+    const cancelBtn = document.getElementById('food-details-cancel-btn');
+    const saveBtn = document.getElementById('food-details-save-btn');
+    if (!overlay || !title || !subtitle || !amountInput || !unitSelect || !baseEl || !qtyEl || !preview || !variantField || !variantSelect || !portionChips || !originEl || !cancelBtn || !saveBtn) return;
 
     overlay.classList.toggle('active', !!foodDetailsState.open);
     document.body.classList.toggle('food-details-open', !!foodDetailsState.open);
@@ -9944,8 +10673,25 @@ function renderFoodDetailsModal() {
     const portions = Array.isArray(foodDetailsState.portions) ? foodDetailsState.portions : getFoodPortions(food);
     const selectedIndex = Number.isFinite(foodDetailsState.selectedPortionIndex) ? foodDetailsState.selectedPortionIndex : 0;
     const selectedPortion = portions[selectedIndex] || portions[0] || null;
-    title.textContent = foodDetailsState.mode === 'trainer' ? 'Editar alimento do plano' : 'Ajustar consumo do alimento';
+    if (foodDetailsState.mode === 'trainer-add') {
+        title.textContent = 'Confirmar alimento';
+        cancelBtn.textContent = 'Voltar para resultados';
+        saveBtn.textContent = 'Confirmar alimento';
+    } else if (foodDetailsState.mode === 'trainer') {
+        title.textContent = 'Editar alimento do plano';
+        cancelBtn.textContent = 'Cancelar';
+        saveBtn.textContent = 'Salvar';
+    } else {
+        title.textContent = 'Ajustar consumo do alimento';
+        cancelBtn.textContent = 'Cancelar';
+        saveBtn.textContent = 'Salvar';
+    }
     subtitle.textContent = `${food.name || 'Alimento'}${food.brand ? ` · ${food.brand}` : ''}`;
+    const providerFoodId = extractFatSecretProviderFoodId(food);
+    const sourceLabel = providerFoodId
+        ? `Dados oficiais FatSecret · ID ${providerFoodId}`
+        : (food.source === 'baseline' ? 'Catálogo interno' : 'Banco local');
+    originEl.innerHTML = `<span class="food-details-source-badge ${providerFoodId ? 'fatsecret' : 'local'}">${escHtml(sourceLabel)}</span>`;
 
     const variantCandidates = Array.isArray(foodDetailsState.variantCandidates) ? foodDetailsState.variantCandidates : [];
     if (variantCandidates.length > 1) {
@@ -9971,6 +10717,12 @@ function renderFoodDetailsModal() {
         const unitLabel = getFoodUnitLabel(portion.unit_key, portion.amount);
         const suffix = `${portion.amount} ${unitLabel} ≈ ${Math.round((parseDecimalSafe(portion.base_qty_equivalent) || 0) * 10) / 10}${getFoodUnitShort(food.base_unit || 'g')}`;
         return `<option value="${index}" ${index === selectedIndex ? 'selected' : ''}>${escHtml(portion.label)} (${escHtml(suffix)})</option>`;
+    }).join('');
+    portionChips.innerHTML = portions.slice(0, 8).map((portion, index) => {
+        const active = index === selectedIndex ? 'active' : '';
+        const unitLabel = getFoodUnitLabel(portion.unit_key, portion.amount);
+        const qtyHint = `${Math.round((parseDecimalSafe(portion.base_qty_equivalent) || 0) * 10) / 10}${getFoodUnitShort(food.base_unit || 'g')}`;
+        return `<button type="button" class="food-details-portion-chip ${active}" onclick="selectFoodDetailsPortion('${index}')" aria-pressed="${active ? 'true' : 'false'}">${escHtml(portion.label)} · ${escHtml(String(portion.amount))} ${escHtml(unitLabel)} · ${escHtml(qtyHint)}</button>`;
     }).join('');
 
     const resolved = resolveFoodQuantity(food, foodDetailsState.amount, foodDetailsState.unitKey, foodDetailsState.portionId);
@@ -10124,11 +10876,57 @@ function openFoodDetailsFromStudentItem(mealIdx, itemIdx) {
     });
 }
 
-function confirmFoodDetailsModal() {
+async function confirmFoodDetailsModal() {
     const food = foodDetailsState.food;
     if (!food) return;
     const calc = computeMacrosByAmount(food, foodDetailsState.amount, foodDetailsState.unitKey, foodDetailsState.portionId);
     const qtyText = formatFoodQuantity(calc.amount, calc.unit_key);
+
+    if (foodDetailsState.mode === 'trainer-add') {
+        const targetMealIdx = Number.isFinite(Number(foodDetailsState.mealIdx))
+            ? Number(foodDetailsState.mealIdx)
+            : Number(pendingMealIdx);
+        const meal = mealBlocks?.[targetMealIdx];
+        if (!meal) return;
+        const persistedFood = await insertFoodIntoCatalog({
+            ...food,
+            source: food.source || (extractFatSecretProviderFoodId(food) ? `${FATSECRET_SOURCE_PREFIX}${extractFatSecretProviderFoodId(food)}` : 'catalog'),
+            portions: getFoodPortions(food)
+        });
+        const finalFood = persistedFood || normalizeFoodCatalogRow(food) || food;
+        const finalCalc = computeMacrosByAmount(finalFood, foodDetailsState.amount, foodDetailsState.unitKey, foodDetailsState.portionId);
+        meal.items.push({
+            nome: finalFood.name || food.name || 'Alimento',
+            qtd: formatFoodQuantity(finalCalc.amount, finalCalc.unit_key),
+            kcal: finalCalc.kcal,
+            prot: finalCalc.protein,
+            carb: finalCalc.carb,
+            gord: finalCalc.fat,
+            foodId: finalFood.id || food.id || '',
+            baseQty: Math.max(0.1, parseDecimalSafe(finalFood.base_qty) || 100),
+            baseUnit: normalizeFoodUnitKey(finalFood.base_unit || 'g'),
+            source: finalFood.source || 'catalog',
+            familyKey: finalFood.family_key || '',
+            variantKey: finalFood.variant_key || '',
+            variantLabel: finalFood.variant_label || '',
+            portions: getFoodPortions(finalFood),
+            amount: finalCalc.amount,
+            unitKey: finalCalc.unit_key,
+            portionId: finalCalc.portion_id || '',
+            portionLabel: finalCalc.portion_label || ''
+        });
+        renderMeals();
+        updateDietPlannerSummary();
+        signalStudentPlanDirty();
+        registerRecentFood({
+            id: finalFood.id || '',
+            name: finalFood.name || ''
+        });
+        closeFoodDetailsModal();
+        closeFoodModal('confirm');
+        showDietRuntimeMessage('Alimento confirmado e adicionado ao plano.', 'success');
+        return;
+    }
 
     if (foodDetailsState.mode === 'trainer') {
         const meal = mealBlocks?.[foodDetailsState.mealIdx];
@@ -10216,6 +11014,7 @@ function renderStudentDietMain() {
 }
 
 let pendingTrainerCode = '';
+let pendingTrainerCandidate = null;
 
 async function connectStudent() {
     const activeUser = await getSupabaseSessionUser();
@@ -10240,24 +11039,31 @@ async function connectStudent() {
     }
 
     // Admin code fallback
-    let coachName = '';
-    let consultoriaName = '';
+    let trainerRecord = null;
 
     if (ENABLE_DEMO_ACCESS && code === '00001') {
-        coachName = 'Administrador Teste';
-        consultoriaName = 'Admin Consultoria';
+        trainerRecord = {
+            name: 'Administrador Teste',
+            consultoria_name: 'Admin Consultoria'
+        };
     } else {
         // Search in trainer data
         const trainers = readStorageJSON('allTrainers', []);
         const t = trainers.find(x => x.code === code);
         if (t) {
-            coachName = t.name;
-            consultoriaName = t.consultoriaName || `Consultoria de ${t.name.split(' ')[0]} `;
+            trainerRecord = {
+                ...t,
+                name: t.name || 'Treinador',
+                consultoria_name: t.consultoriaName || t.consultoria_name || `Consultoria de ${(t.name || 'Treinador').split(' ')[0]}`
+            };
         } else if (isSupabaseReady()) {
             const remoteTrainer = await getTrainerByCodeRemote(code);
             if (remoteTrainer) {
-                coachName = remoteTrainer.name || 'Treinador';
-                consultoriaName = remoteTrainer.consultoria_name || `Consultoria de ${coachName.split(' ')[0]} `;
+                trainerRecord = {
+                    ...remoteTrainer,
+                    name: remoteTrainer.name || 'Treinador',
+                    consultoria_name: remoteTrainer.consultoria_name || `Consultoria de ${(remoteTrainer.name || 'Treinador').split(' ')[0]}`
+                };
             } else {
                 alert('Código de treinador não encontrado.');
                 return;
@@ -10269,9 +11075,17 @@ async function connectStudent() {
     }
 
     pendingTrainerCode = code;
-    const hint = coachName ? `${coachName} • ${consultoriaName || 'Consultoria'}` : 'Consultoria conectada';
-    alert(`Código validado com sucesso.\n${hint}`);
-    await confirmConnection();
+    pendingTrainerCandidate = buildTrainerCandidateFromRecord(code, trainerRecord || {});
+    const confirmScreen = await ensureScreenElement('student-confirm-screen', 'pages/student-confirm.html');
+    if (!confirmScreen) {
+        const hint = pendingTrainerCandidate?.name
+            ? `${pendingTrainerCandidate.name} • ${pendingTrainerCandidate.consultoria || 'Consultoria'}`
+            : 'Consultoria conectada';
+        alert(`Código validado com sucesso.\n${hint}`);
+        await confirmConnection();
+        return;
+    }
+    renderTrainerConnectionConfirmation(pendingTrainerCandidate);
 }
 
 async function confirmConnection() {
@@ -10280,6 +11094,17 @@ async function confirmConnection() {
         goToGlobalLogin();
         return;
     }
+    const effectivePendingCode = sanitizeCodeInput(
+        pendingTrainerCode || pendingTrainerCandidate?.code || '',
+        5
+    );
+    if (!effectivePendingCode) {
+        alert('Código do treinador inválido. Tente novamente.');
+        showTrainerConnectScreen();
+        return;
+    }
+    pendingTrainerCode = effectivePendingCode;
+
     const onboardingDraft = memoryGetItem('onboardingQuestionnaireDraft');
     const onboardingPending = memoryGetItem('onboardingPendingQuestionnaire') === '1';
     const onboardingStep = memoryGetItem('currentOnboardingStep');
@@ -10292,25 +11117,26 @@ async function confirmConnection() {
     }
 
     const currentStudentId = String(memoryGetItem('currentStudentId') || '');
-    if (currentStudentId && pendingTrainerCode) {
+    if (currentStudentId && effectivePendingCode) {
         const students = readStorageJSON('trainerStudents', []);
         const sIdx = students.findIndex((s) => String(s.id) === currentStudentId);
         if (sIdx >= 0) {
-            students[sIdx].trainerCode = pendingTrainerCode;
-            students[sIdx].trainer_code = pendingTrainerCode;
+            students[sIdx].trainerCode = effectivePendingCode;
+            students[sIdx].trainer_code = effectivePendingCode;
             students[sIdx].pending = true;
             students[sIdx].active = false;
             saveStudentData(students);
         }
         await upsertOwnProfile({
             id: activeUser.id,
-            connected_trainer_code: pendingTrainerCode,
+            connected_trainer_code: effectivePendingCode,
             onboarding_step: 'done'
         });
-        await syncStudentConnectionEntity(activeUser.id, pendingTrainerCode, 'pending');
-        memorySetItem('connectedTrainerCode', pendingTrainerCode);
+        await syncStudentConnectionEntity(activeUser.id, effectivePendingCode, 'pending');
+        memorySetItem('connectedTrainerCode', effectivePendingCode);
+        pendingTrainerCandidate = null;
         showDietRuntimeMessage('Conexão atualizada. Aguardando aprovação do treinador.', 'success');
-        await openStudentDashboardForUser(activeUser.id, pendingTrainerCode);
+        await openStudentDashboardForUser(activeUser.id, effectivePendingCode);
         return;
     }
 
@@ -10505,6 +11331,7 @@ async function submitQuestionnaire() {
     }
 
     // Save current session info + remember-me token
+    pendingTrainerCandidate = null;
     openStudentDashboardSession(newStudent);
 }
 
@@ -10620,82 +11447,109 @@ async function finalizeStudentOnboardingConnection() {
     memorySetItem('currentOnboardingStep', 'done');
     memoryRemoveItem('onboardingPendingQuestionnaire');
     memoryRemoveItem('onboardingQuestionnaireDraft');
+    pendingTrainerCandidate = null;
     openStudentDashboardSession(newStudent);
 }
 
 // ? Student Dashboard (Real Data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-async function initStudentDashboard() {
-    migrateStoredStudentsDietSchema();
-    pullAppStateIfNewer();
-    startSyncPolling();
-    const trainerCode = memoryGetItem('connectedTrainerCode');
-    if (trainerCode && trainerCode !== '00000') {
-        await syncStudentsFromSupabase(trainerCode);
-        startSupabaseRealtimeSync(trainerCode);
+async function initStudentDashboard(options = {}) {
+    const force = !!options?.force;
+    const remoteSync = options?.remoteSync !== false;
+    if (studentDashboardInitPromise) {
+        return studentDashboardInitPromise;
     }
-    if (isSupabaseReady()) {
-        startSupabaseFoodsRealtimeSync();
-        scheduleFoodsCatalogSync(30);
-    }
-    const studentId = memoryGetItem('currentStudentId');
-    const studentName = memoryGetItem('studentName') || 'Aluno';
-
-    document.getElementById('dash-student-name').innerText = `Olá, ${studentName.split(' ')[0]} `;
-    document.getElementById('dash-student-trainer').innerText = trainerCode || 'Consultoria';
-
-    // Sync sidebar name
-    const sideName = document.getElementById('side-student-name');
-    if (sideName) sideName.innerText = studentName.split(' ')[0];
-
-    // Show student's own access code
-    const scRef = document.getElementById('student-code-ref');
-    if (scRef) scRef.innerText = studentId;
-
-    if (!studentId) {
-        renderStudentBaseCalories(null);
-        setProtocolStatus(false);
+    const dashboardScreen = document.getElementById('student-dashboard-screen');
+    const dashboardAlreadyActive = !!dashboardScreen?.classList.contains('active');
+    if (!force && dashboardAlreadyActive && (Date.now() - studentDashboardLastInitAt) < 220) {
         return;
     }
 
-    const students = readStorageJSON('trainerStudents', []);
-    const studentIdx = students.findIndex(s => s.id === studentId);
-    const student = studentIdx >= 0 ? students[studentIdx] : null;
-
-    if (student) {
-        const prevTmb = parseIntegerSafe(student.tmbBase);
-        const nextTmb = syncStudentTmbData(student);
-        let changed = nextTmb !== prevTmb;
-        if (!Array.isArray(student.mealBlocks) || student.mealBlocks.length === 0) {
-            const dietBase = createDietBaseFromStudent(student);
-            student.mealBlocks = dietBase.mealBlocks;
-            student.dietMeta = {
-                ...(student.dietMeta || {}),
-                ...dietBase.dietMeta
-            };
-            changed = true;
-        } else if (!student.dietMeta || typeof student.dietMeta !== 'object') {
-            const dietBase = createDietBaseFromStudent(student);
-            student.dietMeta = dietBase.dietMeta;
-            changed = true;
+    studentDashboardInitPromise = (async () => {
+        migrateStoredStudentsDietSchema();
+        pullAppStateIfNewer();
+        startSyncPolling();
+        const trainerCode = memoryGetItem('connectedTrainerCode');
+        if (trainerCode && trainerCode !== '00000') {
+            if (remoteSync) {
+                await syncStudentsFromSupabase(trainerCode);
+            }
+            startSupabaseRealtimeSync(trainerCode);
         }
-        if (changed) {
-            students[studentIdx] = student;
-            saveStudentData(students);
+        if (isSupabaseReady()) {
+            startSupabaseFoodsRealtimeSync();
+            scheduleFoodsCatalogSync(30);
         }
-    }
+        const studentId = memoryGetItem('currentStudentId');
+        const studentName = memoryGetItem('studentName') || 'Aluno';
 
-    renderStudentBaseCalories(student || null);
+        const dashName = document.getElementById('dash-student-name');
+        if (dashName) dashName.innerText = `Olá, ${studentName.split(' ')[0]} `;
+        const dashTrainer = document.getElementById('dash-student-trainer');
+        if (dashTrainer) dashTrainer.innerText = trainerCode || 'Consultoria';
 
-    if (student && student.active) {
-        setProtocolStatus(true);
-        renderWorkoutStartOptions(student);
-    } else {
-        setProtocolStatus(false);
-    }
+        // Sync sidebar name
+        const sideName = document.getElementById('side-student-name');
+        if (sideName) sideName.innerText = studentName.split(' ')[0];
 
-    // Check if there is a workout in progress (show "Continuar treino")
-    refreshWorkoutBackupIndicator();
+        // Show student's own access code
+        const scRef = document.getElementById('student-code-ref');
+        if (scRef) scRef.innerText = studentId;
+
+        if (!studentId) {
+            renderStudentBaseCalories(null);
+            setProtocolStatus(false);
+            return;
+        }
+
+        const students = readStorageJSON('trainerStudents', []);
+        const studentIdx = students.findIndex(s => s.id === studentId);
+        const student = studentIdx >= 0 ? students[studentIdx] : null;
+
+        if (student) {
+            const prevTmb = parseIntegerSafe(student.tmbBase);
+            const nextTmb = syncStudentTmbData(student);
+            let changed = nextTmb !== prevTmb;
+            if (!Array.isArray(student.mealBlocks) || student.mealBlocks.length === 0) {
+                const dietBase = createDietBaseFromStudent(student);
+                student.mealBlocks = dietBase.mealBlocks;
+                student.dietMeta = {
+                    ...(student.dietMeta || {}),
+                    ...dietBase.dietMeta
+                };
+                changed = true;
+            } else if (!student.dietMeta || typeof student.dietMeta !== 'object') {
+                const dietBase = createDietBaseFromStudent(student);
+                student.dietMeta = dietBase.dietMeta;
+                changed = true;
+            }
+            if (changed) {
+                students[studentIdx] = student;
+                saveStudentData(students, {
+                    syncMode: 'batched',
+                    syncDelayMs: 2200
+                });
+            }
+        }
+
+        renderStudentBaseCalories(student || null);
+
+        if (student && student.active) {
+            setProtocolStatus(true);
+            renderWorkoutStartOptions(student);
+        } else {
+            setProtocolStatus(false);
+        }
+
+        // Check if there is a workout in progress (show "Continuar treino")
+        refreshWorkoutBackupIndicator();
+    })()
+        .finally(() => {
+            studentDashboardLastInitAt = Date.now();
+            studentDashboardInitPromise = null;
+        });
+
+    return studentDashboardInitPromise;
 }
 
 function renderWorkoutStartOptions(student) {
@@ -12179,20 +13033,30 @@ async function createConsultoria() {
     // Go to dashboard
     hideAllScreens();
     document.getElementById('trainer-dashboard-screen').classList.add('active');
-    initTrainerDashboard();
+    await initTrainerDashboard();
 }
 
 // TRAINER DASHBOARD LOGIC (Runs on trainer.html)
 async function initTrainerDashboard() {
-    migrateStoredStudentsDietSchema();
-
-    const sessionUser = await getSupabaseSessionUser();
-    if (!sessionUser) {
-        hideAllScreens();
-        const trainerLoginScreen = document.getElementById('trainer-login-screen');
-        if (trainerLoginScreen) trainerLoginScreen.classList.add('active');
+    if (trainerDashboardInitPromise) {
+        return trainerDashboardInitPromise;
+    }
+    const dashboardScreen = document.getElementById('trainer-dashboard-screen');
+    const dashboardAlreadyActive = !!dashboardScreen?.classList.contains('active');
+    if (dashboardAlreadyActive && (Date.now() - trainerDashboardLastInitAt) < 280) {
         return;
     }
+
+    trainerDashboardInitPromise = (async () => {
+        migrateStoredStudentsDietSchema();
+
+        const sessionUser = await getSupabaseSessionUser();
+        if (!sessionUser) {
+            hideAllScreens();
+            const trainerLoginScreen = document.getElementById('trainer-login-screen');
+            if (trainerLoginScreen) trainerLoginScreen.classList.add('active');
+            return;
+        }
 
     const profile = await getProfileByUserId(sessionUser.id);
     const sessionRoles = normalizeAppRoles(profile?.roles || sessionUser?.user_metadata?.roles, profile?.role || sessionUser?.user_metadata?.role);
@@ -12223,11 +13087,38 @@ async function initTrainerDashboard() {
         name: trainerNameResolved
     });
     const trainerCode = sanitizeCodeInput(trainerIdentity?.code || trainerCodeResolved || '', 5) || '00000';
+    const refreshTrainerFromRemote = async ({ showPendingFeedback = false } = {}) => {
+        if (!trainerCode || trainerCode === '00000') {
+            updateTrainerStats();
+            return true;
+        }
+        if (trainerDashboardManualRefreshPromise) {
+            return trainerDashboardManualRefreshPromise;
+        }
+        trainerDashboardManualRefreshPromise = (async () => {
+            if (showPendingFeedback) {
+                setStudentSyncState('pending', 'Atualizando dados...');
+            }
+            await syncStudentsFromSupabase(trainerCode);
+            return true;
+        })()
+            .catch((error) => {
+                console.warn('Falha ao atualizar dados do treinador.', error);
+                if (showPendingFeedback) {
+                    setStudentSyncState('error', 'Falha ao atualizar dados');
+                }
+                return false;
+            })
+            .finally(() => {
+                trainerDashboardManualRefreshPromise = null;
+            });
+        return trainerDashboardManualRefreshPromise;
+    };
 
     pullAppStateIfNewer();
     startSyncPolling();
     if (trainerCode && trainerCode !== '00000') {
-        syncStudentsFromSupabase(trainerCode);
+        void refreshTrainerFromRemote();
         startSupabaseRealtimeSync(trainerCode);
     }
     if (isSupabaseReady()) {
@@ -12296,7 +13187,7 @@ async function initTrainerDashboard() {
                 pointer-events: none;
                 backdrop-filter: blur(10px);
             `;
-            pullIndicator.textContent = '? Atualizar';
+            pullIndicator.textContent = 'Puxe para atualizar';
             mainContent.style.position = 'relative';
             mainContent.appendChild(pullIndicator);
         };
@@ -12344,26 +13235,36 @@ async function initTrainerDashboard() {
 
             // Handle pull-to-refresh release
             if (isPulling && deltaY > 60) {
-                // Trigger refresh
-                updateTrainerStats();
                 if (navigator.vibrate) navigator.vibrate(50);
-
-                // Animate indicator
-                if (pullIndicator) {
-                    pullIndicator.textContent = '? Atualizado';
-                    pullIndicator.style.background = 'rgba(34, 197, 94, 0.9)';
-                    setTimeout(() => {
-                        if (pullIndicator) {
-                            pullIndicator.style.opacity = '0';
-                            setTimeout(() => pullIndicator?.remove(), 300);
-                        }
-                    }, 1000);
+                const indicatorEl = pullIndicator;
+                if (indicatorEl) {
+                    indicatorEl.textContent = 'Atualizando...';
+                    indicatorEl.style.background = 'rgba(163, 230, 53, 0.95)';
                 }
+                void (async () => {
+                    const refreshed = await refreshTrainerFromRemote({ showPendingFeedback: true });
+                    if (!indicatorEl) return;
+                    indicatorEl.textContent = refreshed ? 'Atualizado' : 'Falha ao atualizar';
+                    indicatorEl.style.background = refreshed
+                        ? 'rgba(34, 197, 94, 0.9)'
+                        : 'rgba(239, 68, 68, 0.92)';
+                    setTimeout(() => {
+                        indicatorEl.style.opacity = '0';
+                        setTimeout(() => {
+                            indicatorEl.remove();
+                            if (pullIndicator === indicatorEl) pullIndicator = null;
+                        }, 300);
+                    }, refreshed ? 900 : 1400);
+                })();
             } else if (pullIndicator) {
                 // Reset indicator
                 pullIndicator.style.transform = 'translateX(-50%) translateY(0)';
                 pullIndicator.style.opacity = '0';
-                setTimeout(() => pullIndicator?.remove(), 300);
+                const indicatorEl = pullIndicator;
+                setTimeout(() => {
+                    indicatorEl?.remove();
+                    if (pullIndicator === indicatorEl) pullIndicator = null;
+                }, 300);
             }
 
             // Minimum swipe distance and angle
@@ -12420,7 +13321,7 @@ async function initTrainerDashboard() {
             animation: slideUpFade 0.5s ease, fadeOut 0.5s ease 3s forwards;
             pointer-events: none;
         `;
-        hint.innerHTML = '?? Deslize para navegar entre as telas';
+        hint.textContent = 'Deslize para navegar entre as telas';
         document.body.appendChild(hint);
 
         setTimeout(() => hint.remove(), 4000);
@@ -12430,8 +13331,15 @@ async function initTrainerDashboard() {
     // Show hint after a short delay
     setTimeout(showSwipeHint, 2000);
 
-    updateTrainerStats();
-    initTrainerRoutes();
+        updateTrainerStats();
+        initTrainerRoutes();
+    })()
+        .finally(() => {
+            trainerDashboardLastInitAt = Date.now();
+            trainerDashboardInitPromise = null;
+        });
+
+    return trainerDashboardInitPromise;
 }
 
 function getTrainerSettingsScopedKey() {
@@ -12717,6 +13625,7 @@ function markStudentConfigDirty() {
 
 function signalStudentPlanDirty() {
     markStudentConfigDirty();
+    queueStudentPlanLocalAutosave(380);
 }
 
 function clearStudentConfigDirty() {
@@ -12912,7 +13821,8 @@ function markCurrentBillingCyclePaid() {
 }
 
 function markCurrentStudentBillingCyclePaid() {
-    if (currentStudentIdx === null) return;
+    const selection = resolveCurrentTrainerStudentSelection();
+    if (selection.idx < 0 || !selection.student) return;
     const payBtn = document.getElementById('student-billing-pay-btn');
     if (payBtn) {
         payBtn.disabled = true;
@@ -12937,8 +13847,8 @@ function markCurrentStudentBillingCyclePaid() {
         competenceDate.setMonth(competenceDate.getMonth() + (monthIndex - 1));
         const competence = formatCompetence(competenceDate);
 
-        const students = readStorageJSON('trainerStudents', []);
-        const student = students[currentStudentIdx];
+        const students = selection.students;
+        const student = students[selection.idx];
         if (!student) return;
         const current = getStudentBillingData(student);
         const history = Array.isArray(current.billingHistory) ? [...current.billingHistory] : [];
@@ -12966,7 +13876,9 @@ function markCurrentStudentBillingCyclePaid() {
         student.billingCurrentStatus = 'pago';
         student.billingCurrentPaidAt = paidDateInput?.value || '';
         student.billingHistory = history;
-        students[currentStudentIdx] = student;
+        students[selection.idx] = student;
+        currentStudentIdx = selection.idx;
+        currentTrainerStudentId = String(student.id || currentTrainerStudentId || '');
         saveStudentData(students);
         loadStudentBillingConfigTab(student);
         setStudentBillingInlineFeedback('Ciclo atualizado como pago com sucesso.', 'success');
@@ -14077,21 +14989,22 @@ function openWhatsAppForStudent(studentIdx, event) {
     if (!s) return;
 
     let phoneRaw = String(s.whatsapp || s.phone || s.telefone || '').trim();
+    let shouldPersistPhone = false;
     if (!phoneRaw) {
         phoneRaw = prompt(`Informe o WhatsApp de ${s.name || 'Aluno'} com DDI(ex: 5511999998888): `) || '';
         phoneRaw = sanitizeUserInput(phoneRaw, { maxLen: 20 });
         if (!phoneRaw) return;
-        students[studentIdx].whatsapp = phoneRaw;
-        saveStudentData(students);
-        setStudentSyncState('pending', 'Sincronização pendente');
-        queueSupabaseStudentsSync(students);
-        setTimeout(() => setStudentSyncState('synced', 'Sincronizado'), 450);
+        shouldPersistPhone = true;
     }
 
     const phone = phoneRaw.replace(/\D/g, '');
     if (phone.length < 10) {
         alert('Número de WhatsApp inválido. Informe com DDD e, de preferência, com DDI.');
         return;
+    }
+    if (shouldPersistPhone) {
+        students[studentIdx].whatsapp = phone;
+        saveStudentData(students);
     }
 
     const coachName = memoryGetItem('trainerName') || 'Treinador';
@@ -14106,22 +15019,46 @@ function backToStudentHomeView() {
 }
 
 // â”€â”€ Helper: build a pending card HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function buildPendingCardDomId(studentId, fallbackIdx = null) {
+    const safeId = String(studentId || '').replace(/[^a-zA-Z0-9_-]/g, '');
+    if (safeId) return `pending-card-${safeId}`;
+    const safeIdx = Number.isFinite(Number(fallbackIdx)) ? Number(fallbackIdx) : 0;
+    return `pending-card-fallback-${safeIdx}`;
+}
+
+function findStudentIndexById(students, studentId) {
+    const targetId = String(studentId || '').trim();
+    if (!targetId) return -1;
+    return (Array.isArray(students) ? students : []).findIndex((student) => String(student?.id || '').trim() === targetId);
+}
+
 function buildPendingCard(s, idx) {
-    const reqDate = new Date(s.joinedAt || new Date()).toLocaleDateString('pt-BR');
+    const requestDate = new Date(s?.joinedAt || Date.now());
+    const reqDate = Number.isNaN(requestDate.getTime())
+        ? new Date().toLocaleDateString('pt-BR')
+        : requestDate.toLocaleDateString('pt-BR');
+    const studentId = String(s?.id || '').trim();
+    const cardId = buildPendingCardDomId(studentId, idx);
+    const safeStudentId = escapeHTML(studentId);
+    const safeName = escapeHTML(s?.name || (studentId ? `Aluno ${studentId}` : 'Aluno'));
+    const safeGoal = escapeHTML(s?.goal || 'Objetivo nao informado');
+    const safeWeight = escapeHTML(String(s?.weight ?? '--'));
+    const safeHeight = escapeHTML(String(s?.height ?? '--'));
+    const safeAge = escapeHTML(String(s?.age ?? '--'));
     return `
-    <div class="pending-card" id="pending-card-${idx}">
+    <div class="pending-card" id="${cardId}" data-student-id="${safeStudentId}">
         <div class="pending-card-avatar"><i class="ph-fill ph-user"></i></div>
         <div class="pending-card-info">
-            <h4>${s.name || 'Aluno ' + s.id}</h4>
-            <p class="sli-sub"><i class="ph-fill ph-target" style="color:var(--primary-color)"></i> ${s.goal}</p>
-            <p class="sli-sub">${s.weight} kg · ${s.height} cm · ${s.age} anos</p>
+            <h4>${safeName}</h4>
+            <p class="sli-sub"><i class="ph-fill ph-target" style="color:var(--primary-color)"></i> ${safeGoal}</p>
+            <p class="sli-sub">${safeWeight} kg · ${safeHeight} cm · ${safeAge} anos</p>
             <span class="pending-date"><i class="ph-bold ph-calendar-blank"></i> Solicitado em ${reqDate}</span>
         </div>
         <div class="pending-card-actions">
-            <button class="btn-accept" onclick="acceptStudentById('${s.id}')">
+            <button class="btn-accept" data-student-id="${safeStudentId}" onclick="acceptStudentById(this.dataset.studentId)">
                 <i class="ph-bold ph-check"></i> Aceitar
             </button>
-            <button class="btn-reject" onclick="rejectStudentById('${s.id}')">
+            <button class="btn-reject" data-student-id="${safeStudentId}" onclick="rejectStudentById(this.dataset.studentId)">
                 <i class="ph-bold ph-x"></i> Recusar
             </button>
         </div>
@@ -14225,7 +15162,7 @@ function updateTrainerStats(filterText) {
         if (badge) badge.textContent = pendingCount;
         pendingList.innerHTML = pendingCount === 0
             ? `<p class="empty-pending-msg"><i class="ph-fill ph-check-circle" style="color:var(--text-success,#22c55e)"></i> Nenhuma solicitação pendente.</p>`
-            : pendingStudents.map((s) => buildPendingCard(s, students.indexOf(s))).join('');
+            : pendingStudents.map((s, idx) => buildPendingCard(s, idx)).join('');
     }
 
     // â”€â”€ Active list (view-alunos) â”€â”€
@@ -14863,63 +15800,54 @@ function responderDuvida(idx) {
 
 // â”€â”€ Accept a pending student â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function acceptStudent(idx) {
-    let students = readStorageJSON('trainerStudents', []);
-    if (!students[idx]) return;
+    const students = readStorageJSON('trainerStudents', []);
+    const target = students[idx] || null;
+    if (!target) return;
+    acceptStudentById(target.id);
+}
+
+function acceptStudentById(studentId) {
+    const students = readStorageJSON('trainerStudents', []);
+    const idx = findStudentIndexById(students, studentId);
+    if (idx < 0) return;
     students[idx].pending = false;
     students[idx].active = true;
     students[idx].acceptedAt = new Date().toISOString();
     const studentUserId = getStudentUserIdValue(students[idx]);
     const trainerCode = getStudentTrainerCodeValue(students[idx]);
+    const resolvedId = String(students[idx]?.id || studentId || '').trim();
     saveStudentData(students);
     if (studentUserId && trainerCode) {
         syncStudentConnectionEntity(studentUserId, trainerCode, 'approved');
     }
 
-    // Broadcast change
-    syncChannel.postMessage({ type: 'STUDENT_ACCEPTED', payload: { studentId: students[idx].id } });
+    syncChannel.postMessage({ type: 'STUDENT_ACCEPTED', payload: { studentId: resolvedId } });
 
-    // Animate out
-    const card = document.getElementById(`pending-card-${idx}`);
+    const cardId = buildPendingCardDomId(resolvedId, idx);
+    const card = document.getElementById(cardId);
     if (card) {
         card.classList.add('card-exit');
-        setTimeout(() => updateTrainerStats(), 350);
+        setTimeout(() => scheduleTrainerDashboardRefresh({ delayMs: 0, refreshProfile: true }), 320);
     } else {
-        updateTrainerStats();
+        scheduleTrainerDashboardRefresh({ delayMs: 0, refreshProfile: true });
     }
-}
-
-function acceptStudentById(studentId) {
-    const students = readStorageJSON('trainerStudents', []);
-    const idx = students.findIndex(s => String(s.id) === String(studentId));
-    if (idx < 0) return;
-    acceptStudent(idx);
-    updateTrainerStats();
 }
 
 // â”€â”€ Reject / remove a pending student â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function rejectStudent(idx) {
-    if (!confirm('Tem certeza que deseja recusar esta solicitação?')) return;
-    let students = readStorageJSON('trainerStudents', []);
+    const students = readStorageJSON('trainerStudents', []);
     const target = students[idx] || null;
-    students.splice(idx, 1);
-    saveStudentData(students);
-    const studentUserId = getStudentUserIdValue(target);
-    const trainerCode = getStudentTrainerCodeValue(target);
-    if (studentUserId && trainerCode) {
-        syncStudentConnectionEntity(studentUserId, trainerCode, 'rejected');
-    }
-
-    // Broadcast change
-    syncChannel.postMessage({ type: 'STUDENT_REJECTED' });
-    updateTrainerStats();
+    if (!target) return;
+    rejectStudentById(target.id);
 }
 
 function rejectStudentById(studentId) {
     if (!confirm('Tem certeza que deseja recusar esta solicitação?')) return;
     let students = readStorageJSON('trainerStudents', []);
-    const idx = students.findIndex(s => String(s.id) === String(studentId));
+    const idx = findStudentIndexById(students, studentId);
     if (idx < 0) return;
     const target = students[idx] || null;
+    const resolvedId = String(target?.id || studentId || '').trim();
     students.splice(idx, 1);
     saveStudentData(students);
     const studentUserId = getStudentUserIdValue(target);
@@ -14927,8 +15855,8 @@ function rejectStudentById(studentId) {
     if (studentUserId && trainerCode) {
         syncStudentConnectionEntity(studentUserId, trainerCode, 'rejected');
     }
-    syncChannel.postMessage({ type: 'STUDENT_REJECTED' });
-    updateTrainerStats();
+    syncChannel.postMessage({ type: 'STUDENT_REJECTED', payload: { studentId: resolvedId } });
+    scheduleTrainerDashboardRefresh({ delayMs: 0, refreshProfile: true });
 }
 
 // â”€â”€ Filter helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -14990,6 +15918,75 @@ let exerciseSearchMatches = [];
 let exerciseSearchActiveIndex = -1;
 let workoutBlockDragState = null;
 let workoutExerciseDragState = null;
+
+function resolveCurrentTrainerStudentSelection(studentsInput = null) {
+    const students = normalizeStudentsDietSchema(
+        Array.isArray(studentsInput) ? studentsInput : readStorageJSON('trainerStudents', [])
+    );
+    let idx = -1;
+    const selectedId = String(currentTrainerStudentId || '').trim();
+    if (selectedId) {
+        idx = students.findIndex((student) => String(student?.id || '') === selectedId);
+    }
+    if (idx < 0 && Number.isInteger(currentStudentIdx) && currentStudentIdx >= 0 && currentStudentIdx < students.length) {
+        idx = currentStudentIdx;
+    }
+    if (idx < 0) {
+        return { students, idx: -1, student: null, studentId: selectedId };
+    }
+    currentStudentIdx = idx;
+    currentTrainerStudentId = String(students[idx]?.id || selectedId || '');
+    return {
+        students,
+        idx,
+        student: students[idx] || null,
+        studentId: currentTrainerStudentId
+    };
+}
+
+function persistCurrentTrainerStudentDraft(options = {}) {
+    const syncModeRaw = String(options?.syncMode || 'local-only').trim().toLowerCase();
+    const syncMode = ['local-only', 'batched', 'immediate'].includes(syncModeRaw) ? syncModeRaw : 'local-only';
+    const syncDelayMs = parseInt(options?.syncDelayMs, 10) || BATCHED_STUDENTS_SYNC_DEFAULT_DELAY_MS;
+    const selection = resolveCurrentTrainerStudentSelection();
+    if (selection.idx < 0 || !selection.student) return null;
+
+    const student = { ...(selection.student || {}) };
+    student.workoutBlocks = JSON.parse(JSON.stringify(Array.isArray(workoutBlocks) ? workoutBlocks : []));
+    student.mealBlocks = JSON.parse(JSON.stringify(Array.isArray(mealBlocks) ? mealBlocks : []));
+    const dietMeta = (student.dietMeta && typeof student.dietMeta === 'object')
+        ? { ...student.dietMeta }
+        : {};
+    const kcalInput = document.getElementById('diet-kcal-meta');
+    const proteinInput = document.getElementById('diet-protein-meta');
+    const carbInput = document.getElementById('diet-carb-meta');
+    const fatInput = document.getElementById('diet-fat-meta');
+    if (kcalInput) dietMeta.kcal = kcalInput.value || '';
+    if (proteinInput) dietMeta.protein = proteinInput.value || '';
+    if (carbInput) dietMeta.carb = carbInput.value || '';
+    if (fatInput) dietMeta.fat = fatInput.value || '';
+    student.dietMeta = dietMeta;
+
+    selection.students[selection.idx] = student;
+    saveStudentData(selection.students, {
+        syncMode,
+        syncDelayMs
+    });
+    return {
+        students: selection.students,
+        student,
+        idx: selection.idx
+    };
+}
+
+function queueStudentPlanLocalAutosave(delayMs = 360) {
+    if (currentStudentIdx === null && !currentTrainerStudentId) return;
+    if (workoutPlanAutosaveTimer) clearTimeout(workoutPlanAutosaveTimer);
+    const safeDelay = Math.max(180, parseInt(delayMs, 10) || 360);
+    workoutPlanAutosaveTimer = setTimeout(() => {
+        persistCurrentTrainerStudentDraft({ syncMode: 'local-only' });
+    }, safeDelay);
+}
 
 function normalizeText(value) {
     return (value || '')
@@ -15096,9 +16093,9 @@ function switchProfileTab(tabName) {
     if (!tab || !nav) return;
     tab.classList.add('active');
     nav.classList.add('active');
-    if (tabName === 'config' && currentStudentIdx !== null) {
-        const students = readStorageJSON('trainerStudents', []);
-        const student = students[currentStudentIdx];
+    if (tabName === 'config') {
+        const selection = resolveCurrentTrainerStudentSelection();
+        const student = selection.student;
         if (student && !studentConfigDirty) loadStudentBillingConfigTab(student);
     }
 }
@@ -15248,19 +16245,7 @@ function renderWorkoutBlocks() {
 }
 
 function queueWorkoutPlanAutosave() {
-    if (currentStudentIdx === null) return;
-    if (workoutPlanAutosaveTimer) clearTimeout(workoutPlanAutosaveTimer);
-    workoutPlanAutosaveTimer = setTimeout(() => {
-        const students = readStorageJSON('trainerStudents', []);
-        const student = students[currentStudentIdx];
-        if (!student) return;
-        student.workoutBlocks = workoutBlocks;
-        students[currentStudentIdx] = student;
-        saveStudentData(students, {
-            syncMode: 'batched',
-            syncDelayMs: 2600
-        });
-    }, 350);
+    queueStudentPlanLocalAutosave(320);
 }
 
 function addWorkoutBlock() {
@@ -16022,6 +17007,7 @@ function updateDietPlannerSummary() {
 
 function openFoodModal(mealIdx) {
     pendingMealIdx = mealIdx;
+    setupFoodModalResultDelegation();
     if (foodSearchAbortController) {
         foodSearchAbortController.abort();
         foodSearchAbortController = null;
@@ -16091,6 +17077,69 @@ let foodModalFilters = {
 };
 let currentFoodQuantityAmount = 150;
 let currentFoodQuantityUnit = 'g';
+let foodModalResultDelegationBound = false;
+let foodModalSelectionLockUntil = 0;
+let foodModalLastTouchPointerUpAt = 0;
+
+function lockFoodModalSelection(ms = 220) {
+    foodModalSelectionLockUntil = Date.now() + Math.max(80, Number(ms) || 0);
+}
+
+function isFoodModalSelectionLocked() {
+    return Date.now() < foodModalSelectionLockUntil;
+}
+
+function setupFoodModalResultDelegation() {
+    if (foodModalResultDelegationBound) return;
+    const results = document.getElementById('food-library-results');
+    if (!results) return;
+
+    const triggerSelection = (event) => {
+        const favoriteBtn = event.target.closest('[data-food-fav-index]');
+        if (favoriteBtn) {
+            const idx = Number(favoriteBtn.getAttribute('data-food-fav-index'));
+            if (!Number.isFinite(idx)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            lockFoodModalSelection();
+            toggleFoodFavoriteFromSearch(idx);
+            return;
+        }
+
+        const row = event.target.closest('[data-food-index]');
+        if (!row || !results.contains(row)) return;
+        const idx = Number(row.getAttribute('data-food-index'));
+        if (!Number.isFinite(idx)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        lockFoodModalSelection();
+        selectFoodFromSearchIndex(idx);
+    };
+
+    results.addEventListener('pointerup', (event) => {
+        if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
+        foodModalLastTouchPointerUpAt = Date.now();
+        triggerSelection(event);
+    });
+
+    results.addEventListener('click', (event) => {
+        if ((Date.now() - foodModalLastTouchPointerUpAt) < 250) return;
+        triggerSelection(event);
+    });
+
+    results.addEventListener('keydown', (event) => {
+        const row = event.target.closest('[data-food-index]');
+        if (!row) return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        const idx = Number(row.getAttribute('data-food-index'));
+        if (!Number.isFinite(idx)) return;
+        lockFoodModalSelection();
+        selectFoodFromSearchIndex(idx);
+    });
+
+    foodModalResultDelegationBound = true;
+}
 
 function syncFoodQuantityInputText() {
     const qtd = document.getElementById('food-qtd');
@@ -16176,7 +17225,7 @@ function updateFoodSelectionPreview() {
     const preview = document.getElementById('food-selection-preview');
     if (!preview) return;
     if (!selectedFoodReference) {
-        preview.textContent = 'Selecione um alimento para ver a prévia de macros.';
+        preview.textContent = 'Selecione um alimento para abrir a confirmação com porções e macros em tempo real.';
         return;
     }
     const qtyText = document.getElementById('food-qtd')?.value || formatFoodQuantity(selectedFoodReference.base_qty, selectedFoodReference.base_unit);
@@ -16348,14 +17397,16 @@ function renderFoodSearchResults() {
         ${foodModalSearchResults.map((item, idx) => {
             const key = getFoodItemKey(item);
             const isFav = favoritesSet.has(key);
+            const safeName = sanitizeUserInput(item?.nome || 'alimento', { maxLen: 90 });
+            const sourceLabel = isFatSecretSource(item?.source || '') ? ' · FatSecret' : '';
             return `
-            <div class="food-quick-item-wrap ${foodModalSearchActiveIndex === idx ? 'active' : ''}" onclick="selectFoodFromSearchIndex(${idx})">
-                <button type="button" class="food-quick-fav-btn ${isFav ? 'active' : ''}" onclick="event.stopPropagation(); toggleFoodFavoriteFromSearch(${idx})" aria-label="Favoritar alimento">
+            <div class="food-quick-item-wrap ${foodModalSearchActiveIndex === idx ? 'active' : ''}" data-food-index="${idx}" role="button" tabindex="0" aria-label="Selecionar ${escHtml(safeName)}">
+                <button type="button" class="food-quick-fav-btn ${isFav ? 'active' : ''}" data-food-fav-index="${idx}" aria-label="Favoritar alimento">
                     <i class="ph-${isFav ? 'fill' : 'bold'} ph-star"></i>
                 </button>
                 <div class="food-quick-item-content">
                     <div class="food-quick-item-head">${foodTypeIconMarkup(inferFoodType(item))}${escHtml(item.nome)}${item.brand ? ` - ${escHtml(item.brand)}` : ''}</div>
-                    <small>${Math.round(item.kcal)}kcal · P ${item.prot}g · C ${item.carb}g · G ${item.fat}g · ${formatFoodQuantity(item.base_qty, item.base_unit)}</small>
+                    <small>${Math.round(item.kcal)}kcal · P ${item.prot}g · C ${item.carb}g · G ${item.fat}g · ${formatFoodQuantity(item.base_qty, item.base_unit)}${sourceLabel}</small>
                 </div>
             </div>`;
         }).join('')}
@@ -16402,12 +17453,13 @@ function renderSimpleFoodLibrary(query = '') {
     applyFoodModalFiltersAndRender();
 }
 
-function selectFoodFromSearchIndex(index) {
+async function selectFoodFromSearchIndex(index) {
     const data = foodModalSearchResults[index];
     if (!data) return;
     foodModalSearchActiveIndex = index;
     renderFoodSearchResults();
-    selectFoodFromAPI(data);
+    lockFoodModalSelection(260);
+    await openFoodConfirmSheetFromModalItem(data);
 }
 
 function toggleFoodFavoriteFromSearch(index) {
@@ -16432,6 +17484,7 @@ function registerRecentFood(item) {
 }
 
 function mapFoodResultToModalItem(item = {}) {
+    const providerFoodId = sanitizeUserInput(item.provider_food_id || item.providerFoodId || '', { maxLen: 80 });
     return {
         nome: item.name,
         brand: item.brand || '',
@@ -16446,6 +17499,9 @@ function mapFoodResultToModalItem(item = {}) {
         variant_key: item.variant_key || '',
         variant_label: item.variant_label || '',
         source: item.source || 'catalog',
+        provider: item.provider || (isFatSecretSource(item.source || '') ? 'fatsecret' : ''),
+        provider_food_id: providerFoodId || extractFatSecretProviderFoodId(item),
+        verified_at: item.verified_at || '',
         portions: getFoodPortions(item)
     };
 }
@@ -16461,7 +17517,7 @@ function handleFoodModalSearchKeydown(event) {
     if (!modal || !modal.classList.contains('active')) return;
     if (event.key === 'Escape') {
         event.preventDefault();
-        closeFoodModal();
+        closeFoodModal('escape');
         return;
     }
     if (!Array.isArray(foodModalSearchResults) || !foodModalSearchResults.length) return;
@@ -16518,54 +17574,22 @@ function searchFoodAPI(query) {
 
     clearTimeout(foodSearchTimeout);
     foodSearchTimeout = setTimeout(async () => {
-        const controller = new AbortController();
-        foodSearchAbortController = controller;
+        foodSearchAbortController = null;
         if (!localQuickResults.length) {
             results.innerHTML = '<div class="food-quick-empty">Buscando alimentos...</div>';
             results.classList.add('active');
         }
 
         try {
-            const catalogResults = await searchFoodsCatalog(safeQuery, 12);
+            const catalogResults = await searchFoodsProviderFirst(safeQuery, { limit: 12 });
             if (requestId !== foodSearchRequestSeq) return;
             if (catalogResults.length > 0) {
-                applyFoodSearchResultsFromCatalog(catalogResults, 'Banco de Alimentos');
+                const hasFatSecret = catalogResults.some((item) => isFatSecretSource(item?.source || ''));
+                applyFoodSearchResultsFromCatalog(
+                    catalogResults,
+                    hasFatSecret ? 'FatSecret + Banco de Alimentos' : 'Banco de Alimentos'
+                );
                 return;
-            }
-
-            if (catalogResults.length === 0) {
-                const url = `https://br.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(safeQuery)}&search_simple=1&action=process&json=1&page_size=10`;
-                const resp = await fetch(url, {
-                    headers: { 'User-Agent': 'AplicativoConsultoria - Browser - v1.0' },
-                    signal: controller.signal
-                });
-                const data = await resp.json();
-                if (requestId !== foodSearchRequestSeq) return;
-                if (data.products && data.products.length > 0) {
-                    foodModalSearchLabel = 'Open Food Facts';
-                    foodModalSearchBaseResults = data.products.map((p) => {
-                        const name = p.product_name || 'Desconhecido';
-                        const inferredBaseUnit = isLikelyLiquidFoodName(name) ? 'ml' : 'g';
-                        const inferredFamily = inferFoodFamilyKey(name, inferredBaseUnit);
-                        return {
-                            nome: name,
-                            brand: p.brands || '',
-                            kcal: Math.round(p.nutriments?.['energy-kcal_100g'] || 0),
-                            prot: p.nutriments?.proteins_100g || 0,
-                            carb: p.nutriments?.carbohydrates_100g || 0,
-                            fat: p.nutriments?.fat_100g || 0,
-                            base_qty: 100,
-                            base_unit: inferredBaseUnit,
-                            family_key: inferredFamily,
-                            variant_key: inferFoodVariantKey(inferredFamily, name),
-                            variant_label: '',
-                            source: 'openfoodfacts',
-                            portions: getFallbackFoodPortions({ id: '', name, base_unit: inferredBaseUnit })
-                        };
-                    });
-                    applyFoodModalFiltersAndRender();
-                    return;
-                }
             }
 
             foodModalSearchBaseResults = [];
@@ -16573,7 +17597,6 @@ function searchFoodAPI(query) {
             foodModalSearchActiveIndex = -1;
             renderFoodSearchResults();
         } catch (err) {
-            if (err?.name === 'AbortError') return;
             console.error(err);
             results.innerHTML = '<div class="food-quick-empty" style="color:#ef4444;">Erro ao buscar alimentos.</div>';
         } finally {
@@ -16581,10 +17604,10 @@ function searchFoodAPI(query) {
                 foodSearchAbortController = null;
             }
         }
-    }, 500);
+    }, 260);
 }
 
-function selectFoodFromAPI(data) {
+function applyFoodSelectionToModalDraft(data) {
     const baseQty = Math.max(0.1, parseDecimalSafe(data.base_qty) || 100);
     const baseUnit = normalizeFoodUnitKey(data.base_unit || 'g');
     const portions = getFoodPortions({ ...data, base_unit: baseUnit, base_qty: baseQty });
@@ -16597,6 +17620,9 @@ function selectFoodFromAPI(data) {
         variant_key: data.variant_key || '',
         variant_label: data.variant_label || '',
         source: data.source || 'manual',
+        provider: data.provider || '',
+        provider_food_id: data.provider_food_id || '',
+        verified_at: data.verified_at || '',
         base_qty: baseQty,
         base_unit: baseUnit,
         kcalBase: parseDecimalSafe(data.kcal),
@@ -16621,10 +17647,6 @@ function selectFoodFromAPI(data) {
     updateFoodTargetHint();
     updateFoodModalProgressiveState();
     updateFoodSelectionPreview();
-    registerRecentFood({
-        id: data.foodId || '',
-        name: data.nome
-    });
 }
 
 function recalculateFoodFromQuantity() {
@@ -16656,6 +17678,97 @@ function recalculateFoodFromQuantity() {
     updateFoodSelectionPreview();
 }
 
+async function openFoodConfirmSheetFromModalItem(data) {
+    const resultsContainer = document.getElementById('food-library-results');
+    if (resultsContainer) resultsContainer.classList.add('is-loading');
+    const normalizedFromResult = normalizeFoodCatalogRow({
+        id: data.foodId || data.id || '',
+        name: data.nome || data.name || '',
+        brand: data.brand || '',
+        base_qty: data.base_qty || data.baseQty || 100,
+        base_unit: data.base_unit || data.baseUnit || 'g',
+        kcal: data.kcal,
+        protein: data.prot || data.protein,
+        carb: data.carb,
+        fat: data.fat || data.gord,
+        source: data.source || 'catalog',
+        provider: data.provider || '',
+        provider_food_id: data.provider_food_id || data.providerFoodId || '',
+        verified_at: data.verified_at || '',
+        family_key: data.family_key || data.familyKey || '',
+        variant_key: data.variant_key || data.variantKey || '',
+        variant_label: data.variant_label || data.variantLabel || '',
+        portions: Array.isArray(data.portions) ? data.portions : []
+    });
+    if (!normalizedFromResult) {
+        if (resultsContainer) resultsContainer.classList.remove('is-loading');
+        return;
+    }
+
+    const detailedFood = await getFoodDetailsProviderFirst(normalizedFromResult);
+    if (resultsContainer) resultsContainer.classList.remove('is-loading');
+    const selectedFood = detailedFood || normalizedFromResult;
+    if (!document.getElementById('food-modal')?.classList.contains('active')) return;
+
+    applyFoodSelectionToModalDraft({
+        nome: selectedFood.name,
+        brand: selectedFood.brand || '',
+        foodId: selectedFood.id || '',
+        family_key: selectedFood.family_key || '',
+        variant_key: selectedFood.variant_key || '',
+        variant_label: selectedFood.variant_label || '',
+        source: selectedFood.source || 'manual',
+        provider: selectedFood.provider || '',
+        provider_food_id: selectedFood.provider_food_id || extractFatSecretProviderFoodId(selectedFood),
+        verified_at: selectedFood.verified_at || '',
+        base_qty: selectedFood.base_qty,
+        base_unit: selectedFood.base_unit,
+        kcal: selectedFood.kcal,
+        prot: selectedFood.protein,
+        carb: selectedFood.carb,
+        fat: selectedFood.fat,
+        portions: getFoodPortions(selectedFood)
+    });
+
+    registerRecentFood({
+        id: selectedFood.id || data.foodId || '',
+        name: selectedFood.name || data.nome || ''
+    });
+
+    const summary = getDietPlannerSummary();
+    const mealTarget = summary.mealTargets[pendingMealIdx] || 250;
+    const mealCurrent = summary.mealKcals[pendingMealIdx] || 0;
+    const mealRemaining = Math.max(80, mealTarget - mealCurrent);
+    const suggestedAmount = selectedFood.kcal > 0
+        ? Math.max(1, Math.round((mealRemaining / selectedFood.kcal) * selectedFood.base_qty))
+        : Math.max(1, Math.round(selectedFood.base_qty || 100));
+
+    const portions = getFoodPortions(selectedFood);
+    const baseUnit = normalizeFoodUnitKey(selectedFood.base_unit || 'g');
+    const defaultPortion = portions.find((portion) => normalizeFoodUnitKey(portion.unit_key || '') === baseUnit)
+        || portions.find((portion) => !!portion.is_default)
+        || portions[0]
+        || null;
+    const openUnit = normalizeFoodUnitKey(defaultPortion?.unit_key || baseUnit);
+    const openAmount = openUnit === baseUnit
+        ? suggestedAmount
+        : Math.max(0.1, parseDecimalSafe(defaultPortion?.amount) || 1);
+    const openPortionId = String(defaultPortion?.id || '');
+
+    openFoodDetailsModal({
+        mode: 'trainer-add',
+        mealIdx: pendingMealIdx,
+        food: {
+            ...selectedFood,
+            portions
+        },
+        amount: openAmount,
+        unitKey: openUnit,
+        portionId: openPortionId,
+        qty: formatFoodQuantity(openAmount, openUnit)
+    });
+}
+
 async function saveCurrentFoodToCatalog() {
     const nome = sanitizeUserInput(document.getElementById('food-nome')?.value, { maxLen: 140 });
     if (!nome) return;
@@ -16671,6 +17784,7 @@ async function saveCurrentFoodToCatalog() {
         carb: parseDecimalSafe(document.getElementById('food-carb')?.value),
         fat: parseDecimalSafe(document.getElementById('food-gord')?.value),
         source: selectedFoodReference?.source || 'manual',
+        portions: selectedFoodReference?.portions || [],
         created_by: getCurrentFoodCreatorId()
     });
     if (inserted) {
@@ -16735,7 +17849,12 @@ function applyRemainingCaloriesToCurrentFood() {
     updateFoodSelectionPreview();
 }
 
-function closeFoodModal() {
+function closeFoodModal(reason = 'manual') {
+    const isExplicitClose = reason === 'cancel' || reason === 'escape' || reason === 'confirm';
+    if (!isExplicitClose && isFoodModalSelectionLocked()) return;
+    if (foodDetailsState?.open && foodDetailsState?.mode === 'trainer-add') {
+        closeFoodDetailsModal();
+    }
     if (foodSearchAbortController) {
         foodSearchAbortController.abort();
         foodSearchAbortController = null;
@@ -16750,6 +17869,7 @@ function closeFoodModal() {
     foodModalSearchResults = [];
     foodModalSearchActiveIndex = -1;
     updateFoodModalProgressiveState();
+    foodModalSelectionLockUntil = 0;
 }
 
 function buildFoodModalItemPayload() {
@@ -16808,7 +17928,7 @@ function addCurrentFoodToMeal(options = {}) {
         updateFoodTargetHint();
         return true;
     }
-    closeFoodModal();
+    closeFoodModal('confirm');
     return true;
 }
 
@@ -16864,20 +17984,27 @@ function toggleFoodManualMacros() {
 
 // â”€â”€â”€ Save plan â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function saveStudentPlan() {
-    if (currentStudentIdx === null) return;
+async function saveStudentPlan() {
+    const selection = resolveCurrentTrainerStudentSelection();
+    if (selection.idx < 0 || !selection.student) return;
     const activeDietTab = document.getElementById('p-tab-nutricao')?.classList.contains('active')
         || document.getElementById('p-tab-config')?.classList.contains('active');
-    if (activeDietTab && !ensureDietWriteAllowed('planner')) return;
+    if (activeDietTab && navigator.onLine === false) {
+        setStudentSyncState('offline', 'Sem conexão');
+    }
     setSettingsSavebarState('saving');
     try {
-        let students = readStorageJSON('trainerStudents', []);
-        const diet = students[currentStudentIdx].dietMeta || {};
+        const baselinePersist = persistCurrentTrainerStudentDraft({ syncMode: 'local-only' });
+        if (!baselinePersist) throw new Error('student-draft-missing');
+        const students = baselinePersist.students;
+        const targetIdx = baselinePersist.idx;
+        const student = baselinePersist.student || {};
+        const diet = (student.dietMeta && typeof student.dietMeta === 'object') ? { ...student.dietMeta } : {};
         diet.kcal = document.getElementById('diet-kcal-meta')?.value || '';
         diet.protein = document.getElementById('diet-protein-meta')?.value || '';
         diet.carb = document.getElementById('diet-carb-meta')?.value || '';
         diet.fat = document.getElementById('diet-fat-meta')?.value || '';
-        const currentStudent = students[currentStudentIdx] || {};
+        const currentStudent = students[targetIdx] || student || {};
         const currentBilling = getStudentBillingData(currentStudent);
         const billingStartDate = sanitizeUserInput(document.getElementById('student-billing-start-date')?.value || '', { maxLen: 10 });
         const billingCurrentStatus = normalizeBillingStatus(document.getElementById('student-billing-current-status')?.value || 'pendente');
@@ -16904,24 +18031,50 @@ function saveStudentPlan() {
             else billingHistory.push(entry);
         }
 
-        students[currentStudentIdx].workoutBlocks = workoutBlocks;
-        students[currentStudentIdx].mealBlocks = mealBlocks;
-        students[currentStudentIdx].dietMeta = diet;
-        students[currentStudentIdx].billingStartDate = billingStartDate;
-        students[currentStudentIdx].billingCurrentStatus = billingCurrentStatus;
-        students[currentStudentIdx].billingMonthlyAmount = billingMonthlyAmount;
-        students[currentStudentIdx].billingCurrentPaidAt = billingCurrentPaidAt;
-        students[currentStudentIdx].billingNotes = billingNotes;
-        students[currentStudentIdx].billingHistory = billingHistory;
-        students[currentStudentIdx].active = true; // Mark protocol as active when saved
-        saveStudentData(students, { syncMode: 'immediate' });
-        loadStudentBillingConfigTab(students[currentStudentIdx]);
+        students[targetIdx].workoutBlocks = JSON.parse(JSON.stringify(Array.isArray(workoutBlocks) ? workoutBlocks : []));
+        students[targetIdx].mealBlocks = JSON.parse(JSON.stringify(Array.isArray(mealBlocks) ? mealBlocks : []));
+        students[targetIdx].dietMeta = diet;
+        students[targetIdx].billingStartDate = billingStartDate;
+        students[targetIdx].billingCurrentStatus = billingCurrentStatus;
+        students[targetIdx].billingMonthlyAmount = billingMonthlyAmount;
+        students[targetIdx].billingCurrentPaidAt = billingCurrentPaidAt;
+        students[targetIdx].billingNotes = billingNotes;
+        students[targetIdx].billingHistory = billingHistory;
+        students[targetIdx].active = true; // Mark protocol as active when saved
+        saveStudentData(students, { syncMode: 'local-only' });
+
+        let remoteSynced = true;
+        let remoteMessage = '';
+        if (isSupabaseReady()) {
+            if (navigator.onLine === false) {
+                remoteSynced = false;
+                remoteMessage = 'Salvo localmente. Sem conexão para sincronizar.';
+                setStudentSyncState('offline', 'Sem conexão');
+            } else {
+                const syncResult = await performSupabaseStudentsSync(students);
+                remoteSynced = !!syncResult?.ok;
+                if (!remoteSynced) {
+                    remoteMessage = syncResult?.failedCount
+                        ? `Salvo localmente. Falha no sync remoto (${syncResult.failedCount}).`
+                        : 'Salvo localmente. Falha no sync remoto.';
+                }
+            }
+        }
+
+        currentStudentIdx = targetIdx;
+        currentTrainerStudentId = String(students[targetIdx]?.id || currentTrainerStudentId || '');
+        loadStudentBillingConfigTab(students[targetIdx]);
         updateTrainerStats(document.getElementById('alunos-search')?.value || document.getElementById('global-search')?.value || '');
-        clearStudentConfigDirty();
-        setSettingsSavebarState('saved');
-        setTimeout(() => {
-            if (!studentConfigDirty) setSettingsSavebarState('clean');
-        }, 1800);
+        if (remoteSynced) {
+            clearStudentConfigDirty();
+            setSettingsSavebarState('saved');
+            setTimeout(() => {
+                if (!studentConfigDirty) setSettingsSavebarState('clean');
+            }, 1800);
+        } else {
+            studentConfigDirty = true;
+            setSettingsSavebarState('error', remoteMessage || 'Salvo localmente. Tente sincronizar novamente.');
+        }
     } catch (error) {
         console.error('Failed to save student plan', error);
         setSettingsSavebarState('error');
@@ -16929,7 +18082,8 @@ function saveStudentPlan() {
 }
 
 function removeStudent() {
-    if (currentStudentIdx === null) return;
+    const selection = resolveCurrentTrainerStudentSelection();
+    if (selection.idx < 0 || !selection.student) return;
     openRemoveModal();
 }
 
@@ -16952,14 +18106,22 @@ function checkRemoveInput() {
 }
 
 function confirmRemoveStudent() {
-    if (currentStudentIdx === null) return;
-    let students = readStorageJSON('trainerStudents', []);
-    students.splice(currentStudentIdx, 1);
+    const selection = resolveCurrentTrainerStudentSelection();
+    if (selection.idx < 0 || !selection.student) return;
+    const targetStudent = selection.student;
+    const targetId = String(targetStudent?.id || '').trim();
+    if (!targetId) return;
+    const students = normalizeStudentsDietSchema(selection.students)
+        .filter((student) => String(student?.id || '').trim() !== targetId);
     saveStudentData(students);
-
+    const studentUserId = getStudentUserIdValue(targetStudent);
+    const trainerCode = getStudentTrainerCodeValue(targetStudent);
+    if (studentUserId && trainerCode) {
+        syncStudentConnectionEntity(studentUserId, trainerCode, 'rejected');
+    }
     closeRemoveModal();
     closeStudentProfile();
-    updateTrainerStats();
+    scheduleTrainerDashboardRefresh({ delayMs: 0, refreshProfile: false, students });
 }
 
 // â”€â”€â”€ UTILITY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

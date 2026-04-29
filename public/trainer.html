@@ -1183,11 +1183,11 @@
 
 
         <!-- ── Modal: Add Meal Item ────────────────────────────────── -->
-        <div id="food-modal-overlay" class="ex-modal-overlay"></div>
-        <div id="food-modal" class="ex-modal food-quick-modal">
+        <div id="food-modal-overlay" class="ex-modal-overlay" aria-hidden="true"></div>
+        <div id="food-modal" class="ex-modal food-quick-modal" role="dialog" aria-modal="true" aria-labelledby="food-modal-title">
             <div class="ex-modal-header">
-                <h3>Adicionar Alimento</h3>
-                <button class="btn-icon" onclick="closeFoodModal()"><i class="ph-bold ph-x"></i></button>
+                <h3 id="food-modal-title">Adicionar Alimento</h3>
+                <button class="btn-icon" onclick="closeFoodModal('cancel')" aria-label="Fechar modal de alimento"><i class="ph-bold ph-x"></i></button>
             </div>
             <div class="ex-modal-body food-quick-body">
                 <section class="food-zone food-zone-search input-group" style="width:100%; position: relative;">
@@ -1219,10 +1219,10 @@
                     </div>
                 </section>
                 <section class="food-zone food-zone-results">
-                    <div id="food-library-results" class="library-results food-quick-results"></div>
+                    <div id="food-library-results" class="library-results food-quick-results" role="listbox" aria-label="Resultados de alimentos"></div>
                 </section>
                 <section id="food-config-zone" class="food-zone food-zone-config is-disabled">
-                <div id="food-selection-preview" class="food-quick-preview">Selecione um alimento para ver a prévia de macros.</div>
+                <div id="food-selection-preview" class="food-quick-preview">Selecione um alimento para abrir a confirmação com porções e macros em tempo real.</div>
                 <div id="food-target-hint" class="food-target-hint food-quick-target"></div>
                 <div class="food-quick-main-grid">
                     <div class="input-group">
@@ -1269,11 +1269,11 @@
                     <button class="btn-secondary" style="width:auto;padding:0.75rem 1.1rem;"
                     onclick="saveCurrentFoodToCatalog()">Salvar no banco</button>
                     <button class="btn-secondary" style="width:auto;padding:0.75rem 1.1rem;"
-                    onclick="closeFoodModal()">Cancelar</button>
+                    onclick="closeFoodModal('cancel')">Cancelar</button>
                 </div>
                 <div class="food-quick-primary-actions">
                     <button id="food-confirm-btn" class="btn-primary" style="width:auto;padding:0.75rem 1.2rem;" onclick="confirmAddFood()">
-                    <i class="ph-bold ph-check"></i> Adicionar
+                    <i class="ph-bold ph-check"></i> Adicionar manual
                     </button>
                 </div>
             </div>
@@ -1386,12 +1386,6 @@
     <script src="supabase.js"></script>
     <script src="script.js"></script>
     <script src="pwa-register.js"></script>
-    <script>
-        // Init trainer dashboard automatically when this page loads
-        document.addEventListener('DOMContentLoaded', () => {
-            initTrainerDashboard();
-        });
-    </script>
 </body>
 
 </html>
