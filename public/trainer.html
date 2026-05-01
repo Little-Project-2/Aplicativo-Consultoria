@@ -165,7 +165,7 @@
                     </div>
 
                     <div class="sidebar-footer">
-                        <button class="nav-item btn-logout" onclick="window.location.href='index.html'">
+                        <button class="nav-item btn-logout" onclick="logoutTrainerFromMenu()">
                             <i class="ph-thin ph-sign-out"></i> Sair
                         </button>
                     </div>
@@ -828,7 +828,16 @@
                 <button class="prof-tab active" id="p-nav-treino" onclick="switchProfileTab('treino')">
                     <i class="ph-bold ph-barbell"></i> Treino
                 </button>
-                <button class="prof-tab" id="p-nav-nutricao" onclick="switchProfileTab('nutricao')">
+                <button class="prof-tab" id="p-nav-cardio" onclick="switchProfileTab('cardio')">
+                    <i class="ph-bold ph-gauge"></i> Cardio
+                </button>
+                <button class="prof-tab" id="p-nav-dieta" onclick="switchProfileTab('dieta')">
+                    <i class="ph-bold ph-fork-knife"></i> Dieta / Refeições
+                </button>
+                <button class="prof-tab" id="p-nav-agua" onclick="switchProfileTab('agua')">
+                    <i class="ph-bold ph-drop"></i> Água
+                </button>
+                <button class="prof-tab legacy-tab-hidden" id="p-nav-nutricao" onclick="switchProfileTab('dieta')">
                     <i class="ph-bold ph-fork-knife"></i> Dieta
                 </button>
                 <button class="prof-tab" id="p-nav-perfil" onclick="switchProfileTab('perfil')">
@@ -892,6 +901,17 @@
                 <div class="history-workout-list" id="trainer-history-workout-list"></div>
             </div>
 
+            <!-- ── TAB: CARDIO ─────────────────────────────────────── -->
+            <div id="p-tab-cardio" class="p-tab-content">
+                <div class="plan-section-header">
+                    <div>
+                        <h3 class="plan-title">Plano de Cardio</h3>
+                        <p class="plan-subtitle">Prescreva sessões semanais para o aluno.</p>
+                    </div>
+                </div>
+                <div id="trainer-cardio-plan-editor" class="settings-card"></div>
+            </div>
+
             <!-- ── TAB: DIETA ──────────────────────────────────────── -->
             <div id="p-tab-nutricao" class="p-tab-content">
                 <div class="plan-section-header">
@@ -949,6 +969,17 @@
 
                 <!-- Meal blocks injected by JS -->
                 <div id="meal-blocks-container"></div>
+            </div>
+
+            <!-- ── TAB: ÁGUA ───────────────────────────────────────── -->
+            <div id="p-tab-agua" class="p-tab-content">
+                <div class="plan-section-header">
+                    <div>
+                        <h3 class="plan-title">Plano de Água</h3>
+                        <p class="plan-subtitle">Defina meta diária e orientações de hidratação.</p>
+                    </div>
+                </div>
+                <div id="trainer-water-plan-editor" class="settings-card"></div>
             </div>
 
             <!-- ── TAB: PERFIL ─────────────────────────────────────── -->

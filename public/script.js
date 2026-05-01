@@ -39,6 +39,7 @@ function clearDashboardRuntimeTimers() {
     // Invalida boots pendentes do dashboard do aluno.
     studentDashboardBootToken += 1;
     studentDashboardBootPromise = null;
+    if (typeof stopCardioTimerRuntime === 'function') stopCardioTimerRuntime();
 }
 
 const MOBILE_DASHBOARD_BREAKPOINT = 900;
@@ -140,6 +141,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TRAINER_SETTINGS_KEY = 'trainer_settings_v1';
 const PENDING_SIGNUP_CONTEXT_KEY = 'pending_signup_context_v1';
 const AUTH_MIGRATION_DONE_KEY = 'migration_done_v1';
+const STUDENT_CONNECT_TUTORIAL_KEY = 'student_connect_tutorial_v1';
 let activeDashboardFilter = 'all';
 let activeEngagementRange = 7;
 let lastMainTrainerView = 'dashboard';
@@ -161,6 +163,7 @@ let studentDashboardLastInitAt = 0;
 let studentDashboardBootPromise = null;
 let studentDashboardBootToken = 0;
 let studentDashboardRefreshTimer = null;
+let studentConnectTutorialShownInSession = false;
 let profileSetupTrainerSpecialties = [];
 const TRAINER_SERVICES_ALLOWED = ['treino', 'dieta', 'ambos'];
 const TRAINER_THEME_PRESETS = ['neon-lime', 'ocean-blue', 'graphite'];
@@ -516,7 +519,8 @@ function openStudentDashboardSession(student) {
     const app = document.getElementById('app');
     if (app) app.classList.add('wide');
     studentDashboardScreen.classList.add('active');
-    void bootStudentDashboardSession('home');
+    studentConnectTutorialShownInSession = false;
+    void bootStudentDashboardSession('treino');
     return true;
 }
 
@@ -550,9 +554,9 @@ function scheduleStudentDashboardRefresh(options = {}) {
     }, delayMs);
 }
 
-async function bootStudentDashboardSession(defaultView = 'home') {
+async function bootStudentDashboardSession(defaultView = 'treino') {
     const nextToken = ++studentDashboardBootToken;
-    const targetView = String(defaultView || 'home').trim() || 'home';
+    const targetView = String(defaultView || 'treino').trim() || 'treino';
     if (studentDashboardBootPromise) {
         try {
             await studentDashboardBootPromise;
@@ -589,8 +593,12 @@ function refreshTrainerProfilePanelFromStorage(studentsSnapshot = null) {
 
     workoutBlocks = selection.student.workoutBlocks || [];
     mealBlocks = selection.student.mealBlocks || [];
+    trainerCardioPlan = normalizeCardioPlanShape(selection.student.cardioPlan);
+    trainerWaterPlan = normalizeWaterPlanShape(selection.student.waterPlan);
     if (typeof renderWorkouts === 'function') renderWorkouts();
     if (typeof renderMeals === 'function') renderMeals();
+    if (typeof renderTrainerCardioPlanEditor === 'function') renderTrainerCardioPlanEditor();
+    if (typeof renderTrainerWaterPlanEditor === 'function') renderTrainerWaterPlanEditor();
     if (currentTrainerStudentId) {
         renderTrainerWorkoutHistory(currentTrainerStudentId);
     }
@@ -1610,16 +1618,169 @@ function normalizeDietLogsShape(dietLogs, mealBlocks) {
     return normalized;
 }
 
+const CARDIO_PLAN_DAYS = [
+    { key: 'seg', label: 'Segunda' },
+    { key: 'ter', label: 'Terça' },
+    { key: 'qua', label: 'Quarta' },
+    { key: 'qui', label: 'Quinta' },
+    { key: 'sex', label: 'Sexta' },
+    { key: 'sab', label: 'Sábado' },
+    { key: 'dom', label: 'Domingo' }
+];
+
+function getDefaultCardioPlan() {
+    return {
+        weeklyGoalMin: 120,
+        baseZoneKey: 'z2',
+        coachRecommendation: '',
+        days: CARDIO_PLAN_DAYS.map((day) => ({
+            dayKey: day.key,
+            dayLabel: day.label,
+            type: '',
+            durationMin: '',
+            intensity: '',
+            notes: ''
+        }))
+    };
+}
+
+function normalizeCardioDaysShape(daysLike = []) {
+    const mapByDay = new Map();
+    (Array.isArray(daysLike) ? daysLike : []).forEach((entry) => {
+        const rawKey = sanitizeUserInput(entry?.dayKey || '', { maxLen: 8 }).toLowerCase();
+        if (!rawKey) return;
+        mapByDay.set(rawKey, {
+            dayKey: rawKey,
+            dayLabel: sanitizeUserInput(entry?.dayLabel || '', { maxLen: 20 }),
+            type: sanitizeUserInput(entry?.type || '', { maxLen: 80 }),
+            durationMin: sanitizeUserInput(entry?.durationMin || '', { maxLen: 6 }),
+            intensity: sanitizeUserInput(entry?.intensity || '', { maxLen: 40 }),
+            notes: sanitizeUserInput(entry?.notes || '', { allowNewlines: true, maxLen: 280 })
+        });
+    });
+    return CARDIO_PLAN_DAYS.map((day) => {
+        const found = mapByDay.get(day.key);
+        return found
+            ? { ...found, dayLabel: found.dayLabel || day.label }
+            : { dayKey: day.key, dayLabel: day.label, type: '', durationMin: '', intensity: '', notes: '' };
+    });
+}
+
+function normalizeCardioPlanShape(cardioPlanLike = []) {
+    const raw = cardioPlanLike && typeof cardioPlanLike === 'object' ? cardioPlanLike : {};
+    const legacyDays = Array.isArray(cardioPlanLike) ? cardioPlanLike : [];
+    const daysSource = Array.isArray(raw.days) ? raw.days : legacyDays;
+    const weeklyGoalParsed = parseIntegerSafe(raw.weeklyGoalMin);
+    const baseZoneRaw = String(raw.baseZoneKey || '').trim().toLowerCase();
+    const baseZoneKey = ['z1', 'z2', 'z3'].includes(baseZoneRaw) ? baseZoneRaw : 'z2';
+    return {
+        weeklyGoalMin: Number.isFinite(weeklyGoalParsed)
+            ? Math.min(600, Math.max(30, weeklyGoalParsed))
+            : 120,
+        baseZoneKey,
+        coachRecommendation: sanitizeUserInput(raw.coachRecommendation || '', { maxLen: 220 }),
+        days: normalizeCardioDaysShape(daysSource)
+    };
+}
+
+function normalizeWaterPlanShape(waterPlanLike = {}) {
+    const raw = waterPlanLike && typeof waterPlanLike === 'object' ? waterPlanLike : {};
+    const goal = parseIntegerSafe(raw.dailyGoalMl);
+    const adjustmentParsed = parseIntegerSafe(raw.adjustmentMl);
+    const hasLegacyManualGoal = Number.isFinite(goal) && goal > 0;
+    const requestedMode = String(raw.mode || '').trim().toLowerCase();
+    const resolvedMode = requestedMode === 'auto' || requestedMode === 'manual'
+        ? requestedMode
+        : (hasLegacyManualGoal ? 'manual' : 'auto');
+    return {
+        mode: resolvedMode,
+        dailyGoalMl: resolvedMode === 'manual'
+            ? (Number.isFinite(goal) && goal > 0 ? Math.min(6000, Math.max(1000, goal)) : 3000)
+            : null,
+        adjustmentMl: Number.isFinite(adjustmentParsed) ? Math.min(3000, Math.max(-3000, adjustmentParsed)) : 0,
+        remindersEnabled: raw.remindersEnabled !== false,
+        notes: sanitizeUserInput(raw.notes || '', { allowNewlines: true, maxLen: 280 })
+    };
+}
+
+function normalizeWaterLogsShape(waterLogsLike = {}) {
+    const raw = waterLogsLike && typeof waterLogsLike === 'object' ? waterLogsLike : {};
+    const normalized = {};
+    Object.entries(raw).forEach(([dateKey, entries]) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return;
+        normalized[dateKey] = (Array.isArray(entries) ? entries : [])
+            .map((entry) => ({
+                entryId: sanitizeUserInput(entry?.entryId || '', { maxLen: 64 }),
+                amountMl: Math.min(2000, Math.max(50, parseIntegerSafe(entry?.amountMl || entry?.amount) || 0)),
+                time: sanitizeUserInput(entry?.time || '', { maxLen: 40 }) || new Date().toISOString()
+            }))
+            .map((entry) => ({
+                ...entry,
+                entryId: entry.entryId || `water-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+            }))
+            .filter((entry) => entry.amountMl > 0);
+    });
+    return normalized;
+}
+
+function normalizeCardioLogsShape(cardioLogsLike = {}) {
+    const raw = cardioLogsLike && typeof cardioLogsLike === 'object' ? cardioLogsLike : {};
+    const rawCompletion = raw.completionByDate && typeof raw.completionByDate === 'object'
+        ? raw.completionByDate
+        : raw;
+    const rawSessions = raw.sessionsByDate && typeof raw.sessionsByDate === 'object'
+        ? raw.sessionsByDate
+        : {};
+
+    const completionByDate = {};
+    Object.entries(rawCompletion).forEach(([dateKey, entries]) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return;
+        completionByDate[dateKey] = (Array.isArray(entries) ? entries : [])
+            .map((entry) => ({
+                dayKey: sanitizeUserInput(entry?.dayKey || '', { maxLen: 8 }).toLowerCase(),
+                completed: !!entry?.completed,
+                completedAt: sanitizeUserInput(entry?.completedAt || '', { maxLen: 30 }) || new Date().toISOString()
+            }))
+            .filter((entry) => entry.dayKey);
+    });
+    const sessionsByDate = {};
+    Object.entries(rawSessions).forEach(([dateKey, entries]) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return;
+        sessionsByDate[dateKey] = (Array.isArray(entries) ? entries : [])
+            .map((entry) => ({
+                sessionId: sanitizeUserInput(entry?.sessionId || '', { maxLen: 80 }) || `cardio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                startedAt: sanitizeUserInput(entry?.startedAt || '', { maxLen: 40 }) || new Date().toISOString(),
+                endedAt: sanitizeUserInput(entry?.endedAt || '', { maxLen: 40 }) || new Date().toISOString(),
+                elapsedSec: Math.max(1, parseIntegerSafe(entry?.elapsedSec) || 0),
+                zoneKey: ['z1', 'z2', 'z3'].includes(String(entry?.zoneKey || '').toLowerCase())
+                    ? String(entry.zoneKey).toLowerCase()
+                    : 'z2',
+                source: String(entry?.source || '').toLowerCase() === 'manual' ? 'manual' : 'timer',
+                notes: sanitizeUserInput(entry?.notes || '', { maxLen: 200 })
+            }))
+            .filter((entry) => entry.elapsedSec > 0);
+    });
+    return { completionByDate, sessionsByDate };
+}
+
 function normalizeStudentDietSchema(studentLike = {}) {
     const student = studentLike && typeof studentLike === 'object' ? studentLike : {};
     const mealBlocks = normalizeDietMealBlocksShape(student.mealBlocks);
     const dietMeta = normalizeDietMetaShape(student.dietMeta);
     const dietLogs = normalizeDietLogsShape(student.dietLogs, mealBlocks);
+    const cardioPlan = normalizeCardioPlanShape(student.cardioPlan);
+    const cardioLogs = normalizeCardioLogsShape(student.cardioLogs);
+    const waterPlan = normalizeWaterPlanShape(student.waterPlan);
+    const waterLogs = normalizeWaterLogsShape(student.waterLogs);
     return {
         ...student,
         mealBlocks,
         dietMeta,
         dietLogs,
+        cardioPlan,
+        cardioLogs,
+        waterPlan,
+        waterLogs,
         dietSchemaVersion: DIET_SCHEMA_VERSION
     };
 }
@@ -1635,6 +1796,10 @@ function needsDietSchemaMigration(student) {
     if (!Array.isArray(student.mealBlocks)) return true;
     if (!student.dietMeta || typeof student.dietMeta !== 'object') return true;
     if (!student.dietLogs || typeof student.dietLogs !== 'object') return true;
+    if (!Array.isArray(student.cardioPlan)) return true;
+    if (!student.waterPlan || typeof student.waterPlan !== 'object') return true;
+    if (!student.waterLogs || typeof student.waterLogs !== 'object') return true;
+    if (!student.cardioLogs || typeof student.cardioLogs !== 'object') return true;
     return false;
 }
 
@@ -4997,6 +5162,61 @@ function renderProfileSetupMediaPreviews() {
     }
 }
 
+async function syncCurrentStudentApprovalStatusFromSupabase(student = null) {
+    if (!isSupabaseReady() || !entityTablesAvailability.connections) return false;
+    const currentStudent = student && typeof student === 'object' ? student : null;
+    if (!currentStudent) return false;
+    const studentUserId = getStudentUserIdValue(currentStudent);
+    const trainerCode = getStudentTrainerCodeValue(currentStudent);
+    if (!studentUserId || !trainerCode) return false;
+
+    const { data, error } = await window.supabase
+        .from(SUPABASE_TABLES.studentConnections)
+        .select('status,trainer_code,updated_at')
+        .eq('student_user_id', studentUserId)
+        .eq('trainer_code', trainerCode)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    if (error) {
+        console.warn('[entity-sync] leitura de student_connections falhou', error.message || error);
+        if (String(error.message || '').toLowerCase().includes('does not exist')) {
+            entityTablesAvailability.connections = false;
+        }
+        return false;
+    }
+    if (!data || !data.status) return false;
+    const status = String(data.status || '').toLowerCase();
+    if (status === 'approved') {
+        const nextActive = currentStudent.active !== true || currentStudent.pending !== false;
+        if (nextActive) {
+            currentStudent.active = true;
+            currentStudent.pending = false;
+            currentStudent.acceptedAt = currentStudent.acceptedAt || new Date().toISOString();
+            return true;
+        }
+        return false;
+    }
+    if (status === 'pending') {
+        const nextPending = currentStudent.active !== false || currentStudent.pending !== true;
+        if (nextPending) {
+            currentStudent.active = false;
+            currentStudent.pending = true;
+            return true;
+        }
+        return false;
+    }
+    if (status === 'rejected') {
+        const nextRejected = currentStudent.active !== false || currentStudent.pending !== false;
+        if (nextRejected) {
+            currentStudent.active = false;
+            currentStudent.pending = false;
+            return true;
+        }
+    }
+    return false;
+}
+
 function refreshProfileSetupTrainerPreview() {
     const name = sanitizeUserInput(document.getElementById('profile-setup-name')?.value || '', { maxLen: 90 }) || 'Seu nome';
     const consultoria = sanitizeUserInput(document.getElementById('profile-setup-consultoria-name')?.value || '', { maxLen: 120 }) || 'Sua consultoria';
@@ -5523,8 +5743,8 @@ async function openStudentConnectFromDashboard() {
     document.querySelectorAll('#student-dashboard-screen .sidebar-nav .nav-item').forEach((item) => {
         item.classList.remove('active');
     });
-    const navConnect = document.getElementById('snav-connect');
-    if (navConnect) navConnect.classList.add('active');
+    const navConfig = document.getElementById('snav-config');
+    if (navConfig) navConfig.classList.add('active');
     showTrainerConnectScreen();
 }
 
@@ -6557,8 +6777,20 @@ document.addEventListener('visibilitychange', () => {
 });
 
 async function switchStudentView(view) {
-    const protectedViews = ['home', 'treino', 'dieta', 'perfil', 'log-workout', 'workout-summary'];
-    if (protectedViews.includes(view) && !ENABLE_DEMO_ACCESS) {
+    const aliasMap = {
+        home: 'treino',
+        perfil: 'config',
+        treino: 'treino',
+        cardio: 'cardio',
+        dieta: 'dieta',
+        agua: 'agua',
+        config: 'config',
+        'log-workout': 'log-workout',
+        'workout-summary': 'workout-summary'
+    };
+    const targetView = aliasMap[String(view || '').trim()] || 'treino';
+    const protectedViews = ['treino', 'cardio', 'dieta', 'agua', 'config', 'log-workout', 'workout-summary'];
+    if (protectedViews.includes(targetView) && !ENABLE_DEMO_ACCESS) {
         const activeUser = await getSupabaseSessionUser();
         if (!activeUser || !isEmailConfirmed(activeUser)) {
             const hasCachedSession = !!String(memoryGetItem('currentUserId') || '').trim();
@@ -6570,28 +6802,26 @@ async function switchStudentView(view) {
             return;
         }
     }
-    if (workoutState && view !== 'log-workout' && view !== 'workout-summary') {
+    if (workoutState && targetView !== 'log-workout' && targetView !== 'workout-summary') {
         if (!confirmExitActiveWorkout()) return;
     }
-    const views = ['home', 'treino', 'dieta', 'perfil', 'log-workout', 'workout-summary'];
-    const activeNavView = (view === 'log-workout' || view === 'workout-summary') ? 'treino' : view;
+    const views = ['home', 'treino', 'cardio', 'dieta', 'agua', 'config', 'log-workout', 'workout-summary'];
+    const activeNavView = (targetView === 'log-workout' || targetView === 'workout-summary') ? 'treino' : targetView;
     views.forEach(v => {
         const el = document.getElementById(`view-student-${v}`);
         const nav = document.getElementById(`snav-${v}`);
-        if (el) el.style.display = v === view ? 'block' : 'none';
+        if (el) el.style.display = v === targetView ? 'block' : 'none';
         if (nav) nav.classList.toggle('active', v === activeNavView);
     });
-    const navConnect = document.getElementById('snav-connect');
-    if (navConnect) navConnect.classList.remove('active');
 
-    const mobileNavViews = ['home', 'treino', 'dieta', 'perfil'];
+    const mobileNavViews = ['treino', 'cardio', 'dieta', 'agua', 'config'];
     mobileNavViews.forEach((v) => {
         const mobileNav = document.getElementById(`m-snav-${v}`);
         if (mobileNav) mobileNav.classList.toggle('active', v === activeNavView);
     });
 
     // Specific logic for each view
-    if (view === 'treino') {
+    if (targetView === 'treino') {
         currentWorkoutTab = 0;
         const studentId = memoryGetItem('currentStudentId');
         const students = readStorageJSON('trainerStudents', []);
@@ -6602,8 +6832,10 @@ async function switchStudentView(view) {
             switchTreinoSubview('landing');
         }
     }
-    if (view === 'dieta') renderStudentDietMain();
-    if (view === 'perfil') renderStudentPerfil();
+    if (targetView === 'cardio') renderStudentCardioMain();
+    if (targetView === 'dieta') renderStudentDietMain();
+    if (targetView === 'agua') renderStudentWaterMain();
+    if (targetView === 'config') renderStudentPerfil();
 }
 
 let workoutAnalysisRenderNonce = 0;
@@ -11088,6 +11320,754 @@ async function connectStudent() {
     renderTrainerConnectionConfirmation(pendingTrainerCandidate);
 }
 
+function getWeekdayPlanKey(date = new Date()) {
+    const jsDay = Number(date.getDay());
+    const map = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+    return map[jsDay] || 'seg';
+}
+
+const CARDIO_ZONE_DEFS = [
+    { key: 'z1', title: 'Zona 1 — Leve', bpm: '50–70% FC máx', talk: 'Consigo conversar confortavelmente', accent: 'z1' },
+    { key: 'z2', title: 'Zona 2 — Moderada', bpm: '70–80% FC máx', talk: 'Consigo falar, mas com esforço', accent: 'z2' },
+    { key: 'z3', title: 'Zona 3 — Vigorosa', bpm: '80–100% FC máx', talk: 'Difícil falar — poucas palavras', accent: 'z3' }
+];
+
+let cardioTimerState = {
+    status: 'idle',
+    startedAt: '',
+    lastTickAt: 0,
+    accumulatedSec: 0
+};
+let cardioTimerInterval = null;
+
+function getStudentCardioCompletionMap(student = {}, dateKey = getTodayDateKey()) {
+    const logs = student?.cardioLogs && typeof student.cardioLogs === 'object' ? student.cardioLogs : {};
+    const completionByDate = logs?.completionByDate && typeof logs.completionByDate === 'object' ? logs.completionByDate : logs;
+    const entries = Array.isArray(completionByDate[dateKey]) ? completionByDate[dateKey] : [];
+    const map = new Map();
+    entries.forEach((entry) => {
+        const dayKey = String(entry?.dayKey || '').toLowerCase();
+        if (!dayKey) return;
+        map.set(dayKey, !!entry?.completed);
+    });
+    return map;
+}
+
+function toggleStudentCardioDone(dayKey) {
+    const safeDayKey = String(dayKey || '').toLowerCase();
+    if (!safeDayKey) return;
+    const dateKey = getTodayDateKey();
+    persistStudentData((students, studentIdx) => {
+        if (studentIdx < 0 || !students[studentIdx]) return;
+        const student = normalizeStudentDietSchema(students[studentIdx]);
+        const logs = student.cardioLogs && typeof student.cardioLogs === 'object'
+            ? { ...student.cardioLogs }
+            : { completionByDate: {}, sessionsByDate: {} };
+        const completionByDate = logs?.completionByDate && typeof logs.completionByDate === 'object'
+            ? { ...logs.completionByDate }
+            : {};
+        const entries = Array.isArray(completionByDate[dateKey]) ? [...completionByDate[dateKey]] : [];
+        const idx = entries.findIndex((entry) => String(entry?.dayKey || '').toLowerCase() === safeDayKey);
+        const nextCompleted = idx >= 0 ? !entries[idx].completed : true;
+        if (idx >= 0) entries[idx] = { ...entries[idx], completed: nextCompleted, completedAt: new Date().toISOString() };
+        else entries.push({ dayKey: safeDayKey, completed: true, completedAt: new Date().toISOString() });
+        completionByDate[dateKey] = entries;
+        logs.completionByDate = completionByDate;
+        if (!logs.sessionsByDate || typeof logs.sessionsByDate !== 'object') logs.sessionsByDate = {};
+        student.cardioLogs = logs;
+        students[studentIdx] = student;
+    }, { syncMode: 'batched', syncDelayMs: 1000 });
+    renderStudentCardioMain();
+}
+
+function stopCardioTimerRuntime() {
+    if (cardioTimerInterval) {
+        clearInterval(cardioTimerInterval);
+        cardioTimerInterval = null;
+    }
+}
+
+function formatCardioDuration(totalSec = 0) {
+    const safe = Math.max(0, parseIntegerSafe(totalSec) || 0);
+    const mins = Math.floor(safe / 60);
+    const secs = safe % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function getCardioZoneMeta(zoneKey) {
+    return CARDIO_ZONE_DEFS.find((zone) => zone.key === String(zoneKey || '').toLowerCase()) || CARDIO_ZONE_DEFS[1];
+}
+
+function getCurrentCardioSessionElapsedSec() {
+    const base = Math.max(0, parseIntegerSafe(cardioTimerState.accumulatedSec) || 0);
+    if (cardioTimerState.status !== 'running') return base;
+    const startedAtMs = cardioTimerState.lastTickAt || Date.now();
+    const delta = Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
+    return base + delta;
+}
+
+function getStudentCardioSessionsByDate(student = {}) {
+    const logs = student?.cardioLogs && typeof student.cardioLogs === 'object' ? student.cardioLogs : {};
+    const sessionsByDate = logs?.sessionsByDate && typeof logs.sessionsByDate === 'object' ? logs.sessionsByDate : {};
+    return sessionsByDate;
+}
+
+function calculateStudentCardioWeeklyTotals(student = {}) {
+    const sessionsByDate = getStudentCardioSessionsByDate(student);
+    const now = new Date();
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    monday.setHours(0, 0, 0, 0);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+    let totalSec = 0;
+    Object.entries(sessionsByDate).forEach(([dateKey, entries]) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return;
+        const day = new Date(`${dateKey}T12:00:00`);
+        if (Number.isNaN(day.getTime())) return;
+        if (day < monday || day > sunday) return;
+        (Array.isArray(entries) ? entries : []).forEach((entry) => {
+            totalSec += Math.max(0, parseIntegerSafe(entry?.elapsedSec) || 0);
+        });
+    });
+    return { totalSec, totalMinRounded: Math.round(totalSec / 60) };
+}
+
+function updateStudentCardioTimerUI() {
+    const timerEl = document.getElementById('student-cardio-timer-display');
+    if (!timerEl) return;
+    const elapsedSec = getCurrentCardioSessionElapsedSec();
+    timerEl.textContent = formatCardioDuration(elapsedSec);
+}
+
+function startCardioTimer() {
+    if (cardioTimerState.status === 'running') return;
+    const now = Date.now();
+    if (cardioTimerState.status === 'idle') {
+        cardioTimerState.accumulatedSec = 0;
+        cardioTimerState.startedAt = new Date(now).toISOString();
+    }
+    cardioTimerState.status = 'running';
+    cardioTimerState.lastTickAt = now;
+    stopCardioTimerRuntime();
+    cardioTimerInterval = setInterval(updateStudentCardioTimerUI, 1000);
+    renderStudentCardioMain();
+}
+
+function pauseCardioTimer() {
+    if (cardioTimerState.status !== 'running') return;
+    const now = Date.now();
+    const deltaSec = Math.max(0, Math.floor((now - (cardioTimerState.lastTickAt || now)) / 1000));
+    cardioTimerState.accumulatedSec = (parseIntegerSafe(cardioTimerState.accumulatedSec) || 0) + deltaSec;
+    cardioTimerState.status = 'paused';
+    cardioTimerState.lastTickAt = now;
+    stopCardioTimerRuntime();
+    renderStudentCardioMain();
+}
+
+function resumeCardioTimer() {
+    if (cardioTimerState.status !== 'paused') return;
+    cardioTimerState.status = 'running';
+    cardioTimerState.lastTickAt = Date.now();
+    stopCardioTimerRuntime();
+    cardioTimerInterval = setInterval(updateStudentCardioTimerUI, 1000);
+    renderStudentCardioMain();
+}
+
+function resetCardioTimerState() {
+    stopCardioTimerRuntime();
+    cardioTimerState = {
+        status: 'idle',
+        startedAt: '',
+        lastTickAt: 0,
+        accumulatedSec: 0
+    };
+}
+
+function finalizeCardioTimerSession() {
+    const elapsedSec = getCurrentCardioSessionElapsedSec();
+    if (elapsedSec < 30) {
+        showDietRuntimeMessage('Sessão muito curta. Registre pelo menos 30 segundos.', 'error');
+        return;
+    }
+    const dateKey = getTodayDateKey();
+    const sessionId = `cardio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const selectedZone = String(document.getElementById('student-cardio-zone-select')?.value || '').toLowerCase();
+    const zoneKey = ['z1', 'z2', 'z3'].includes(selectedZone) ? selectedZone : 'z2';
+    persistStudentData((students, studentIdx) => {
+        if (studentIdx < 0 || !students[studentIdx]) return;
+        const student = normalizeStudentDietSchema(students[studentIdx]);
+        const logs = student.cardioLogs && typeof student.cardioLogs === 'object'
+            ? { ...student.cardioLogs }
+            : { completionByDate: {}, sessionsByDate: {} };
+        const sessionsByDate = logs?.sessionsByDate && typeof logs.sessionsByDate === 'object' ? { ...logs.sessionsByDate } : {};
+        const todaySessions = Array.isArray(sessionsByDate[dateKey]) ? [...sessionsByDate[dateKey]] : [];
+        todaySessions.push({
+            sessionId,
+            startedAt: cardioTimerState.startedAt || new Date().toISOString(),
+            endedAt: new Date().toISOString(),
+            elapsedSec,
+            zoneKey,
+            source: 'timer',
+            notes: ''
+        });
+        sessionsByDate[dateKey] = todaySessions;
+        logs.sessionsByDate = sessionsByDate;
+        if (!logs.completionByDate || typeof logs.completionByDate !== 'object') logs.completionByDate = {};
+        student.cardioLogs = logs;
+        students[studentIdx] = student;
+    }, { syncMode: 'batched', syncDelayMs: 1000 });
+    resetCardioTimerState();
+    showDietRuntimeMessage('Sessão de cardio registrada com sucesso.', 'success');
+    renderStudentCardioMain();
+}
+
+function addManualCardioTime() {
+    const input = document.getElementById('student-cardio-manual-min');
+    if (!input) return;
+    const minutes = Math.max(1, Math.min(300, parseIntegerSafe(input.value) || 0));
+    if (!minutes) {
+        showDietRuntimeMessage('Informe um tempo válido em minutos.', 'error');
+        return;
+    }
+    const dateKey = getTodayDateKey();
+    const sessionId = `cardio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const selectedZone = String(document.getElementById('student-cardio-zone-select')?.value || '').toLowerCase();
+    const zoneKey = ['z1', 'z2', 'z3'].includes(selectedZone) ? selectedZone : 'z2';
+    persistStudentData((students, studentIdx) => {
+        if (studentIdx < 0 || !students[studentIdx]) return;
+        const student = normalizeStudentDietSchema(students[studentIdx]);
+        const logs = student.cardioLogs && typeof student.cardioLogs === 'object'
+            ? { ...student.cardioLogs }
+            : { completionByDate: {}, sessionsByDate: {} };
+        const sessionsByDate = logs?.sessionsByDate && typeof logs.sessionsByDate === 'object' ? { ...logs.sessionsByDate } : {};
+        const todaySessions = Array.isArray(sessionsByDate[dateKey]) ? [...sessionsByDate[dateKey]] : [];
+        todaySessions.push({
+            sessionId,
+            startedAt: new Date().toISOString(),
+            endedAt: new Date().toISOString(),
+            elapsedSec: minutes * 60,
+            zoneKey,
+            source: 'manual',
+            notes: ''
+        });
+        sessionsByDate[dateKey] = todaySessions;
+        logs.sessionsByDate = sessionsByDate;
+        if (!logs.completionByDate || typeof logs.completionByDate !== 'object') logs.completionByDate = {};
+        student.cardioLogs = logs;
+        students[studentIdx] = student;
+    }, { syncMode: 'batched', syncDelayMs: 1000 });
+    input.value = '';
+    showDietRuntimeMessage(`${minutes} min de cardio adicionados no histórico.`, 'success');
+    renderStudentCardioMain();
+}
+
+function renderStudentCardioMain() {
+    const { student } = getStudentData();
+    const container = document.getElementById('student-cardio-content-main');
+    if (!container) return;
+    if (!student || !student.active) {
+        container.innerHTML = `
+            <div class="empty-state-card" style="margin-top:1rem;">
+                <i class="ph-fill ph-hourglass-high"></i>
+                <div class="empty-info">
+                    <h3>Cardio em análise</h3>
+                    <p>Seu treinador ainda não liberou o protocolo de cardio.</p>
+                </div>
+            </div>`;
+        return;
+    }
+
+    const plan = normalizeCardioPlanShape(student.cardioPlan);
+    const todayKey = getWeekdayPlanKey(new Date());
+    const completionMap = getStudentCardioCompletionMap(student);
+    const todayPlan = plan.days.find((entry) => entry.dayKey === todayKey) || plan.days[0];
+    const weekly = calculateStudentCardioWeeklyTotals(student);
+    const weeklyGoal = Math.max(30, parseIntegerSafe(plan.weeklyGoalMin) || 120);
+    const weeklyDoneMin = weekly.totalMinRounded;
+    const weeklyRemainingMin = Math.max(0, weeklyGoal - weeklyDoneMin);
+    const weeklyPercent = Math.min(100, Math.max(0, Math.round((weeklyDoneMin / weeklyGoal) * 100)));
+    const sessionsByDate = getStudentCardioSessionsByDate(student);
+    const recentSessions = Object.entries(sessionsByDate)
+        .flatMap(([dateKey, entries]) => (Array.isArray(entries) ? entries.map((entry) => ({ ...entry, dateKey })) : []))
+        .sort((a, b) => new Date(b.endedAt || b.startedAt || 0).getTime() - new Date(a.endedAt || a.startedAt || 0).getTime())
+        .slice(0, 8);
+    const zoneMeta = getCardioZoneMeta(plan.baseZoneKey);
+    const timerStatusLabel = cardioTimerState.status === 'running'
+        ? 'Cronômetro em andamento'
+        : (cardioTimerState.status === 'paused' ? 'Cronômetro pausado' : 'Pronto para começar');
+    const elapsedDisplay = formatCardioDuration(getCurrentCardioSessionElapsedSec());
+    container.innerHTML = `
+        <section class="student-cardio-premium">
+            <div class="student-cardio-coach-card zone-${zoneMeta.accent}">
+                <h3>Recomendação do Coach</h3>
+                <p><strong>${weeklyGoal} min/semana</strong> • ${zoneMeta.title}</p>
+                <p class="subtitle">${escHtml(plan.coachRecommendation || 'Mantenha consistência e ajuste ritmo conforme percepção de esforço.')}</p>
+            </div>
+
+            <div class="student-cardio-weekly-card">
+                <div class="student-cardio-weekly-head">
+                    <h3>Cardio Semanal</h3>
+                    <span>${weeklyDoneMin}/${weeklyGoal} min</span>
+                </div>
+                <div class="student-cardio-weekly-track">
+                    <div class="student-cardio-weekly-fill" style="width:${weeklyPercent}%;"></div>
+                </div>
+                <div class="student-cardio-weekly-meta">
+                    <span>${weeklyDoneMin} min feitos</span>
+                    <span>${weeklyRemainingMin} min faltando</span>
+                </div>
+            </div>
+
+            <div class="student-cardio-timer-card">
+                <div class="student-cardio-timer-icon"><i class="ph-bold ph-timer"></i></div>
+                <div class="student-cardio-timer-display" id="student-cardio-timer-display">${elapsedDisplay}</div>
+                <p class="subtitle">${timerStatusLabel}</p>
+                <p class="subtitle">Hoje: ${escHtml(todayPlan.dayLabel || 'Dia')} • ${escHtml(todayPlan.type || 'Cardio livre')} • ${escHtml(todayPlan.durationMin || '--')} min</p>
+                <div class="student-cardio-zone-select-row">
+                    <label>Zona da sessão</label>
+                    <select id="student-cardio-zone-select" class="q-input">
+                        ${CARDIO_ZONE_DEFS.map((zone) => `<option value="${zone.key}" ${zone.key === plan.baseZoneKey ? 'selected' : ''}>${zone.title}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="student-cardio-timer-actions">
+                    ${cardioTimerState.status === 'idle' ? `<button type="button" class="btn-primary btn-sm" onclick="startCardioTimer()">Iniciar Cardio</button>` : ''}
+                    ${cardioTimerState.status === 'running' ? `<button type="button" class="btn-secondary btn-sm" onclick="pauseCardioTimer()">Pausar</button>` : ''}
+                    ${cardioTimerState.status === 'paused' ? `<button type="button" class="btn-primary btn-sm" onclick="resumeCardioTimer()">Retomar</button>` : ''}
+                    ${(cardioTimerState.status === 'running' || cardioTimerState.status === 'paused') ? `<button type="button" class="btn-secondary btn-sm" onclick="finalizeCardioTimerSession()">Finalizar</button>` : ''}
+                </div>
+                <div class="student-cardio-manual-row">
+                    <input id="student-cardio-manual-min" class="q-input" type="number" min="1" max="300" placeholder="Minutos manuais">
+                    <button type="button" class="btn-secondary btn-sm" onclick="addManualCardioTime()">Registrar tempo</button>
+                </div>
+            </div>
+
+            <details class="student-cardio-zones" open>
+                <summary>Zonas de Intensidade</summary>
+                <p class="subtitle">Talk Test: durante o cardio, teste falar uma frase para validar sua zona.</p>
+                <div class="student-cardio-zones-grid">
+                    ${CARDIO_ZONE_DEFS.map((zone) => `
+                        <article class="student-cardio-zone-card zone-${zone.accent}">
+                            <h4>${zone.title}</h4>
+                            <p>${zone.bpm}</p>
+                            <small>${zone.talk}</small>
+                        </article>
+                    `).join('')}
+                </div>
+            </details>
+
+            <div class="student-cardio-history-card">
+                <h3>Histórico de Cardio</h3>
+                ${recentSessions.length ? `
+                    <ul>
+                        ${recentSessions.map((session) => {
+                            const zone = getCardioZoneMeta(session.zoneKey);
+                            const mins = Math.max(1, Math.round((parseIntegerSafe(session.elapsedSec) || 0) / 60));
+                            const day = new Date(`${session.dateKey}T12:00:00`).toLocaleDateString('pt-BR');
+                            return `<li><strong>${mins} min</strong> • ${zone.title} • ${session.source === 'manual' ? 'manual' : 'timer'} • ${day}</li>`;
+                        }).join('')}
+                    </ul>
+                ` : '<p class="subtitle">Nenhuma sessão registrada ainda.</p>'}
+            </div>
+
+            <div class="student-cardio-list">
+                ${plan.days.map((entry) => {
+                    const isToday = entry.dayKey === todayKey;
+                    const done = completionMap.get(entry.dayKey) === true;
+                    return `
+                        <div class="student-cardio-item ${done ? 'is-done' : ''} ${isToday ? 'is-today' : ''}">
+                            <div class="student-cardio-item-head">
+                                <strong>${escHtml(entry.dayLabel || 'Dia')}</strong>
+                                <button type="button" class="btn-secondary btn-sm" onclick="toggleStudentCardioDone('${escHtml(entry.dayKey)}')">
+                                    ${done ? 'Concluído' : 'Marcar'}
+                                </button>
+                            </div>
+                            <p><strong>Tipo:</strong> ${escHtml(entry.type || 'Não definido')}</p>
+                            <p><strong>Duração:</strong> ${escHtml(entry.durationMin || '--')} min</p>
+                            <p><strong>Intensidade:</strong> ${escHtml(entry.intensity || '--')}</p>
+                            ${entry.notes ? `<p><strong>Obs:</strong> ${escHtml(entry.notes)}</p>` : ''}
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </section>
+    `;
+    if (cardioTimerState.status === 'running') {
+        stopCardioTimerRuntime();
+        cardioTimerInterval = setInterval(updateStudentCardioTimerUI, 1000);
+    } else {
+        stopCardioTimerRuntime();
+    }
+}
+
+let isWaterActionBusy = false;
+let studentWaterLastCustomAddAt = 0;
+let studentWaterUndoHoldTimer = null;
+const STUDENT_WATER_UNDO_HOLD_MS = 450;
+const STUDENT_WATER_SYNC_DELAY_MS = 1000;
+
+function createStudentWaterEntryId() {
+    return `water-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function computeStudentWaterUiModel(student) {
+    const safeStudent = normalizeStudentDietSchema(student || {});
+    const waterPlan = normalizeWaterPlanShape(safeStudent.waterPlan);
+    const dateKey = getTodayDateKey();
+    const entries = Array.isArray(safeStudent?.waterLogs?.[dateKey]) ? safeStudent.waterLogs[dateKey] : [];
+    const total = entries.reduce((acc, entry) => acc + (parseIntegerSafe(entry?.amountMl) || 0), 0);
+    const waterGoalCtx = resolveStudentWaterGoalContext(safeStudent, waterPlan);
+    const goal = Math.max(1, parseIntegerSafe(waterGoalCtx.goalMl) || 1);
+    const remaining = Math.max(0, goal - total);
+    const percent = Math.min(100, Math.max(0, Math.round((total / goal) * 100)));
+    const reachedGoal = total >= goal;
+    return {
+        student: safeStudent,
+        waterPlan,
+        waterGoalCtx,
+        dateKey,
+        entries,
+        total,
+        goal,
+        remaining,
+        percent,
+        reachedGoal
+    };
+}
+
+function setStudentWaterUndoHoldProgress(progressPercent) {
+    const button = document.getElementById('student-water-undo-btn');
+    if (!button) return;
+    const safeProgress = Math.min(100, Math.max(0, parseIntegerSafe(progressPercent) || 0));
+    button.style.setProperty('--hold-progress', `${safeProgress}%`);
+}
+
+function setStudentWaterActionBusyState(isBusy) {
+    const buttons = document.querySelectorAll('.student-water-action-btn');
+    buttons.forEach((btn) => {
+        if (btn instanceof HTMLButtonElement) btn.disabled = !!isBusy;
+    });
+}
+
+function renderStudentWaterHistoryList(entries) {
+    const list = document.getElementById('student-water-history-list');
+    if (!list) return;
+    if (!Array.isArray(entries) || entries.length === 0) {
+        list.innerHTML = '<p class="subtitle">Sem registros até agora.</p>';
+        return;
+    }
+    list.innerHTML = `
+        <ul>
+            ${entries.map((entry) => `<li>${parseIntegerSafe(entry?.amountMl) || 0} ml • ${new Date(entry.time || Date.now()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</li>`).join('')}
+        </ul>
+    `;
+}
+
+function updateStudentWaterUIState(student) {
+    const root = document.getElementById('student-water-content-main');
+    if (!root) return;
+    const model = computeStudentWaterUiModel(student);
+    const hero = root.querySelector('.student-water-hero');
+    if (hero) hero.classList.toggle('is-goal-hit', model.reachedGoal);
+
+    const orb = document.getElementById('student-water-orb');
+    if (orb) orb.style.setProperty('--wave-bottom', `${model.percent}%`);
+
+    const fill = document.getElementById('student-water-fill');
+    if (fill) fill.style.height = `${model.percent}%`;
+
+    const percentEl = document.getElementById('student-water-percent');
+    if (percentEl) percentEl.textContent = `${model.percent}%`;
+
+    const totalOrbEl = document.getElementById('student-water-total-orb');
+    if (totalOrbEl) totalOrbEl.textContent = `${model.total} ml`;
+
+    const goalEl = document.getElementById('student-water-goal');
+    if (goalEl) goalEl.textContent = `${model.goal} ml`;
+
+    const totalEl = document.getElementById('student-water-total');
+    if (totalEl) totalEl.textContent = `${model.total} ml`;
+
+    const remainingEl = document.getElementById('student-water-remaining');
+    if (remainingEl) remainingEl.textContent = `${model.remaining} ml`;
+
+    renderStudentWaterHistoryList(model.entries);
+}
+
+function applyWaterAction(action, payload = {}) {
+    if (isWaterActionBusy) {
+        return { ok: false, action, messageType: 'info', message: 'Aguarde um instante...' };
+    }
+    isWaterActionBusy = true;
+    setStudentWaterActionBusyState(true);
+    const dateKey = getTodayDateKey();
+    let actionResult = { ok: false, action, messageType: 'error', message: 'Não foi possível atualizar sua água.' };
+    const persisted = persistStudentData((students, studentIdx) => {
+        if (studentIdx < 0 || !students[studentIdx]) return;
+        const student = normalizeStudentDietSchema(students[studentIdx]);
+        const logs = student.waterLogs && typeof student.waterLogs === 'object' ? { ...student.waterLogs } : {};
+        const entries = Array.isArray(logs[dateKey]) ? [...logs[dateKey]] : [];
+
+        if (action === 'add') {
+            const safeAmount = Math.min(2000, Math.max(50, parseIntegerSafe(payload?.amountMl) || 0));
+            if (!safeAmount) {
+                actionResult = { ok: false, action, messageType: 'error', message: 'Digite uma quantidade válida entre 50ml e 2000ml.' };
+                return;
+            }
+            const entryId = createStudentWaterEntryId();
+            entries.push({ entryId, amountMl: safeAmount, time: new Date().toISOString() });
+            logs[dateKey] = entries;
+            student.waterLogs = logs;
+            students[studentIdx] = student;
+            const newTotal = entries.reduce((acc, entry) => acc + (parseIntegerSafe(entry?.amountMl) || 0), 0);
+            actionResult = {
+                ok: true,
+                action,
+                deltaMl: safeAmount,
+                amountMl: safeAmount,
+                entryId,
+                totalMl: newTotal,
+                messageType: 'success',
+                message: `${safeAmount}ml adicionados.`
+            };
+            return;
+        }
+
+        if (action === 'undoLast') {
+            if (!entries.length) {
+                actionResult = { ok: false, action, messageType: 'error', message: 'Nenhum registro para desfazer hoje.' };
+                return;
+            }
+            const removed = entries.pop();
+            logs[dateKey] = entries;
+            student.waterLogs = logs;
+            students[studentIdx] = student;
+            const removedAmount = parseIntegerSafe(removed?.amountMl) || 0;
+            const newTotal = entries.reduce((acc, entry) => acc + (parseIntegerSafe(entry?.amountMl) || 0), 0);
+            actionResult = {
+                ok: true,
+                action,
+                deltaMl: -removedAmount,
+                amountMl: removedAmount,
+                removedEntryId: String(removed?.entryId || ''),
+                totalMl: newTotal,
+                messageType: 'success',
+                message: `Último registro removido (${removedAmount}ml).`
+            };
+            return;
+        }
+    }, { syncMode: 'batched', syncDelayMs: STUDENT_WATER_SYNC_DELAY_MS });
+
+    if (!persisted && !actionResult.ok) {
+        actionResult = { ok: false, action, messageType: 'error', message: 'Não foi possível localizar seu perfil para atualizar a água.' };
+    }
+
+    const currentStudent = getStudentData().student;
+    if (currentStudent) {
+        if (document.getElementById('student-water-orb')) updateStudentWaterUIState(currentStudent);
+        else renderStudentWaterMain();
+    }
+
+    isWaterActionBusy = false;
+    setStudentWaterActionBusyState(false);
+    if (typeof showDietRuntimeMessage === 'function' && actionResult.message) {
+        showDietRuntimeMessage(actionResult.message, actionResult.messageType || 'info');
+    }
+    return actionResult;
+}
+
+function addStudentWaterIntake(amountMl) {
+    return applyWaterAction('add', { amountMl });
+}
+
+function addStudentCustomWaterIntake() {
+    const now = Date.now();
+    if ((now - studentWaterLastCustomAddAt) < 250) return;
+    studentWaterLastCustomAddAt = now;
+    const input = document.getElementById('student-water-custom-input');
+    if (!input) return;
+    const parsed = parseIntegerSafe(input.value);
+    if (!Number.isFinite(parsed) || parsed < 50 || parsed > 2000) {
+        showDietRuntimeMessage('Digite uma quantidade válida entre 50ml e 2000ml.', 'error');
+        return;
+    }
+    const result = applyWaterAction('add', { amountMl: parsed });
+    if (result?.ok) input.value = '';
+}
+
+function executeStudentWaterUndoLast() {
+    return applyWaterAction('undoLast');
+}
+
+function onStudentWaterUndoPressStart() {
+    if (isWaterActionBusy || studentWaterUndoHoldTimer) return;
+    const button = document.getElementById('student-water-undo-btn');
+    if (button) button.classList.add('is-holding');
+    const startedAt = Date.now();
+    const progressTick = () => {
+        const elapsed = Date.now() - startedAt;
+        const progress = Math.min(100, Math.round((elapsed / STUDENT_WATER_UNDO_HOLD_MS) * 100));
+        setStudentWaterUndoHoldProgress(progress);
+        if (progress < 100 && studentWaterUndoHoldTimer) {
+            window.requestAnimationFrame(progressTick);
+        }
+    };
+    studentWaterUndoHoldTimer = setTimeout(() => {
+        studentWaterUndoHoldTimer = null;
+        executeStudentWaterUndoLast();
+        onStudentWaterUndoPressEnd();
+    }, STUDENT_WATER_UNDO_HOLD_MS);
+    window.requestAnimationFrame(progressTick);
+}
+
+function onStudentWaterUndoPressEnd() {
+    if (studentWaterUndoHoldTimer) {
+        clearTimeout(studentWaterUndoHoldTimer);
+        studentWaterUndoHoldTimer = null;
+    }
+    const button = document.getElementById('student-water-undo-btn');
+    if (button) button.classList.remove('is-holding');
+    setStudentWaterUndoHoldProgress(0);
+}
+
+function formatWaterLiters(mlValue) {
+    return (Number(mlValue || 0) / 1000).toFixed(2).replace('.', ',');
+}
+
+function resolveStudentWaterGoalContext(student = {}, waterPlan = {}) {
+    const weightRaw = parseFloat(String(student?.weight || '').replace(',', '.'));
+    const safeWeight = Number.isFinite(weightRaw) ? Math.min(350, Math.max(20, weightRaw)) : 70;
+    const autoWaterMinMl = Math.round(safeWeight * 35);
+    const autoWaterMaxMl = Math.round(safeWeight * 45);
+    const mode = String(waterPlan?.mode || '').trim().toLowerCase() === 'manual' ? 'manual' : 'auto';
+    const manualGoal = parseIntegerSafe(waterPlan?.dailyGoalMl);
+    const adjustmentMl = Math.min(3000, Math.max(-3000, parseIntegerSafe(waterPlan?.adjustmentMl) || 0));
+    const hasManualGoal = mode === 'manual' && Number.isFinite(manualGoal) && manualGoal >= 1000;
+    const goalMl = hasManualGoal
+        ? Math.min(6000, Math.max(1000, manualGoal))
+        : Math.min(6000, Math.max(1000, autoWaterMinMl + adjustmentMl));
+    let originLabel = 'meta automática por peso';
+    if (hasManualGoal) originLabel = 'meta manual do treinador';
+    else if (adjustmentMl !== 0) originLabel = 'meta automática ajustada pelo treinador';
+    return {
+        goalMl,
+        hasManualGoal,
+        mode,
+        adjustmentMl,
+        originLabel,
+        autoWaterMinMl,
+        autoWaterMaxMl
+    };
+}
+
+function renderStudentWaterMain() {
+    const { student } = getStudentData();
+    const container = document.getElementById('student-water-content-main');
+    if (!container) return;
+    if (!student) {
+        container.innerHTML = `
+            <div class="empty-state-card" style="margin-top:1rem;">
+                <i class="ph-fill ph-hourglass-high"></i>
+                <div class="empty-info">
+                    <h3>Meta de água indisponível</h3>
+                    <p>Não foi possível carregar seus dados de hidratação.</p>
+                </div>
+            </div>`;
+        return;
+    }
+    const model = computeStudentWaterUiModel(student);
+    const { waterPlan, entries, total, waterGoalCtx, goal, remaining, percent, reachedGoal } = model;
+    const studentFirstName = escHtml(String(student?.name || 'Aluno').trim().split(/\s+/)[0] || 'Aluno');
+    const originToneClass = waterGoalCtx.hasManualGoal
+        ? 'is-manual'
+        : (waterGoalCtx.adjustmentMl !== 0 ? 'is-adjusted' : 'is-auto');
+
+    container.innerHTML = `
+        <section class="student-water-hero ${reachedGoal ? 'is-goal-hit' : ''}">
+            <header class="student-water-hero-head">
+                <p class="student-water-hello">Olá, ${studentFirstName}</p>
+                <h2 class="student-water-title">Hydration Hero</h2>
+                <p class="student-water-subtitle">${goal} ml por dia</p>
+                <span class="student-water-origin ${originToneClass}">${escHtml(waterGoalCtx.originLabel)}</span>
+            </header>
+
+            <div class="student-water-orb-wrap" aria-label="Progresso de hidratação">
+                <div id="student-water-orb" class="student-water-orb" style="--wave-bottom:${percent}%;">
+                    <div class="student-water-orb-grid"></div>
+                    <div id="student-water-fill" class="student-water-fill" style="height:${percent}%;"></div>
+                    <div class="student-water-wave"></div>
+                    <div class="student-water-orb-content">
+                        <strong id="student-water-percent">${percent}%</strong>
+                        <span id="student-water-total-orb">${total} ml</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="student-water-kpis">
+                <div class="student-water-kpi">
+                    <span>Meta</span>
+                    <strong id="student-water-goal">${goal} ml</strong>
+                </div>
+                <div class="student-water-kpi">
+                    <span>Consumido</span>
+                    <strong id="student-water-total">${total} ml</strong>
+                </div>
+                <div class="student-water-kpi">
+                    <span>Restante</span>
+                    <strong id="student-water-remaining">${remaining} ml</strong>
+                </div>
+            </div>
+
+            <p class="student-water-range">
+                Faixa recomendada por peso: ${waterGoalCtx.autoWaterMinMl}–${waterGoalCtx.autoWaterMaxMl} ml
+                (${formatWaterLiters(waterGoalCtx.autoWaterMinMl)}L–${formatWaterLiters(waterGoalCtx.autoWaterMaxMl)}L)
+            </p>
+
+            <div class="student-water-actions water-quick-grid">
+                <button type="button" class="btn-secondary btn-sm student-water-action-btn" onclick="addStudentWaterIntake(200)">+200 ml</button>
+                <button type="button" class="btn-secondary btn-sm student-water-action-btn" onclick="addStudentWaterIntake(300)">+300 ml</button>
+                <button type="button" class="btn-secondary btn-sm student-water-action-btn" onclick="addStudentWaterIntake(500)">+500 ml</button>
+            </div>
+
+            <div class="student-water-actions water-custom-row">
+                <input id="student-water-custom-input" class="q-input" type="number" inputmode="numeric" min="50" max="2000" step="10" placeholder="Quantidade personalizada (ml)">
+                <button type="button" class="btn-primary btn-sm student-water-action-btn" onclick="addStudentCustomWaterIntake()">Adicionar</button>
+            </div>
+
+            <div class="student-water-actions water-undo-row">
+                <button
+                    type="button"
+                    id="student-water-undo-btn"
+                    class="btn-secondary btn-sm student-water-action-btn student-water-undo-btn"
+                    onpointerdown="onStudentWaterUndoPressStart()"
+                    onpointerup="onStudentWaterUndoPressEnd()"
+                    onpointerleave="onStudentWaterUndoPressEnd()"
+                    onpointercancel="onStudentWaterUndoPressEnd()"
+                    ontouchstart="onStudentWaterUndoPressStart()"
+                    ontouchend="onStudentWaterUndoPressEnd()"
+                    onmousedown="onStudentWaterUndoPressStart()"
+                    onmouseup="onStudentWaterUndoPressEnd()">
+                    Segure para desfazer
+                </button>
+            </div>
+
+            ${waterPlan.notes ? `<p class="student-water-coach-note"><strong>Obs do treinador:</strong> ${escHtml(waterPlan.notes)}</p>` : ''}
+        </section>
+
+        <section class="student-water-history">
+                <h3>Registros de hoje</h3>
+                <div id="student-water-history-list">
+                    ${entries.length === 0 ? '<p class="subtitle">Sem registros até agora.</p>' : `
+                        <ul>
+                            ${entries.map((entry) => `<li>${parseIntegerSafe(entry?.amountMl) || 0} ml • ${new Date(entry.time || Date.now()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</li>`).join('')}
+                        </ul>
+                    `}
+                </div>
+        </section>
+    `;
+}
+
 async function confirmConnection() {
     const activeUser = await getSupabaseSessionUser();
     if (!activeUser) {
@@ -11510,6 +12490,8 @@ async function initStudentDashboard(options = {}) {
             const prevTmb = parseIntegerSafe(student.tmbBase);
             const nextTmb = syncStudentTmbData(student);
             let changed = nextTmb !== prevTmb;
+            const connectionStatusChanged = await syncCurrentStudentApprovalStatusFromSupabase(student);
+            changed = changed || connectionStatusChanged;
             if (!Array.isArray(student.mealBlocks) || student.mealBlocks.length === 0) {
                 const dietBase = createDietBaseFromStudent(student);
                 student.mealBlocks = dietBase.mealBlocks;
@@ -11761,6 +12743,23 @@ function getStudentData() {
     const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
     return { studentId, students, student: students.find(s => s.id === studentId) };
+}
+
+function persistStudentData(mutator, options = {}) {
+    if (typeof mutator !== 'function') return false;
+    const students = readStorageJSON('trainerStudents', []);
+    if (!Array.isArray(students) || students.length === 0) return false;
+
+    const currentStudentId = String(memoryGetItem('currentStudentId') || '').trim();
+    let studentIdx = students.findIndex((s) => String(s?.id || '').trim() === currentStudentId);
+    if (studentIdx < 0 && Number.isInteger(currentStudentIdx) && currentStudentIdx >= 0 && currentStudentIdx < students.length) {
+        studentIdx = currentStudentIdx;
+    }
+    if (studentIdx < 0) return false;
+
+    mutator(students, studentIdx);
+    saveStudentData(students, options);
+    return true;
 }
 
 function saveStudentData(students, options = {}) {
@@ -12035,9 +13034,147 @@ function triggerStudentGalleryUpload() {
     input.click();
 }
 
+function getStudentConnectTutorialStorageKey() {
+    const userId = String(memoryGetItem('currentUserId') || memoryGetItem('currentStudentId') || 'anon').trim() || 'anon';
+    return `${STUDENT_CONNECT_TUTORIAL_KEY}:${userId}`;
+}
+
+function resolveStudentConsultoriaStatus(student = {}) {
+    const connectedCode = sanitizeCodeInput(
+        student?.trainerCode || student?.trainer_code || memoryGetItem('connectedTrainerCode') || '',
+        5
+    );
+    if (!connectedCode) return { status: 'desconectado', trainerCode: '' };
+    if (student?.active) return { status: 'aprovado', trainerCode: connectedCode };
+    return { status: 'pendente', trainerCode: connectedCode };
+}
+
+function getTrainerDisplayNameByCode(trainerCode = '') {
+    const safeCode = sanitizeCodeInput(trainerCode, 5);
+    if (!safeCode) return '';
+    const allTrainers = readStorageJSON('allTrainers', []);
+    const found = (Array.isArray(allTrainers) ? allTrainers : []).find((trainer) => String(trainer?.code || '') === safeCode);
+    if (!found) return '';
+    return sanitizeUserInput(found?.displayName || found?.name || '', { maxLen: 90 });
+}
+
+function renderStudentConsultoriaCard(student = {}) {
+    const container = document.getElementById('student-consultoria-card');
+    if (!container) return;
+    const state = resolveStudentConsultoriaStatus(student);
+    const trainerName = getTrainerDisplayNameByCode(state.trainerCode);
+    const trainerLabel = trainerName || 'Seu treinador';
+    if (state.status === 'desconectado') {
+        container.innerHTML = `
+            <div class="settings-card-header">
+                <h2>Minha consultoria</h2>
+                <p class="subtitle">Conecte seu código para liberar treino, dieta, cardio e água.</p>
+            </div>
+            <div class="student-consultoria-actions">
+                <button class="btn-primary" type="button" onclick="openStudentConnectFromDashboard()">
+                    <i class="ph-bold ph-link"></i> Conectar com treinador
+                </button>
+            </div>
+        `;
+        return;
+    }
+    container.innerHTML = `
+        <div class="settings-card-header">
+            <h2>Minha consultoria</h2>
+            <p class="subtitle">Consultoria de ${escHtml(trainerLabel)} • Código ${escHtml(state.trainerCode)}</p>
+        </div>
+        <div class="student-consultoria-status ${state.status === 'aprovado' ? 'is-approved' : 'is-pending'}">
+            <i class="ph-bold ${state.status === 'aprovado' ? 'ph-check-circle' : 'ph-hourglass-high'}"></i>
+            <span>${state.status === 'aprovado' ? 'Conectado e aprovado pelo treinador' : 'Solicitação enviada, aguardando aprovação'}</span>
+        </div>
+        <div class="student-consultoria-actions">
+            <button class="btn-secondary btn-perfil-logout" type="button" onclick="disconnectStudentConsultoria()">
+                <i class="ph-bold ph-sign-out"></i> Cancelar consultoria
+            </button>
+        </div>
+    `;
+}
+
+function showStudentConnectTutorialModal() {
+    const modal = document.getElementById('student-connect-tutorial-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+}
+
+function closeStudentConnectTutorialModal() {
+    const modal = document.getElementById('student-connect-tutorial-modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    setTimeout(() => {
+        modal.style.display = 'none';
+    }, 180);
+    studentConnectTutorialShownInSession = true;
+    memorySetItem(getStudentConnectTutorialStorageKey(), '1');
+}
+
+function startStudentConnectFromTutorial() {
+    closeStudentConnectTutorialModal();
+    openStudentConnectFromDashboard();
+}
+
+function maybeShowStudentConnectTutorial(student = {}) {
+    const state = resolveStudentConsultoriaStatus(student);
+    if (state.status !== 'desconectado') return;
+    if (studentConnectTutorialShownInSession) return;
+    const seen = memoryGetItem(getStudentConnectTutorialStorageKey()) === '1';
+    if (seen) return;
+    showStudentConnectTutorialModal();
+    studentConnectTutorialShownInSession = true;
+}
+
+async function disconnectStudentConsultoria() {
+    const { studentId, students, student } = getStudentData();
+    if (!studentId || !student) return;
+    const state = resolveStudentConsultoriaStatus(student);
+    if (state.status === 'desconectado') return;
+    const shouldDisconnect = confirm('Você quer mesmo sair dessa consultoria? Essa ação remove sua conexão com o treinador atual.');
+    if (!shouldDisconnect) return;
+
+    const idx = students.findIndex((entry) => String(entry?.id || '') === String(studentId));
+    if (idx < 0) return;
+    const oldTrainerCode = state.trainerCode;
+    const userId = String(student?.userId || memoryGetItem('currentUserId') || '').trim();
+    students[idx] = {
+        ...students[idx],
+        trainerCode: '',
+        trainer_code: '',
+        pending: false,
+        active: false
+    };
+    saveStudentData(students);
+    memoryRemoveItem('connectedTrainerCode');
+    memoryRemoveItem('currentTrainerCode');
+    memoryRemoveItem(getStudentConnectTutorialStorageKey());
+    studentConnectTutorialShownInSession = false;
+
+    if (userId && oldTrainerCode) {
+        await syncStudentConnectionEntity(userId, oldTrainerCode, 'rejected');
+    }
+    const activeUser = await getSupabaseSessionUser();
+    if (activeUser) {
+        await upsertOwnProfile({
+            id: activeUser.id,
+            connected_trainer_code: null,
+            onboarding_step: 'done'
+        });
+    }
+
+    await initStudentDashboard({ force: true, remoteSync: false });
+    renderStudentConsultoriaCard(students[idx]);
+    renderStudentWaterMain();
+    showDietRuntimeMessage('Consultoria removida. Você pode conectar um novo treinador quando quiser.', 'success');
+}
+
 function renderStudentPerfil() {
     const { student } = getStudentData();
     if (!student) return;
+    renderStudentConsultoriaCard(student);
 
     const history = student.metricHistory || [];
     const lastEntry = history.length > 0 ? history[history.length - 1] : null;
@@ -12171,6 +13308,7 @@ function renderStudentPerfil() {
     // Chart
     renderPerfilChart();
     void loadStudentMediaGallery();
+    maybeShowStudentConnectTutorial(student);
 }
 
 function getStudentAnamnesisSource(student = {}) {
@@ -14937,7 +16075,7 @@ function buildStudentRow(s, idx, options = {}) {
                 <button class="quick-action-btn" title="Editar treino" onclick="openStudentProfileTab(${idx}, 'treino', event)">
                     <i class="ph-bold ph-barbell"></i>
                 </button>
-                <button class="quick-action-btn" title="Ver dieta" onclick="openStudentProfileTab(${idx}, 'nutricao', event)">
+                <button class="quick-action-btn" title="Ver dieta" onclick="openStudentProfileTab(${idx}, 'dieta', event)">
                     <i class="ph-bold ph-fork-knife"></i>
                 </button>
             </div>
@@ -14974,7 +16112,7 @@ function buildStudentRow(s, idx, options = {}) {
                 <button class="quick-action-btn" title="Editar treino" onclick="openStudentProfileTab(${idx}, 'treino', event)">
                     <i class="ph-bold ph-barbell"></i>
                 </button>
-                <button class="quick-action-btn" title="Ver dieta" onclick="openStudentProfileTab(${idx}, 'nutricao', event)">
+                <button class="quick-action-btn" title="Ver dieta" onclick="openStudentProfileTab(${idx}, 'dieta', event)">
                     <i class="ph-bold ph-fork-knife"></i>
                 </button>
             </div>
@@ -15014,7 +16152,7 @@ function openWhatsAppForStudent(studentIdx, event) {
 }
 
 function backToStudentHomeView() {
-    switchStudentView('home');
+    switchStudentView('treino');
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -15055,10 +16193,10 @@ function buildPendingCard(s, idx) {
             <span class="pending-date"><i class="ph-bold ph-calendar-blank"></i> Solicitado em ${reqDate}</span>
         </div>
         <div class="pending-card-actions">
-            <button class="btn-accept" data-student-id="${safeStudentId}" onclick="acceptStudentById(this.dataset.studentId)">
+            <button type="button" class="btn-accept" data-student-id="${safeStudentId}" onclick="acceptStudentById(this.getAttribute('data-student-id'))">
                 <i class="ph-bold ph-check"></i> Aceitar
             </button>
-            <button class="btn-reject" data-student-id="${safeStudentId}" onclick="rejectStudentById(this.dataset.studentId)">
+            <button type="button" class="btn-reject" data-student-id="${safeStudentId}" onclick="rejectStudentById(this.getAttribute('data-student-id'))">
                 <i class="ph-bold ph-x"></i> Recusar
             </button>
         </div>
@@ -15809,7 +16947,11 @@ function acceptStudent(idx) {
 function acceptStudentById(studentId) {
     const students = readStorageJSON('trainerStudents', []);
     const idx = findStudentIndexById(students, studentId);
-    if (idx < 0) return;
+    if (idx < 0) {
+        showTrainerRuntimeMessage('Não encontramos essa solicitação pendente. Atualizando a lista...', 'error');
+        scheduleTrainerDashboardRefresh({ delayMs: 0, refreshProfile: true });
+        return;
+    }
     students[idx].pending = false;
     students[idx].active = true;
     students[idx].acceptedAt = new Date().toISOString();
@@ -15817,6 +16959,7 @@ function acceptStudentById(studentId) {
     const trainerCode = getStudentTrainerCodeValue(students[idx]);
     const resolvedId = String(students[idx]?.id || studentId || '').trim();
     saveStudentData(students);
+    updateTrainerStats();
     if (studentUserId && trainerCode) {
         syncStudentConnectionEntity(studentUserId, trainerCode, 'approved');
     }
@@ -15900,6 +17043,8 @@ let currentStudentIdx = null; // tracks which student is being edited
 let currentTrainerStudentId = null; // tracks current student id for trainer history
 let workoutBlocks = [];        // local state for workout blocks
 let mealBlocks = [];           // local state for meal blocks
+let trainerCardioPlan = getDefaultCardioPlan();    // local state for cardio plan
+let trainerWaterPlan = { mode: 'auto', dailyGoalMl: null, adjustmentMl: 0, remindersEnabled: true, notes: '' }; // local state for water plan
 let studentConfigDirty = false;
 let studentConfigSaveState = 'clean';
 let pendingBlockIdx = null;    // which block an exercise is being added to
@@ -15954,6 +17099,8 @@ function persistCurrentTrainerStudentDraft(options = {}) {
     const student = { ...(selection.student || {}) };
     student.workoutBlocks = JSON.parse(JSON.stringify(Array.isArray(workoutBlocks) ? workoutBlocks : []));
     student.mealBlocks = JSON.parse(JSON.stringify(Array.isArray(mealBlocks) ? mealBlocks : []));
+    student.cardioPlan = JSON.parse(JSON.stringify(normalizeCardioPlanShape(trainerCardioPlan)));
+    student.waterPlan = JSON.parse(JSON.stringify(normalizeWaterPlanShape(trainerWaterPlan)));
     const dietMeta = (student.dietMeta && typeof student.dietMeta === 'object')
         ? { ...student.dietMeta }
         : {};
@@ -16018,6 +17165,8 @@ function openStudentProfile(studentIndex) {
     // Load existing plan data
     workoutBlocks = s.workoutBlocks ? JSON.parse(JSON.stringify(s.workoutBlocks)) : [];
     mealBlocks = s.mealBlocks ? JSON.parse(JSON.stringify(s.mealBlocks)) : [];
+    trainerCardioPlan = normalizeCardioPlanShape(s.cardioPlan);
+    trainerWaterPlan = normalizeWaterPlanShape(s.waterPlan);
 
     // Calculate TMB (Mifflin-St Jeor)
     const tmbCalc = calcTMBMifflin(s.weight, s.height, s.age, s.gender);
@@ -16059,6 +17208,8 @@ function openStudentProfile(studentIndex) {
     // Render workout and open Treino tab
     renderWorkoutBlocks();
     renderMeals();
+    renderTrainerCardioPlanEditor();
+    renderTrainerWaterPlanEditor();
     loadStudentBillingConfigTab(s);
     clearStudentConfigDirty();
     switchProfileTab('treino');
@@ -16086,18 +17237,214 @@ function closeStudentProfile() {
 }
 
 function switchProfileTab(tabName) {
+    const rawTab = String(tabName || '').trim().toLowerCase();
+    const tabAliasMap = {
+        nutricao: 'dieta',
+        dieta: 'dieta',
+        treino: 'treino',
+        cardio: 'cardio',
+        agua: 'agua',
+        config: 'config',
+        perfil: 'perfil',
+        anamnese: 'anamnese'
+    };
+    const resolvedTab = tabAliasMap[rawTab] || 'treino';
     document.querySelectorAll('.p-tab-content').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.prof-tab').forEach(b => b.classList.remove('active'));
-    const tab = document.getElementById(`p-tab-${tabName}`);
-    const nav = document.getElementById(`p-nav-${tabName}`);
+    const tab =
+        document.getElementById(`p-tab-${resolvedTab}`)
+        || (resolvedTab === 'dieta' ? document.getElementById('p-tab-nutricao') : null);
+    const nav =
+        document.getElementById(`p-nav-${resolvedTab}`)
+        || (resolvedTab === 'dieta' ? document.getElementById('p-nav-nutricao') : null);
     if (!tab || !nav) return;
     tab.classList.add('active');
     nav.classList.add('active');
-    if (tabName === 'config') {
+    if (resolvedTab === 'config') {
         const selection = resolveCurrentTrainerStudentSelection();
         const student = selection.student;
         if (student && !studentConfigDirty) loadStudentBillingConfigTab(student);
     }
+}
+
+function renderTrainerCardioPlanEditor() {
+    const container = document.getElementById('trainer-cardio-plan-editor');
+    if (!container) return;
+    trainerCardioPlan = normalizeCardioPlanShape(trainerCardioPlan);
+    const zoneLabelMap = { z1: 'Zona 1 — Leve', z2: 'Zona 2 — Moderada', z3: 'Zona 3 — Vigorosa' };
+    const zoneLabel = zoneLabelMap[trainerCardioPlan.baseZoneKey] || zoneLabelMap.z2;
+    container.innerHTML = `
+        <div class="trainer-cardio-studio">
+            <div class="settings-card-header">
+                <h2>Cardio Premium</h2>
+                <p class="subtitle">Defina meta semanal, zona base e sessões por dia.</p>
+            </div>
+            <div class="settings-field">
+                <label>Meta semanal (min)</label>
+                <input class="q-input" type="number" min="30" max="600" value="${trainerCardioPlan.weeklyGoalMin}" oninput="updateTrainerCardioPlanField('weeklyGoalMin', this.value)">
+            </div>
+            <div class="settings-field">
+                <label>Zona base de intensidade</label>
+                <div class="trainer-cardio-zone-pills">
+                    <button type="button" class="btn-secondary btn-sm ${trainerCardioPlan.baseZoneKey === 'z1' ? 'active' : ''}" onclick="updateTrainerCardioPlanField('baseZoneKey','z1')">Zona 1</button>
+                    <button type="button" class="btn-secondary btn-sm ${trainerCardioPlan.baseZoneKey === 'z2' ? 'active' : ''}" onclick="updateTrainerCardioPlanField('baseZoneKey','z2')">Zona 2</button>
+                    <button type="button" class="btn-secondary btn-sm ${trainerCardioPlan.baseZoneKey === 'z3' ? 'active' : ''}" onclick="updateTrainerCardioPlanField('baseZoneKey','z3')">Zona 3</button>
+                </div>
+            </div>
+            <div class="settings-field">
+                <label>Recomendação do coach</label>
+                <textarea class="q-input" rows="2" placeholder="Ex: cardio moderado em esteira com ritmo estável." oninput="updateTrainerCardioPlanField('coachRecommendation', this.value)">${escHtml(trainerCardioPlan.coachRecommendation || '')}</textarea>
+            </div>
+            <div class="trainer-cardio-preview">
+                <p><strong>Preview aluno:</strong> ${trainerCardioPlan.weeklyGoalMin} min/semana • ${zoneLabel}</p>
+                <p>${escHtml(trainerCardioPlan.coachRecommendation || 'Sem observação adicional.')}</p>
+            </div>
+            <div class="trainer-cardio-grid">
+                ${trainerCardioPlan.days.map((entry, idx) => `
+                    <div class="trainer-cardio-row">
+                        <strong>${escHtml(entry.dayLabel || 'Dia')}</strong>
+                        <input class="q-input" type="text" value="${escHtml(entry.type || '')}" placeholder="Ex: Caminhada inclinada" oninput="updateTrainerCardioDayField(${idx}, 'type', this.value)">
+                        <div class="trainer-cardio-inline">
+                            <input class="q-input" type="number" min="0" value="${escHtml(entry.durationMin || '')}" placeholder="Min" oninput="updateTrainerCardioDayField(${idx}, 'durationMin', this.value)">
+                            <input class="q-input" type="text" value="${escHtml(entry.intensity || '')}" placeholder="Intensidade (leve/moderado/alto)" oninput="updateTrainerCardioDayField(${idx}, 'intensity', this.value)">
+                        </div>
+                        <textarea class="q-input" rows="2" placeholder="Observações para o aluno" oninput="updateTrainerCardioDayField(${idx}, 'notes', this.value)">${escHtml(entry.notes || '')}</textarea>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function updateTrainerCardioPlanField(field, value) {
+    trainerCardioPlan = normalizeCardioPlanShape(trainerCardioPlan);
+    const safeField = String(field || '').trim();
+    if (safeField === 'weeklyGoalMin') {
+        const parsed = parseIntegerSafe(value);
+        trainerCardioPlan.weeklyGoalMin = Number.isFinite(parsed) ? Math.min(600, Math.max(30, parsed)) : 120;
+    } else if (safeField === 'baseZoneKey') {
+        const safeZone = String(value || '').trim().toLowerCase();
+        trainerCardioPlan.baseZoneKey = ['z1', 'z2', 'z3'].includes(safeZone) ? safeZone : 'z2';
+    } else if (safeField === 'coachRecommendation') {
+        trainerCardioPlan.coachRecommendation = sanitizeUserInput(value || '', { maxLen: 220 });
+    } else {
+        return;
+    }
+    renderTrainerCardioPlanEditor();
+    signalStudentPlanDirty();
+    queueStudentPlanLocalAutosave(380);
+}
+
+function updateTrainerCardioDayField(idx, field, value) {
+    trainerCardioPlan = normalizeCardioPlanShape(trainerCardioPlan);
+    if (!Array.isArray(trainerCardioPlan.days) || !trainerCardioPlan.days[idx]) return;
+    const safeField = String(field || '').trim();
+    if (!['type', 'durationMin', 'intensity', 'notes'].includes(safeField)) return;
+    trainerCardioPlan.days[idx][safeField] = sanitizeUserInput(value || '', {
+        allowNewlines: safeField === 'notes',
+        maxLen: safeField === 'notes' ? 280 : 80
+    });
+    if (safeField === 'durationMin') {
+        trainerCardioPlan.days[idx][safeField] = sanitizeUserInput(value || '', { maxLen: 6 });
+    }
+    signalStudentPlanDirty();
+    queueStudentPlanLocalAutosave(380);
+}
+
+function renderTrainerWaterPlanEditor() {
+    const container = document.getElementById('trainer-water-plan-editor');
+    if (!container) return;
+    trainerWaterPlan = normalizeWaterPlanShape(trainerWaterPlan);
+    const mode = trainerWaterPlan.mode === 'manual' ? 'manual' : 'auto';
+    const adjustmentLabel = trainerWaterPlan.adjustmentMl > 0 ? `+${trainerWaterPlan.adjustmentMl}` : `${trainerWaterPlan.adjustmentMl}`;
+    const selection = resolveCurrentTrainerStudentSelection();
+    const student = selection.student || {};
+    const previewCtx = resolveStudentWaterGoalContext(student, trainerWaterPlan);
+    container.innerHTML = `
+        <div class="trainer-water-studio">
+            <div class="settings-card-header">
+                <h2>Meta de Hidratação</h2>
+                <p class="subtitle">Decida entre modo automático por peso ou manual, com preview em tempo real.</p>
+            </div>
+
+            <div class="settings-field">
+                <label>Modo da meta</label>
+                <div class="trainer-water-mode-grid">
+                    <button type="button" class="btn-secondary btn-sm ${mode === 'auto' ? 'active' : ''}" onclick="updateTrainerWaterField('mode', 'auto')">Automático por peso</button>
+                    <button type="button" class="btn-secondary btn-sm ${mode === 'manual' ? 'active' : ''}" onclick="updateTrainerWaterField('mode', 'manual')">Meta manual</button>
+                </div>
+            </div>
+
+            ${mode === 'manual' ? `
+            <div class="settings-field">
+                <label>Meta diária (ml)</label>
+                <input id="trainer-water-goal" class="q-input" type="number" min="1000" max="6000" step="50" value="${trainerWaterPlan.dailyGoalMl || 3000}" oninput="updateTrainerWaterField('dailyGoalMl', this.value)">
+            </div>
+            ` : `
+            <div class="settings-field">
+                <label>Ajuste sobre meta automática (ml)</label>
+                <div class="trainer-water-adjust-grid">
+                    <button type="button" class="btn-secondary btn-sm" onclick="updateTrainerWaterField('adjustmentDelta', -100)">-100</button>
+                    <button type="button" class="btn-secondary btn-sm" onclick="updateTrainerWaterField('adjustmentDelta', 100)">+100</button>
+                    <input id="trainer-water-adjustment" class="q-input" type="number" min="-3000" max="3000" step="50" value="${trainerWaterPlan.adjustmentMl}" oninput="updateTrainerWaterField('adjustmentMl', this.value)">
+                </div>
+                <p class="subtitle" style="margin-top:0.4rem;">Ajuste atual: ${adjustmentLabel} ml</p>
+            </div>
+            `}
+
+            <div class="settings-field">
+                <label class="toggle-row">
+                    <input id="trainer-water-reminders" type="checkbox" ${trainerWaterPlan.remindersEnabled ? 'checked' : ''} onchange="updateTrainerWaterField('remindersEnabled', this.checked)">
+                    <span>Lembretes de hidratação habilitados para o aluno</span>
+                </label>
+            </div>
+            <div class="settings-field">
+                <label>Observações do protocolo</label>
+                <textarea id="trainer-water-notes" class="q-input" rows="3" placeholder="Ex: manter 500ml ao acordar e dividir o restante no dia." oninput="updateTrainerWaterField('notes', this.value)">${escHtml(trainerWaterPlan.notes || '')}</textarea>
+            </div>
+
+            <div class="trainer-water-preview ${previewCtx.hasManualGoal ? 'is-manual' : (previewCtx.adjustmentMl !== 0 ? 'is-adjusted' : 'is-auto')}">
+                <h3>Preview para o aluno</h3>
+                <p><strong>Meta final:</strong> ${previewCtx.goalMl} ml</p>
+                <p><strong>Origem:</strong> ${escHtml(previewCtx.originLabel)}</p>
+                <p><strong>Faixa por peso:</strong> ${previewCtx.autoWaterMinMl}–${previewCtx.autoWaterMaxMl} ml (${formatWaterLiters(previewCtx.autoWaterMinMl)}L–${formatWaterLiters(previewCtx.autoWaterMaxMl)}L)</p>
+            </div>
+        </div>
+    `;
+}
+
+function updateTrainerWaterField(field, value) {
+    const safeField = String(field || '').trim();
+    if (safeField === 'mode') {
+        trainerWaterPlan.mode = String(value || '').trim().toLowerCase() === 'manual' ? 'manual' : 'auto';
+        if (trainerWaterPlan.mode === 'manual' && !Number.isFinite(parseIntegerSafe(trainerWaterPlan.dailyGoalMl))) {
+            trainerWaterPlan.dailyGoalMl = 3000;
+        }
+    } else if (safeField === 'dailyGoalMl') {
+        const parsed = parseIntegerSafe(value);
+        trainerWaterPlan.dailyGoalMl = Number.isFinite(parsed) && parsed >= 1000
+            ? Math.min(6000, Math.max(1000, parsed))
+            : 3000;
+    } else if (safeField === 'adjustmentMl') {
+        const parsed = parseIntegerSafe(value);
+        trainerWaterPlan.adjustmentMl = Number.isFinite(parsed) ? Math.min(3000, Math.max(-3000, parsed)) : 0;
+    } else if (safeField === 'adjustmentDelta') {
+        const delta = parseIntegerSafe(value) || 0;
+        const current = parseIntegerSafe(trainerWaterPlan.adjustmentMl) || 0;
+        trainerWaterPlan.adjustmentMl = Math.min(3000, Math.max(-3000, current + delta));
+    } else if (safeField === 'remindersEnabled') {
+        trainerWaterPlan.remindersEnabled = !!value;
+    } else if (safeField === 'notes') {
+        trainerWaterPlan.notes = sanitizeUserInput(value || '', { allowNewlines: true, maxLen: 280 });
+    } else {
+        return;
+    }
+    trainerWaterPlan = normalizeWaterPlanShape(trainerWaterPlan);
+    if (safeField === 'mode' || safeField === 'adjustmentDelta') {
+        renderTrainerWaterPlanEditor();
+    }
+    signalStudentPlanDirty();
+    queueStudentPlanLocalAutosave(380);
 }
 
 // â”€â”€â”€ Workout Blocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -16839,7 +18186,7 @@ function addMeal() {
     mealBlocks.push({ name: finalName, items: [] });
     renderMeals();
     signalStudentPlanDirty();
-    switchProfileTab('nutricao');
+    switchProfileTab('dieta');
 }
 
 function deleteMeal(mIdx) {
@@ -18033,6 +19380,8 @@ async function saveStudentPlan() {
 
         students[targetIdx].workoutBlocks = JSON.parse(JSON.stringify(Array.isArray(workoutBlocks) ? workoutBlocks : []));
         students[targetIdx].mealBlocks = JSON.parse(JSON.stringify(Array.isArray(mealBlocks) ? mealBlocks : []));
+        students[targetIdx].cardioPlan = JSON.parse(JSON.stringify(normalizeCardioPlanShape(trainerCardioPlan)));
+        students[targetIdx].waterPlan = JSON.parse(JSON.stringify(normalizeWaterPlanShape(trainerWaterPlan)));
         students[targetIdx].dietMeta = diet;
         students[targetIdx].billingStartDate = billingStartDate;
         students[targetIdx].billingCurrentStatus = billingCurrentStatus;
@@ -19697,7 +21046,7 @@ function closeWorkoutSummary() {
     workoutFeedbackRating = 0;
     workoutFeedbackIntensity = 'moderado';
     clearWorkoutBackup();
-    switchStudentView('home');
+    switchStudentView('treino');
     refreshWorkoutBackupIndicator();
 }
 

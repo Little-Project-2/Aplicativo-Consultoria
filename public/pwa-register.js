@@ -1,4 +1,4 @@
-(function registerPWA() {
+﻿(function registerPWA() {
   if (!("serviceWorker" in navigator)) return;
   if (location.protocol !== "https:" && location.hostname !== "localhost") return;
 
@@ -7,13 +7,24 @@
     try {
       const registration = await navigator.serviceWorker.register("./service-worker.js", { scope: "./" });
 
+      const showUpdatingIndicator = () => {
+        if (window.__pwaUpdatingHintShown) return;
+        window.__pwaUpdatingHintShown = true;
+        const hint = document.createElement("div");
+        hint.id = "pwa-updating-hint";
+        hint.textContent = "Atualizando aplicação...";
+        hint.style.cssText = "position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:99999;padding:10px 14px;border-radius:999px;background:rgba(15,23,42,0.92);color:#fff;font:600 12px Inter,system-ui,sans-serif;box-shadow:0 8px 22px rgba(0,0,0,0.28);";
+        document.body.appendChild(hint);
+      };
+
       const activateWaitingWorker = () => {
         if (registration.waiting) {
+          showUpdatingIndicator();
           registration.waiting.postMessage({ type: "SKIP_WAITING" });
         }
       };
 
-      // If a new worker is already waiting, activate it immediately
+      registration.update().catch(() => {});
       activateWaitingWorker();
 
       registration.addEventListener("updatefound", () => {
@@ -27,17 +38,16 @@
         });
       });
 
-      // Reload only when updating an existing controlled app
       navigator.serviceWorker.addEventListener("controllerchange", () => {
         if (!hadController || window.__pwaReloading) return;
         window.__pwaReloading = true;
+        showUpdatingIndicator();
         window.location.reload();
       });
 
-      // Re-check updates periodically while app is open.
       setInterval(() => {
         registration.update().catch(() => {});
-      }, 60 * 60 * 1000);
+      }, 30 * 60 * 1000);
 
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {

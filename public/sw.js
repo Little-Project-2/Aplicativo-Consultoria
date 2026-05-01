@@ -1,13 +1,11 @@
-﻿const PRECACHE_CACHE = "consultoria-precache-v11";
-const RUNTIME_CACHE = "consultoria-runtime-v11";
+﻿const PRECACHE_CACHE = "consultoria-precache-v12";
+const RUNTIME_CACHE = "consultoria-runtime-v12";
 const OFFLINE_URL = "./offline.html";
 
 const PRECACHE_URLS = [
   "./",
   "./index.html",
   "./trainer.html",
-  "./style.css",
-  "./script.js",
   "./pwa-register.js",
   "./service-worker.js",
   "./manifest.json",
@@ -44,9 +42,15 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
       const cacheKeys = await caches.keys();
+      const knownCaches = new Set([PRECACHE_CACHE, RUNTIME_CACHE]);
       await Promise.all(
         cacheKeys
-          .filter((key) => key !== PRECACHE_CACHE && key !== RUNTIME_CACHE)
+          .filter((key) => {
+            if (!key.startsWith("consultoria-precache-v") && !key.startsWith("consultoria-runtime-v")) {
+              return false;
+            }
+            return !knownCaches.has(key);
+          })
           .map((key) => caches.delete(key))
       );
       await self.clients.claim();
@@ -64,6 +68,21 @@ async function cacheFirst(request) {
     cache.put(request, response.clone());
   }
   return response;
+}
+
+async function networkFirst(request) {
+  const cache = await caches.open(RUNTIME_CACHE);
+  try {
+    const network = await fetch(request);
+    if (network && network.ok) {
+      cache.put(request, network.clone());
+    }
+    return network;
+  } catch (err) {
+    const cached = await cache.match(request, { ignoreSearch: true });
+    if (cached) return cached;
+    return Response.error();
+  }
 }
 
 async function staleWhileRevalidate(request) {
@@ -133,12 +152,20 @@ self.addEventListener("fetch", (event) => {
 
   if (url.origin !== self.location.origin) return;
 
-  const staticDestinations = ["style", "script", "image", "font", "manifest", "worker"];
-  if (staticDestinations.includes(request.destination)) {
+  if (request.destination === "script" || request.destination === "style") {
+    event.respondWith(staleWhileRevalidate(request));
+    return;
+  }
+
+  if (request.destination === "image" || request.destination === "font") {
     event.respondWith(cacheFirst(request));
+    return;
+  }
+
+  if (request.destination === "manifest" || request.destination === "worker") {
+    event.respondWith(networkFirst(request));
     return;
   }
 
   event.respondWith(staleWhileRevalidate(request));
 });
-
