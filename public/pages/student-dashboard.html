@@ -5,8 +5,7 @@
                     <div class="sidebar-logo">
                         <div class="logo-icon glow"
                             style="width: 40px; height: 40px; font-size: 20px; color: #121214; border-radius: 10px;">
-                            <img id="student-brand-logo" class="brand-logo" alt="Logo da consultoria" style="display:none;">
-                            <i class="ph-bold ph-barbell"></i>
+                            <img id="student-brand-logo" class="brand-logo" alt="Logo da consultoria" src="assets/logo-small.svg" style="display:block;">
                         </div>
                         <div>
                             <h2 id="side-student-name"
@@ -448,8 +447,89 @@
                                 <p class="subtitle">Plano semanal e sessões concluídas</p>
                             </div>
                         </div>
+
+                        <section id="student-home-v2" class="student-home-v2">
+                            <article class="home-v2-card next-workout-card">
+                                <div class="home-v2-card-head">
+                                    <h3>Próximo treino</h3>
+                                    <button type="button" class="home-v2-link-btn" onclick="switchStudentView('treino')">Abrir treino</button>
+                                </div>
+                                <div id="student-next-workout-card-body"></div>
+                            </article>
+
+                            <article class="home-v2-card">
+                                <div class="home-v2-card-head">
+                                    <h3>Minha rotina</h3>
+                                    <button type="button" class="home-v2-link-btn" onclick="openRoutineHabitModal()">Novo hábito</button>
+                                </div>
+                                <div id="student-routine-list" class="student-routine-list"></div>
+                            </article>
+
+                            <article class="home-v2-card">
+                                <div class="home-v2-card-head">
+                                    <h3>Lembretes de hoje</h3>
+                                    <button type="button" class="home-v2-link-btn" onclick="openRoutineReminderModal()">Novo lembrete</button>
+                                </div>
+                                <div id="student-reminders-list" class="student-reminders-list"></div>
+                            </article>
+                        </section>
                         <div id="student-cardio-content-main" class="protocol-content-list">
                             <!-- Dynamic Content -->
+                        </div>
+                    </div>
+
+                    <div id="routine-habit-modal" class="modal" style="display:none;">
+                        <div class="modal-content">
+                            <h3 id="routine-habit-modal-title">Novo hábito</h3>
+                            <div class="field">
+                                <label for="routine-habit-title">Título</label>
+                                <input id="routine-habit-title" type="text" maxlength="80" placeholder="Ex.: Caminhar 20 minutos">
+                            </div>
+                            <div class="field">
+                                <label for="routine-habit-time">Horário</label>
+                                <input id="routine-habit-time" type="time" value="08:00">
+                            </div>
+                            <div class="field">
+                                <label for="routine-habit-recurrence">Recorrência</label>
+                                <select id="routine-habit-recurrence" onchange="handleRoutineRecurrenceUI()">
+                                    <option value="daily">Todos os dias</option>
+                                    <option value="weekdays">Dias fixos</option>
+                                </select>
+                            </div>
+                            <div class="field" id="routine-weekdays-wrap" style="display:none;">
+                                <label>Dias da semana</label>
+                                <div class="routine-weekday-grid">
+                                    <label><input type="checkbox" value="seg">Seg</label>
+                                    <label><input type="checkbox" value="ter">Ter</label>
+                                    <label><input type="checkbox" value="qua">Qua</label>
+                                    <label><input type="checkbox" value="qui">Qui</label>
+                                    <label><input type="checkbox" value="sex">Sex</label>
+                                    <label><input type="checkbox" value="sab">Sáb</label>
+                                    <label><input type="checkbox" value="dom">Dom</label>
+                                </div>
+                            </div>
+                            <div class="modal-actions">
+                                <button type="button" class="btn-secondary" onclick="closeRoutineHabitModal()">Cancelar</button>
+                                <button type="button" class="btn-primary" onclick="submitRoutineHabitModal()">Salvar hábito</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="routine-reminder-modal" class="modal" style="display:none;">
+                        <div class="modal-content">
+                            <h3>Novo lembrete</h3>
+                            <div class="field">
+                                <label for="routine-reminder-title">Título</label>
+                                <input id="routine-reminder-title" type="text" maxlength="80" placeholder="Ex.: Tomar suplemento">
+                            </div>
+                            <div class="field">
+                                <label for="routine-reminder-time">Horário</label>
+                                <input id="routine-reminder-time" type="time" value="08:00">
+                            </div>
+                            <div class="modal-actions">
+                                <button type="button" class="btn-secondary" onclick="closeRoutineReminderModal()">Cancelar</button>
+                                <button type="button" class="btn-primary" onclick="submitRoutineReminderModal()">Salvar lembrete</button>
+                            </div>
                         </div>
                     </div>
 

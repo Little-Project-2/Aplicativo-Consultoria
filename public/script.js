@@ -98,23 +98,78 @@ const appStorage = (() => {
         }
     })();
 
-    let activeBackend = hasLocalStorage ? window.localStorage : safeMemory;
+    let storageQuotaExceeded = false;
+    const volatileKeys = ['trainerNotifications', 'workoutHistory'];
+
+    const tryLocalSet = (key, value) => {
+        window.localStorage.setItem(String(key), String(value));
+        return true;
+    };
+
+    const tryRecoverLocalStorageQuota = () => {
+        try {
+            volatileKeys.forEach((k) => {
+                const existing = window.localStorage.getItem(k);
+                if (!existing) return;
+                if (k === 'trainerNotifications') {
+                    const parsed = JSON.parse(existing);
+                    if (Array.isArray(parsed) && parsed.length > 80) {
+                        window.localStorage.setItem(k, JSON.stringify(parsed.slice(0, 80)));
+                    }
+                }
+                if (k === 'workoutHistory') {
+                    const parsed = JSON.parse(existing);
+                    if (Array.isArray(parsed) && parsed.length > 180) {
+                        window.localStorage.setItem(k, JSON.stringify(parsed.slice(-180)));
+                    }
+                }
+            });
+        } catch {
+            // noop
+        }
+    };
 
     return {
-        getItem: (key) => activeBackend.getItem(String(key)),
+        getItem: (key) => {
+            const safeKey = String(key);
+            if (hasLocalStorage) {
+                const localValue = window.localStorage.getItem(safeKey);
+                if (localValue !== null) return localValue;
+            }
+            return safeMemory.getItem(safeKey);
+        },
         setItem: (key, value) => {
+            const safeKey = String(key);
+            const safeValue = String(value);
+            if (!hasLocalStorage) {
+                safeMemory.setItem(safeKey, safeValue);
+                return;
+            }
             try {
-                activeBackend.setItem(String(key), String(value));
+                tryLocalSet(safeKey, safeValue);
+                storageQuotaExceeded = false;
             } catch (err) {
-                if (activeBackend !== safeMemory) {
-                    activeBackend = safeMemory;
-                    activeBackend.setItem(String(key), String(value));
+                tryRecoverLocalStorageQuota();
+                try {
+                    tryLocalSet(safeKey, safeValue);
+                    storageQuotaExceeded = false;
+                } catch (retryErr) {
+                    safeMemory.setItem(safeKey, safeValue);
+                    storageQuotaExceeded = true;
+                    console.error('Falha ao persistir no localStorage. Dados mantidos temporariamente em memória até liberar espaço.', retryErr);
                 }
             }
         },
-        removeItem: (key) => activeBackend.removeItem(String(key)),
-        clear: () => activeBackend.clear(),
-        isPersistent: () => activeBackend === window.localStorage
+        removeItem: (key) => {
+            const safeKey = String(key);
+            if (hasLocalStorage) window.localStorage.removeItem(safeKey);
+            safeMemory.removeItem(safeKey);
+        },
+        clear: () => {
+            if (hasLocalStorage) window.localStorage.clear();
+            safeMemory.clear();
+        },
+        isPersistent: () => hasLocalStorage && !storageQuotaExceeded
     };
 })();
 
@@ -520,7 +575,7 @@ function openStudentDashboardSession(student) {
     if (app) app.classList.add('wide');
     studentDashboardScreen.classList.add('active');
     studentConnectTutorialShownInSession = false;
-    void bootStudentDashboardSession('treino');
+    void bootStudentDashboardSession('home');
     return true;
 }
 
@@ -554,9 +609,9 @@ function scheduleStudentDashboardRefresh(options = {}) {
     }, delayMs);
 }
 
-async function bootStudentDashboardSession(defaultView = 'treino') {
+async function bootStudentDashboardSession(defaultView = 'home') {
     const nextToken = ++studentDashboardBootToken;
-    const targetView = String(defaultView || 'treino').trim() || 'treino';
+    const targetView = String(defaultView || 'home').trim() || 'home';
     if (studentDashboardBootPromise) {
         try {
             await studentDashboardBootPromise;
@@ -1772,6 +1827,7 @@ function normalizeStudentDietSchema(studentLike = {}) {
     const cardioLogs = normalizeCardioLogsShape(student.cardioLogs);
     const waterPlan = normalizeWaterPlanShape(student.waterPlan);
     const waterLogs = normalizeWaterLogsShape(student.waterLogs);
+    const routine = normalizeRoutineShape(student.routine);
     return {
         ...student,
         mealBlocks,
@@ -1781,12 +1837,95 @@ function normalizeStudentDietSchema(studentLike = {}) {
         cardioLogs,
         waterPlan,
         waterLogs,
+        routine,
         dietSchemaVersion: DIET_SCHEMA_VERSION
     };
 }
 
+function normalizeRoutineShape(rawRoutine = {}) {
+    const safeRoutine = rawRoutine && typeof rawRoutine === 'object' ? rawRoutine : {};
+    const habits = (Array.isArray(safeRoutine.habits) ? safeRoutine.habits : [])
+        .map((habit) => {
+            const recurrenceType = String(habit?.recurrenceType || '').toLowerCase() === 'weekdays' ? 'weekdays' : 'daily';
+            const weekdays = recurrenceType === 'weekdays'
+                ? (Array.isArray(habit?.weekdays) ? habit.weekdays : []).map((d) => String(d || '').toLowerCase()).filter((d) => ROUTINE_WEEKDAY_KEYS.includes(d))
+                : [];
+            return {
+                id: sanitizeUserInput(habit?.id || '', { maxLen: 80 }) || `habit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                title: sanitizeUserInput(habit?.title || '', { maxLen: 80 }) || 'Hábito',
+                timeHHmm: normalizeTimeHHmm(habit?.timeHHmm || '08:00'),
+                recurrenceType,
+                weekdays,
+                active: habit?.active !== false,
+                createdAt: sanitizeUserInput(habit?.createdAt || '', { maxLen: 40 }) || new Date().toISOString()
+            };
+        })
+        .filter((habit) => habit.id && habit.title);
+
+    const reminders = (Array.isArray(safeRoutine.reminders) ? safeRoutine.reminders : [])
+        .map((reminder) => ({
+            id: sanitizeUserInput(reminder?.id || '', { maxLen: 80 }) || `rem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            title: sanitizeUserInput(reminder?.title || '', { maxLen: 80 }) || 'Lembrete',
+            timeHHmm: normalizeTimeHHmm(reminder?.timeHHmm || '08:00'),
+            dateKey: /^\d{4}-\d{2}-\d{2}$/.test(String(reminder?.dateKey || '')) ? String(reminder.dateKey) : getTodayDateKey(),
+            active: reminder?.active !== false,
+            createdAt: sanitizeUserInput(reminder?.createdAt || '', { maxLen: 40 }) || new Date().toISOString()
+        }))
+        .filter((item) => item.id && item.title);
+
+    const checkinsByDate = {};
+    if (safeRoutine.checkinsByDate && typeof safeRoutine.checkinsByDate === 'object') {
+        Object.entries(safeRoutine.checkinsByDate).forEach(([dateKey, values]) => {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return;
+            checkinsByDate[dateKey] = (Array.isArray(values) ? values : [])
+                .map((entry) => ({
+                    habitId: sanitizeUserInput(entry?.habitId || '', { maxLen: 80 }),
+                    doneAt: sanitizeUserInput(entry?.doneAt || '', { maxLen: 40 }) || new Date().toISOString()
+                }))
+                .filter((entry) => entry.habitId);
+        });
+    }
+
+    return {
+        habits,
+        reminders,
+        checkinsByDate
+    };
+}
+
+function normalizeTimeHHmm(value = '08:00') {
+    const raw = String(value || '').trim();
+    if (!raw) return '08:00';
+    const match = raw.match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return '08:00';
+    const hh = Math.max(0, Math.min(23, parseInt(match[1], 10) || 0));
+    const mm = Math.max(0, Math.min(59, parseInt(match[2], 10) || 0));
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
 function normalizeStudentsDietSchema(students = []) {
     return (Array.isArray(students) ? students : []).map((student) => normalizeStudentDietSchema(student));
+}
+
+function createStudentPersistOpId() {
+    return `persist-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function logStudentPersistOperation(payload = {}) {
+    try {
+        const safe = {
+            opId: payload.opId || createStudentPersistOpId(),
+            studentId: payload.studentId || '',
+            mode: payload.mode || 'immediate',
+            localOk: payload.localOk !== false,
+            remoteOk: payload.remoteOk === true,
+            reason: payload.reason || '',
+            ts: new Date().toISOString()
+        };
+        console.info('[students-persist]', safe);
+    } catch {
+        // noop
+    }
 }
 
 function needsDietSchemaMigration(student) {
@@ -1796,10 +1935,17 @@ function needsDietSchemaMigration(student) {
     if (!Array.isArray(student.mealBlocks)) return true;
     if (!student.dietMeta || typeof student.dietMeta !== 'object') return true;
     if (!student.dietLogs || typeof student.dietLogs !== 'object') return true;
-    if (!Array.isArray(student.cardioPlan)) return true;
+    if (!student.cardioPlan || typeof student.cardioPlan !== 'object') return true;
+    if (!Array.isArray(student.cardioPlan.days)) return true;
     if (!student.waterPlan || typeof student.waterPlan !== 'object') return true;
     if (!student.waterLogs || typeof student.waterLogs !== 'object') return true;
     if (!student.cardioLogs || typeof student.cardioLogs !== 'object') return true;
+    if (!student.cardioLogs.completionByDate || typeof student.cardioLogs.completionByDate !== 'object') return true;
+    if (!student.cardioLogs.sessionsByDate || typeof student.cardioLogs.sessionsByDate !== 'object') return true;
+    if (!student.routine || typeof student.routine !== 'object') return true;
+    if (!Array.isArray(student.routine.habits)) return true;
+    if (!Array.isArray(student.routine.reminders)) return true;
+    if (!student.routine.checkinsByDate || typeof student.routine.checkinsByDate !== 'object') return true;
     return false;
 }
 
@@ -3774,6 +3920,18 @@ async function performSupabaseStudentsSync(payload, options = {}) {
     };
 }
 
+async function performSupabaseStudentsSyncWithRetry(payload, options = {}) {
+    const retryDelayMs = Math.max(300, parseInt(options?.retryDelayMs, 10) || 900);
+    const first = await performSupabaseStudentsSync(payload, options);
+    if (first?.ok || navigator.onLine === false) return first;
+    const transientReasons = new Set(['partial-failure']);
+    if (!first?.reason || transientReasons.has(first.reason)) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        return performSupabaseStudentsSync(payload, options);
+    }
+    return first;
+}
+
 function queueSupabaseStudentsSync(students) {
     if (!isSupabaseReady()) {
         setStudentSyncState('synced', 'Salvo localmente');
@@ -3788,7 +3946,7 @@ function queueSupabaseStudentsSync(students) {
     const payload = normalizeStudentsDietSchema(JSON.parse(JSON.stringify(students || [])));
     supabaseStudentsSyncTimer = setTimeout(async () => {
         supabaseStudentsSyncTimer = null;
-        await performSupabaseStudentsSync(payload);
+        await performSupabaseStudentsSyncWithRetry(payload);
     }, 400);
 }
 
@@ -6755,7 +6913,19 @@ if (typeof window !== 'undefined') {
         undoRepeatPreviousDietDay,
         toggleDietDayCompletion,
         openPerfilAnamnesisModal,
-        closePerfilAnamnesisModal
+        closePerfilAnamnesisModal,
+        openRoutineHabitModal,
+        closeRoutineHabitModal,
+        submitRoutineHabitModal,
+        handleRoutineRecurrenceUI,
+        toggleHabitToday,
+        updateHabit,
+        deleteHabit,
+        openRoutineReminderModal,
+        closeRoutineReminderModal,
+        submitRoutineReminderModal,
+        createReminder,
+        deleteReminder
     });
 }
 
@@ -6766,6 +6936,11 @@ let trainerPendingAttachment = null;
 let trainerAudioRecorder = null;
 let trainerAudioChunks = [];
 let trainerRecordingActive = false;
+let routineReminderTicker = null;
+let routineReminderNotifiedKeys = new Set();
+let routineHabitEditId = null;
+
+const ROUTINE_WEEKDAY_KEYS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'];
 
 window.addEventListener('blur', () => {
     if (trainerRecordingActive) stopTrainerHoldRecord();
@@ -6778,7 +6953,7 @@ document.addEventListener('visibilitychange', () => {
 
 async function switchStudentView(view) {
     const aliasMap = {
-        home: 'treino',
+        home: 'home',
         perfil: 'config',
         treino: 'treino',
         cardio: 'cardio',
@@ -6789,7 +6964,7 @@ async function switchStudentView(view) {
         'workout-summary': 'workout-summary'
     };
     const targetView = aliasMap[String(view || '').trim()] || 'treino';
-    const protectedViews = ['treino', 'cardio', 'dieta', 'agua', 'config', 'log-workout', 'workout-summary'];
+    const protectedViews = ['home', 'treino', 'cardio', 'dieta', 'agua', 'config', 'log-workout', 'workout-summary'];
     if (protectedViews.includes(targetView) && !ENABLE_DEMO_ACCESS) {
         const activeUser = await getSupabaseSessionUser();
         if (!activeUser || !isEmailConfirmed(activeUser)) {
@@ -6821,6 +6996,7 @@ async function switchStudentView(view) {
     });
 
     // Specific logic for each view
+    if (targetView === 'home') renderStudentHomeMain();
     if (targetView === 'treino') {
         currentWorkoutTab = 0;
         const studentId = memoryGetItem('currentStudentId');
@@ -11357,7 +11533,7 @@ function toggleStudentCardioDone(dayKey) {
     const safeDayKey = String(dayKey || '').toLowerCase();
     if (!safeDayKey) return;
     const dateKey = getTodayDateKey();
-    persistStudentData((students, studentIdx) => {
+    const saveResult = persistStudentData((students, studentIdx) => {
         if (studentIdx < 0 || !students[studentIdx]) return;
         const student = normalizeStudentDietSchema(students[studentIdx]);
         const logs = student.cardioLogs && typeof student.cardioLogs === 'object'
@@ -11377,6 +11553,9 @@ function toggleStudentCardioDone(dayKey) {
         student.cardioLogs = logs;
         students[studentIdx] = student;
     }, { syncMode: 'batched', syncDelayMs: 1000 });
+    if (!saveResult?.ok) {
+        showDietRuntimeMessage(saveResult?.message || 'Não foi possível salvar sua marcação de cardio.', 'error');
+    }
     renderStudentCardioMain();
 }
 
@@ -11495,7 +11674,7 @@ function finalizeCardioTimerSession() {
     const sessionId = `cardio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const selectedZone = String(document.getElementById('student-cardio-zone-select')?.value || '').toLowerCase();
     const zoneKey = ['z1', 'z2', 'z3'].includes(selectedZone) ? selectedZone : 'z2';
-    persistStudentData((students, studentIdx) => {
+    const saveResult = persistStudentData((students, studentIdx) => {
         if (studentIdx < 0 || !students[studentIdx]) return;
         const student = normalizeStudentDietSchema(students[studentIdx]);
         const logs = student.cardioLogs && typeof student.cardioLogs === 'object'
@@ -11518,6 +11697,10 @@ function finalizeCardioTimerSession() {
         student.cardioLogs = logs;
         students[studentIdx] = student;
     }, { syncMode: 'batched', syncDelayMs: 1000 });
+    if (!saveResult?.ok) {
+        showDietRuntimeMessage(saveResult?.message || 'Não foi possível registrar a sessão de cardio.', 'error');
+        return;
+    }
     resetCardioTimerState();
     showDietRuntimeMessage('Sessão de cardio registrada com sucesso.', 'success');
     renderStudentCardioMain();
@@ -11535,7 +11718,7 @@ function addManualCardioTime() {
     const sessionId = `cardio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const selectedZone = String(document.getElementById('student-cardio-zone-select')?.value || '').toLowerCase();
     const zoneKey = ['z1', 'z2', 'z3'].includes(selectedZone) ? selectedZone : 'z2';
-    persistStudentData((students, studentIdx) => {
+    const saveResult = persistStudentData((students, studentIdx) => {
         if (studentIdx < 0 || !students[studentIdx]) return;
         const student = normalizeStudentDietSchema(students[studentIdx]);
         const logs = student.cardioLogs && typeof student.cardioLogs === 'object'
@@ -11558,6 +11741,10 @@ function addManualCardioTime() {
         student.cardioLogs = logs;
         students[studentIdx] = student;
     }, { syncMode: 'batched', syncDelayMs: 1000 });
+    if (!saveResult?.ok) {
+        showDietRuntimeMessage(saveResult?.message || 'Não foi possível salvar o tempo manual de cardio.', 'error');
+        return;
+    }
     input.value = '';
     showDietRuntimeMessage(`${minutes} min de cardio adicionados no histórico.`, 'success');
     renderStudentCardioMain();
@@ -11859,7 +12046,7 @@ function applyWaterAction(action, payload = {}) {
         }
     }, { syncMode: 'batched', syncDelayMs: STUDENT_WATER_SYNC_DELAY_MS });
 
-    if (!persisted && !actionResult.ok) {
+    if (!persisted?.ok && !actionResult.ok) {
         actionResult = { ok: false, action, messageType: 'error', message: 'Não foi possível localizar seu perfil para atualizar a água.' };
     }
 
@@ -12044,10 +12231,7 @@ function renderStudentWaterMain() {
                     onpointerup="onStudentWaterUndoPressEnd()"
                     onpointerleave="onStudentWaterUndoPressEnd()"
                     onpointercancel="onStudentWaterUndoPressEnd()"
-                    ontouchstart="onStudentWaterUndoPressStart()"
-                    ontouchend="onStudentWaterUndoPressEnd()"
-                    onmousedown="onStudentWaterUndoPressStart()"
-                    onmouseup="onStudentWaterUndoPressEnd()">
+                    >
                     Segure para desfazer
                 </button>
             </div>
@@ -12482,6 +12666,10 @@ async function initStudentDashboard(options = {}) {
             return;
         }
 
+        if (!appStorage.isPersistent()) {
+            setStudentSyncState('failed', 'Armazenamento cheio: salve menos histórico para não perder dados.');
+        }
+
         const students = readStorageJSON('trainerStudents', []);
         const studentIdx = students.findIndex(s => s.id === studentId);
         const student = studentIdx >= 0 ? students[studentIdx] : null;
@@ -12522,6 +12710,9 @@ async function initStudentDashboard(options = {}) {
         } else {
             setProtocolStatus(false);
         }
+
+        renderStudentHomeMain(student || null);
+        ensureRoutineReminderEngine();
 
         // Check if there is a workout in progress (show "Continuar treino")
         refreshWorkoutBackupIndicator();
@@ -12746,37 +12937,56 @@ function getStudentData() {
 }
 
 function persistStudentData(mutator, options = {}) {
-    if (typeof mutator !== 'function') return false;
+    if (typeof mutator !== 'function') {
+        return { ok: false, localOk: false, remoteOk: false, message: 'Mutação inválida.', opId: createStudentPersistOpId() };
+    }
     const students = readStorageJSON('trainerStudents', []);
-    if (!Array.isArray(students) || students.length === 0) return false;
+    if (!Array.isArray(students) || students.length === 0) {
+        return { ok: false, localOk: false, remoteOk: false, message: 'Sem alunos para persistir.', opId: createStudentPersistOpId() };
+    }
 
     const currentStudentId = String(memoryGetItem('currentStudentId') || '').trim();
     let studentIdx = students.findIndex((s) => String(s?.id || '').trim() === currentStudentId);
     if (studentIdx < 0 && Number.isInteger(currentStudentIdx) && currentStudentIdx >= 0 && currentStudentIdx < students.length) {
         studentIdx = currentStudentIdx;
     }
-    if (studentIdx < 0) return false;
+    if (studentIdx < 0) {
+        return { ok: false, localOk: false, remoteOk: false, message: 'Aluno atual não encontrado.', opId: createStudentPersistOpId() };
+    }
 
     mutator(students, studentIdx);
-    saveStudentData(students, options);
-    return true;
+    return saveStudentData(students, { ...options, studentId: String(students[studentIdx]?.id || currentStudentId || '') });
 }
 
 function saveStudentData(students, options = {}) {
     const skipSupabaseSync = !!options?.skipSupabaseSync;
     const syncModeRaw = String(options?.syncMode || '').trim().toLowerCase();
+    const allowedModes = new Set(['local-only', 'batched', 'immediate']);
     const syncMode = skipSupabaseSync
         ? 'local-only'
-        : (syncModeRaw || 'immediate');
+        : (allowedModes.has(syncModeRaw) ? syncModeRaw : 'immediate');
     const syncDelayMs = parseInt(options?.syncDelayMs, 10) || BATCHED_STUDENTS_SYNC_DEFAULT_DELAY_MS;
     const normalized = normalizeStudentsDietSchema(students || []);
+    const opId = String(options?.opId || createStudentPersistOpId());
+    const studentId = String(options?.studentId || '');
     memorySetItem('trainerStudents', JSON.stringify(normalized));
+    const resultBase = {
+        ok: true,
+        localOk: true,
+        remoteOk: false,
+        message: appStorage.isPersistent() ? 'Salvo localmente.' : 'Salvo temporariamente. Libere espaço do navegador para persistir.',
+        opId
+    };
 
-    if (syncMode === 'local-only') return;
+    if (syncMode === 'local-only') {
+        logStudentPersistOperation({ opId, studentId, mode: syncMode, localOk: true, remoteOk: false, reason: 'local-only' });
+        return resultBase;
+    }
 
     if (syncMode === 'batched') {
         scheduleBatchedStudentsSync(normalized, syncDelayMs);
-        return;
+        logStudentPersistOperation({ opId, studentId, mode: syncMode, localOk: true, remoteOk: false, reason: 'queued-batched' });
+        return { ...resultBase, message: 'Salvo localmente. Sincronização pendente.' };
     }
 
     if (batchedStudentsSyncTimer) {
@@ -12786,7 +12996,11 @@ function saveStudentData(students, options = {}) {
     batchedStudentsSyncPayload = null;
     if (!skipSupabaseSync) {
         queueSupabaseStudentsSync(normalized);
+        logStudentPersistOperation({ opId, studentId, mode: syncMode, localOk: true, remoteOk: false, reason: 'queued-immediate' });
+        return { ...resultBase, message: 'Salvo localmente. Sincronizando...' };
     }
+    logStudentPersistOperation({ opId, studentId, mode: syncMode, localOk: true, remoteOk: false, reason: 'skip-supabase-sync' });
+    return resultBase;
 }
 
 function updateStudentRecord(studentId, updater) {
@@ -13011,6 +13225,366 @@ function renderStudentAvatarElement(student = {}, resolvedUrl = '') {
         avatarEl.innerHTML = `<span>${initials}</span>`;
         avatarEl.classList.remove('has-image');
     }
+}
+
+function getCurrentStudentSelection() {
+    const studentId = String(memoryGetItem('currentStudentId') || '');
+    const students = readStorageJSON('trainerStudents', []);
+    const idx = students.findIndex((s) => String(s.id || '') === studentId);
+    if (idx < 0) return { studentId, students, idx: -1, student: null };
+    students[idx] = normalizeStudentDietSchema(students[idx]);
+    return { studentId, students, idx, student: students[idx] };
+}
+
+function getWeekdayKeyFromDate(date = new Date()) {
+    const key = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][date.getDay()];
+    return key || 'seg';
+}
+
+function formatRelativeDayLabel(dateKey = '') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return dateKey;
+    const today = getTodayDateKey();
+    if (dateKey === today) return 'Hoje';
+    const now = new Date();
+    const target = new Date(`${dateKey}T00:00:00`);
+    const diff = Math.round((target - new Date(`${today}T00:00:00`)) / 86400000);
+    if (diff === 1) return 'Amanhã';
+    if (diff === -1) return 'Ontem';
+    return target.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+}
+
+function resolveStudentNextWorkout(student) {
+    const blocks = Array.isArray(student?.workoutBlocks) ? student.workoutBlocks : [];
+    if (blocks.length === 0) return null;
+    const studentId = String(student?.id || '');
+    const history = readStorageJSON('workoutHistory', []).filter((entry) => String(entry?.ID_Usuario || '') === studentId);
+    const today = new Date();
+    const startWeek = new Date(today);
+    startWeek.setHours(0, 0, 0, 0);
+    const offset = (startWeek.getDay() + 6) % 7;
+    startWeek.setDate(startWeek.getDate() - offset);
+    const completedThisWeek = new Set(
+        history
+            .filter((entry) => {
+                const d = new Date(entry?.Data_Treino || entry?.date || entry?.completedAt || 0);
+                return Number.isFinite(d.getTime()) && d >= startWeek;
+            })
+            .map((entry) => String(entry?.Nome_Treino || entry?.title || '').trim().toLowerCase())
+            .filter(Boolean)
+    );
+    for (let i = 0; i < blocks.length; i += 1) {
+        const title = getWorkoutBlockTitle(blocks[i], i);
+        if (!completedThisWeek.has(String(title || '').toLowerCase())) {
+            return { block: blocks[i], idx: i, title };
+        }
+    }
+    return { block: blocks[0], idx: 0, title: getWorkoutBlockTitle(blocks[0], 0), completedCycle: true };
+}
+
+function getTodayCheckinsMap(routine = {}) {
+    const today = getTodayDateKey();
+    const entries = Array.isArray(routine?.checkinsByDate?.[today]) ? routine.checkinsByDate[today] : [];
+    const map = new Map();
+    entries.forEach((entry) => map.set(String(entry.habitId || ''), entry));
+    return map;
+}
+
+function isHabitDueToday(habit, now = new Date()) {
+    if (!habit || habit.active === false) return false;
+    if (habit.recurrenceType !== 'weekdays') return true;
+    const wd = getWeekdayKeyFromDate(now);
+    return (Array.isArray(habit.weekdays) ? habit.weekdays : []).includes(wd);
+}
+
+function renderStudentHomeMain(forcedStudent = null) {
+    const selected = forcedStudent ? { student: normalizeStudentDietSchema(forcedStudent) } : getCurrentStudentSelection();
+    const student = selected.student;
+    const nextWorkoutEl = document.getElementById('student-next-workout-card-body');
+    const routineEl = document.getElementById('student-routine-list');
+    const remindersEl = document.getElementById('student-reminders-list');
+    if (!nextWorkoutEl || !routineEl || !remindersEl || !student) return;
+
+    const nextWorkout = resolveStudentNextWorkout(student);
+    if (!nextWorkout) {
+        nextWorkoutEl.innerHTML = `
+            <div class="next-workout-name">Sem treino pendente</div>
+            <div class="next-workout-meta">Você está em dia. Abra sua ficha para revisar o plano completo.</div>
+        `;
+    } else {
+        const exercises = (Array.isArray(nextWorkout.block?.exercises) ? nextWorkout.block.exercises : []).slice(0, 5);
+        nextWorkoutEl.innerHTML = `
+            <div class="next-workout-name">${escHtml(nextWorkout.title)}</div>
+            <div class="next-workout-meta">${nextWorkout.completedCycle ? 'Ciclo concluído - reinício sugerido' : 'Próximo da semana'} • ${formatRelativeDayLabel(getTodayDateKey())}</div>
+            <ul class="next-workout-exercises">
+                ${exercises.length > 0 ? exercises.map((ex) => `<li>${escHtml(ex?.name || ex?.nome || 'Exercício')}</li>`).join('') : '<li>Sem exercícios cadastrados</li>'}
+            </ul>
+        `;
+    }
+
+    const routine = normalizeRoutineShape(student.routine);
+    const dueHabits = routine.habits.filter((habit) => isHabitDueToday(habit));
+    const checkinsMap = getTodayCheckinsMap(routine);
+    routineEl.innerHTML = dueHabits.length === 0
+        ? '<div class="empty-state-card active"><div class="empty-info"><h3>Nenhum hábito para hoje</h3><p>Crie seu primeiro hábito para montar sua rotina.</p></div></div>'
+        : dueHabits.map((habit) => {
+            const done = checkinsMap.has(habit.id);
+            const recurrenceLabel = habit.recurrenceType === 'daily' ? 'Todos os dias' : (habit.weekdays || []).join(' • ').toUpperCase();
+            return `
+                <div class="student-routine-item ${done ? 'done' : ''}">
+                    <div class="student-routine-main">
+                        <strong>${escHtml(habit.title)}</strong>
+                        <span>${escHtml(habit.timeHHmm)} • ${escHtml(recurrenceLabel)}</span>
+                    </div>
+                    <div class="student-routine-actions">
+                        <button type="button" class="routine-mini-btn" onclick="toggleHabitToday('${habit.id}')" aria-label="Marcar hábito">${done ? '<i class="ph-bold ph-check-circle"></i>' : '<i class="ph-bold ph-circle"></i>'}</button>
+                        <button type="button" class="routine-mini-btn" onclick="openRoutineHabitModal('${habit.id}')" aria-label="Editar hábito"><i class="ph-bold ph-pencil-simple"></i></button>
+                        <button type="button" class="routine-mini-btn" onclick="deleteHabit('${habit.id}')" aria-label="Excluir hábito"><i class="ph-bold ph-trash"></i></button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+    const today = getTodayDateKey();
+    const remindersToday = routine.reminders.filter((r) => r.active !== false && r.dateKey === today).sort((a, b) => String(a.timeHHmm).localeCompare(String(b.timeHHmm)));
+    remindersEl.innerHTML = remindersToday.length === 0
+        ? '<div class="empty-state-card active"><div class="empty-info"><h3>Sem lembretes hoje</h3><p>Adicione lembretes para não esquecer tarefas importantes.</p></div></div>'
+        : remindersToday.map((reminder) => `
+            <div class="student-reminder-item">
+                <div class="student-reminder-main">
+                    <strong>${escHtml(reminder.title)}</strong>
+                    <span>${escHtml(reminder.timeHHmm)} • ${formatRelativeDayLabel(reminder.dateKey)}</span>
+                </div>
+                <div class="student-reminder-actions">
+                    <button type="button" class="routine-mini-btn" onclick="deleteReminder('${reminder.id}')" aria-label="Excluir lembrete"><i class="ph-bold ph-trash"></i></button>
+                </div>
+            </div>
+        `).join('');
+}
+
+function persistRoutineMutation(mutator) {
+    const selected = getCurrentStudentSelection();
+    if (!selected.student || selected.idx < 0) return { ok: false };
+    mutator(selected.student);
+    selected.students[selected.idx] = normalizeStudentDietSchema(selected.student);
+    saveStudentData(selected.students, { syncMode: 'batched', syncDelayMs: 1000, studentId: String(selected.student.id || '') });
+    renderStudentHomeMain(selected.students[selected.idx]);
+    ensureRoutineReminderEngine();
+    return { ok: true };
+}
+
+function openRoutineHabitModal(habitId = '') {
+    const modal = document.getElementById('routine-habit-modal');
+    if (!modal) return;
+    routineHabitEditId = String(habitId || '');
+    const titleEl = document.getElementById('routine-habit-modal-title');
+    const inputTitle = document.getElementById('routine-habit-title');
+    const inputTime = document.getElementById('routine-habit-time');
+    const inputRecurrence = document.getElementById('routine-habit-recurrence');
+    const selected = getCurrentStudentSelection();
+    const habit = selected.student?.routine?.habits?.find((h) => String(h.id) === routineHabitEditId);
+    if (habit) {
+        if (titleEl) titleEl.innerText = 'Editar hábito';
+        if (inputTitle) inputTitle.value = habit.title || '';
+        if (inputTime) inputTime.value = normalizeTimeHHmm(habit.timeHHmm || '08:00');
+        if (inputRecurrence) inputRecurrence.value = habit.recurrenceType || 'daily';
+    } else {
+        if (titleEl) titleEl.innerText = 'Novo hábito';
+        if (inputTitle) inputTitle.value = '';
+        if (inputTime) inputTime.value = '08:00';
+        if (inputRecurrence) inputRecurrence.value = 'daily';
+    }
+    handleRoutineRecurrenceUI(habit?.weekdays || []);
+    modal.style.display = 'flex';
+}
+
+function handleRoutineRecurrenceUI(preselected = []) {
+    const wrap = document.getElementById('routine-weekdays-wrap');
+    const recurrence = document.getElementById('routine-habit-recurrence')?.value || 'daily';
+    if (!wrap) return;
+    wrap.style.display = recurrence === 'weekdays' ? 'block' : 'none';
+    const checks = wrap.querySelectorAll('input[type="checkbox"]');
+    checks.forEach((check) => {
+        check.checked = Array.isArray(preselected) ? preselected.includes(String(check.value || '')) : false;
+    });
+}
+
+function closeRoutineHabitModal() {
+    const modal = document.getElementById('routine-habit-modal');
+    if (modal) modal.style.display = 'none';
+    routineHabitEditId = null;
+}
+
+function submitRoutineHabitModal() {
+    const title = sanitizeUserInput(document.getElementById('routine-habit-title')?.value || '', { maxLen: 80 });
+    const timeHHmm = normalizeTimeHHmm(document.getElementById('routine-habit-time')?.value || '08:00');
+    const recurrenceType = String(document.getElementById('routine-habit-recurrence')?.value || 'daily') === 'weekdays' ? 'weekdays' : 'daily';
+    const weekdays = recurrenceType === 'weekdays'
+        ? Array.from(document.querySelectorAll('#routine-weekdays-wrap input[type="checkbox"]:checked')).map((el) => String(el.value || '')).filter((d) => ROUTINE_WEEKDAY_KEYS.includes(d))
+        : [];
+    if (!title) {
+        showStudentHomeMessage('Informe um título para o hábito.', 'error');
+        return;
+    }
+    if (recurrenceType === 'weekdays' && weekdays.length === 0) {
+        showStudentHomeMessage('Selecione pelo menos um dia da semana.', 'error');
+        return;
+    }
+    const op = persistRoutineMutation((student) => {
+        student.routine = normalizeRoutineShape(student.routine);
+        const habits = Array.isArray(student.routine.habits) ? student.routine.habits : [];
+        const payload = {
+            id: routineHabitEditId || `habit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            title,
+            timeHHmm,
+            recurrenceType,
+            weekdays,
+            active: true,
+            createdAt: new Date().toISOString()
+        };
+        const idx = habits.findIndex((habit) => String(habit.id) === String(routineHabitEditId || ''));
+        if (idx >= 0) habits[idx] = { ...habits[idx], ...payload };
+        else habits.push(payload);
+        student.routine.habits = habits;
+    });
+    if (!op.ok) return;
+    closeRoutineHabitModal();
+    showStudentHomeMessage('Hábito salvo.', 'success');
+}
+
+function toggleHabitToday(habitId = '') {
+    const cleanHabitId = String(habitId || '');
+    if (!cleanHabitId) return;
+    persistRoutineMutation((student) => {
+        student.routine = normalizeRoutineShape(student.routine);
+        const today = getTodayDateKey();
+        const list = Array.isArray(student.routine.checkinsByDate[today]) ? student.routine.checkinsByDate[today].slice() : [];
+        const idx = list.findIndex((item) => String(item.habitId || '') === cleanHabitId);
+        if (idx >= 0) list.splice(idx, 1);
+        else list.push({ habitId: cleanHabitId, doneAt: new Date().toISOString() });
+        student.routine.checkinsByDate[today] = list;
+    });
+}
+
+function updateHabit(habitId, patch = {}) {
+    const cleanHabitId = String(habitId || '');
+    if (!cleanHabitId) return;
+    persistRoutineMutation((student) => {
+        student.routine = normalizeRoutineShape(student.routine);
+        student.routine.habits = student.routine.habits.map((habit) => String(habit.id) === cleanHabitId ? { ...habit, ...patch } : habit);
+    });
+}
+
+function deleteHabit(habitId = '') {
+    const cleanHabitId = String(habitId || '');
+    if (!cleanHabitId) return;
+    persistRoutineMutation((student) => {
+        student.routine = normalizeRoutineShape(student.routine);
+        student.routine.habits = student.routine.habits.filter((habit) => String(habit.id) !== cleanHabitId);
+        Object.keys(student.routine.checkinsByDate || {}).forEach((dateKey) => {
+            student.routine.checkinsByDate[dateKey] = (student.routine.checkinsByDate[dateKey] || []).filter((entry) => String(entry.habitId) !== cleanHabitId);
+        });
+    });
+}
+
+function openRoutineReminderModal() {
+    const modal = document.getElementById('routine-reminder-modal');
+    if (!modal) return;
+    const title = document.getElementById('routine-reminder-title');
+    const time = document.getElementById('routine-reminder-time');
+    if (title) title.value = '';
+    if (time) time.value = '08:00';
+    modal.style.display = 'flex';
+}
+
+function closeRoutineReminderModal() {
+    const modal = document.getElementById('routine-reminder-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function submitRoutineReminderModal() {
+    const title = sanitizeUserInput(document.getElementById('routine-reminder-title')?.value || '', { maxLen: 80 });
+    const timeHHmm = normalizeTimeHHmm(document.getElementById('routine-reminder-time')?.value || '08:00');
+    if (!title) {
+        showStudentHomeMessage('Informe um título para o lembrete.', 'error');
+        return;
+    }
+    createReminder({ title, timeHHmm });
+    closeRoutineReminderModal();
+    showStudentHomeMessage('Lembrete salvo para hoje.', 'success');
+}
+
+function createReminder({ title = '', timeHHmm = '08:00' } = {}) {
+    const cleanTitle = sanitizeUserInput(title || '', { maxLen: 80 });
+    if (!cleanTitle) return;
+    persistRoutineMutation((student) => {
+        student.routine = normalizeRoutineShape(student.routine);
+        const reminders = Array.isArray(student.routine.reminders) ? student.routine.reminders : [];
+        reminders.push({
+            id: `rem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            title: cleanTitle,
+            timeHHmm: normalizeTimeHHmm(timeHHmm),
+            dateKey: getTodayDateKey(),
+            active: true,
+            createdAt: new Date().toISOString()
+        });
+        student.routine.reminders = reminders.slice(-120);
+    });
+}
+
+function deleteReminder(reminderId = '') {
+    const cleanReminderId = String(reminderId || '');
+    if (!cleanReminderId) return;
+    persistRoutineMutation((student) => {
+        student.routine = normalizeRoutineShape(student.routine);
+        student.routine.reminders = (student.routine.reminders || []).filter((reminder) => String(reminder.id) !== cleanReminderId);
+    });
+}
+
+function showStudentHomeMessage(message, type = 'success') {
+    if (typeof showDietRuntimeMessage === 'function') {
+        showDietRuntimeMessage(message, type === 'error' ? 'error' : 'success');
+        return;
+    }
+    if (type === 'error') {
+        alert(message);
+    }
+}
+
+function ensureRoutineReminderEngine() {
+    if (routineReminderTicker) return;
+    routineReminderTicker = setInterval(runRoutineReminderTick, 30 * 1000);
+    runRoutineReminderTick();
+}
+
+function runRoutineReminderTick() {
+    const selected = getCurrentStudentSelection();
+    if (!selected.student) return;
+    const routine = normalizeRoutineShape(selected.student.routine);
+    const now = new Date();
+    const nowKey = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const today = getTodayDateKey();
+    const dueItems = [];
+    routine.habits.forEach((habit) => {
+        if (!isHabitDueToday(habit, now) || habit.timeHHmm !== nowKey) return;
+        dueItems.push({ id: `habit-${habit.id}`, title: habit.title, kind: 'Hábito' });
+    });
+    routine.reminders.forEach((reminder) => {
+        if (reminder.active === false || reminder.dateKey !== today || reminder.timeHHmm !== nowKey) return;
+        dueItems.push({ id: `rem-${reminder.id}`, title: reminder.title, kind: 'Lembrete' });
+    });
+    dueItems.forEach((item) => {
+        const key = `${today}-${item.id}-${nowKey}`;
+        if (routineReminderNotifiedKeys.has(key)) return;
+        routineReminderNotifiedKeys.add(key);
+        showStudentHomeMessage(`${item.kind}: ${item.title}`, 'success');
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+            if (window.Notification.permission === 'granted') {
+                new Notification('Consultoria - rotina', { body: `${item.kind}: ${item.title}` });
+            } else if (window.Notification.permission === 'default') {
+                window.Notification.requestPermission().catch(() => { });
+            }
+        }
+    });
 }
 
 async function syncStudentAvatarFromProfile(student) {
@@ -14762,6 +15336,7 @@ function markStudentConfigDirty() {
 }
 
 function signalStudentPlanDirty() {
+    trainerPlanEditRevision += 1;
     markStudentConfigDirty();
     queueStudentPlanLocalAutosave(380);
 }
@@ -17050,6 +17625,8 @@ let studentConfigSaveState = 'clean';
 let pendingBlockIdx = null;    // which block an exercise is being added to
 let pendingMealIdx = null;    // which meal an item is being added to
 let workoutPlanAutosaveTimer = null;
+let trainerPlanEditRevision = 0;
+let trainerAutosaveSequence = 0;
 let exModalLastOpenedAt = 0;
 let exModalCloseInFlight = false;
 let dietPlannerSummaryRaf = 0;
@@ -17093,6 +17670,12 @@ function persistCurrentTrainerStudentDraft(options = {}) {
     const syncModeRaw = String(options?.syncMode || 'local-only').trim().toLowerCase();
     const syncMode = ['local-only', 'batched', 'immediate'].includes(syncModeRaw) ? syncModeRaw : 'local-only';
     const syncDelayMs = parseInt(options?.syncDelayMs, 10) || BATCHED_STUDENTS_SYNC_DEFAULT_DELAY_MS;
+    const expectedRevision = Number.isFinite(parseIntegerSafe(options?.expectedRevision))
+        ? parseIntegerSafe(options.expectedRevision)
+        : null;
+    if (expectedRevision !== null && expectedRevision !== trainerPlanEditRevision) {
+        return null;
+    }
     const selection = resolveCurrentTrainerStudentSelection();
     if (selection.idx < 0 || !selection.student) return null;
 
@@ -17113,6 +17696,8 @@ function persistCurrentTrainerStudentDraft(options = {}) {
     if (carbInput) dietMeta.carb = carbInput.value || '';
     if (fatInput) dietMeta.fat = fatInput.value || '';
     student.dietMeta = dietMeta;
+    student._localPlanRevision = trainerPlanEditRevision;
+    student._localPlanUpdatedAt = new Date().toISOString();
 
     selection.students[selection.idx] = student;
     saveStudentData(selection.students, {
@@ -17129,9 +17714,12 @@ function persistCurrentTrainerStudentDraft(options = {}) {
 function queueStudentPlanLocalAutosave(delayMs = 360) {
     if (currentStudentIdx === null && !currentTrainerStudentId) return;
     if (workoutPlanAutosaveTimer) clearTimeout(workoutPlanAutosaveTimer);
+    const sequence = ++trainerAutosaveSequence;
+    const revisionSnapshot = trainerPlanEditRevision;
     const safeDelay = Math.max(180, parseInt(delayMs, 10) || 360);
     workoutPlanAutosaveTimer = setTimeout(() => {
-        persistCurrentTrainerStudentDraft({ syncMode: 'local-only' });
+        if (sequence !== trainerAutosaveSequence) return;
+        persistCurrentTrainerStudentDraft({ syncMode: 'local-only', expectedRevision: revisionSnapshot });
     }, safeDelay);
 }
 
@@ -17230,6 +17818,9 @@ function openStudentTrainingEditor(studentIndex, event) {
 }
 
 function closeStudentProfile() {
+    if (studentConfigDirty) {
+        persistCurrentTrainerStudentDraft({ syncMode: 'local-only' });
+    }
     document.getElementById('trainer-student-profile-screen').classList.remove('active');
     document.getElementById('trainer-dashboard-screen').classList.add('active');
     currentStudentIdx = null;
@@ -17237,6 +17828,9 @@ function closeStudentProfile() {
 }
 
 function switchProfileTab(tabName) {
+    if (studentConfigDirty) {
+        persistCurrentTrainerStudentDraft({ syncMode: 'local-only' });
+    }
     const rawTab = String(tabName || '').trim().toLowerCase();
     const tabAliasMap = {
         nutricao: 'dieta',
@@ -19400,13 +19994,21 @@ async function saveStudentPlan() {
                 remoteMessage = 'Salvo localmente. Sem conexão para sincronizar.';
                 setStudentSyncState('offline', 'Sem conexão');
             } else {
-                const syncResult = await performSupabaseStudentsSync(students);
+                const syncResult = await performSupabaseStudentsSyncWithRetry(students);
                 remoteSynced = !!syncResult?.ok;
                 if (!remoteSynced) {
                     remoteMessage = syncResult?.failedCount
                         ? `Salvo localmente. Falha no sync remoto (${syncResult.failedCount}).`
                         : 'Salvo localmente. Falha no sync remoto.';
                 }
+                logStudentPersistOperation({
+                    opId: createStudentPersistOpId(),
+                    studentId: String(students[targetIdx]?.id || ''),
+                    mode: 'immediate',
+                    localOk: true,
+                    remoteOk: remoteSynced,
+                    reason: remoteSynced ? 'trainer-save-remote-ok' : (syncResult?.reason || 'trainer-save-remote-failed')
+                });
             }
         }
 

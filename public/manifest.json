@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "Aplicativo Consultoria",
   "short_name": "Consultoria",
   "description": "Plataforma de consultoria esportiva para alunos e treinador.",
@@ -7,8 +7,8 @@
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#080808",
-  "theme_color": "#080808",
+  "background_color": "#08120f",
+  "theme_color": "#98E52B",
   "lang": "pt-BR",
   "categories": [
     "health",
@@ -21,6 +21,11 @@
       "src": "assets/logo.svg",
       "sizes": "512x512",
       "type": "image/svg+xml"
+    },
+    {
+      "src": "assets/icons/app-logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
     },
     {
       "src": "assets/icons/icon-192.png",
@@ -52,3 +57,4 @@
     }
   ]
 }
+

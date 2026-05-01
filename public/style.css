@@ -1,9 +1,9 @@
-:root {
+﻿:root {
     --bg-color: #121214;
     --card-bg: #202024;
     --card-hover: #29292e;
     --input-bg: #29292e;
-    --primary-color: #A3E635;
+    --primary-color: #98E52B;
     /* bright lime green */
     --primary-glow: rgba(163, 230, 53, 0.3);
     --text-main: #ffffff;
@@ -263,6 +263,18 @@ body {
     padding: 1.2rem 0.5rem;
 }
 
+.brand-mark-shell {
+    display: grid;
+    place-items: center;
+}
+
+.brand-mark-img {
+    width: 68%;
+    height: 68%;
+    object-fit: contain;
+    display: block;
+}
+
 .home-entry-card {
     width: min(560px, 100%);
     border-radius: 28px;
@@ -319,7 +331,7 @@ body {
 
 .home-entry-btn-primary {
     border: 1px solid rgba(163, 230, 53, 0.55);
-    background: linear-gradient(135deg, #a3e635 0%, #84cc16 100%);
+    background: linear-gradient(135deg, #98E52B 0%, #6FAF1D 100%);
     color: #0f1110;
     box-shadow: 0 0 0 1px rgba(163, 230, 53, 0.24), 0 14px 32px rgba(163, 230, 53, 0.3);
     transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
@@ -467,7 +479,7 @@ body {
 }
 
 .card-icon.active-icon {
-    background: linear-gradient(135deg, var(--primary-color), #84cc16);
+    background: linear-gradient(135deg, var(--primary-color), #6FAF1D);
     color: #121214;
     box-shadow: 0 4px 15px rgba(163, 230, 53, 0.3);
 }
@@ -1785,7 +1797,7 @@ body {
 }
 
 .p-nav-tab.active {
-    background: linear-gradient(135deg, var(--primary-color), #84cc16);
+    background: linear-gradient(135deg, var(--primary-color), #6FAF1D);
     color: #121214;
     border-color: transparent;
     box-shadow: 0 4px 15px rgba(163, 230, 53, 0.3);
@@ -2240,6 +2252,118 @@ body {
     margin-bottom: 0.65rem;
 }
 
+.student-home-v2 {
+    display: grid;
+    gap: 0.9rem;
+    margin-top: 1rem;
+}
+
+.home-v2-card {
+    background: rgba(15, 23, 42, 0.82);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 16px;
+    padding: 0.95rem;
+}
+
+.home-v2-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.home-v2-card-head h3 {
+    font-size: 0.95rem;
+    margin: 0;
+}
+
+.home-v2-link-btn {
+    border: 0;
+    background: transparent;
+    color: var(--primary-color);
+    font-weight: 600;
+    font-size: 0.8rem;
+    min-height: 44px;
+    padding: 0.35rem 0.2rem;
+}
+
+.next-workout-name {
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.next-workout-meta {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: 0.3rem;
+}
+
+.next-workout-exercises {
+    margin-top: 0.65rem;
+    display: grid;
+    gap: 0.4rem;
+}
+
+.next-workout-exercises li {
+    list-style: none;
+    font-size: 0.82rem;
+    padding: 0.45rem 0.55rem;
+    border-radius: 10px;
+    background: rgba(2, 132, 199, 0.12);
+}
+
+.student-routine-item,
+.student-reminder-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.6rem;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: rgba(15, 23, 42, 0.65);
+    margin-bottom: 0.55rem;
+}
+
+.student-routine-item.done {
+    opacity: 0.7;
+}
+
+.student-routine-main strong,
+.student-reminder-main strong {
+    display: block;
+    font-size: 0.86rem;
+}
+
+.student-routine-main span,
+.student-reminder-main span {
+    color: var(--text-muted);
+    font-size: 0.74rem;
+}
+
+.student-routine-actions,
+.student-reminder-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.routine-mini-btn {
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: rgba(15, 23, 42, 0.8);
+    color: var(--text-main);
+    border-radius: 10px;
+    min-height: 44px;
+    min-width: 44px;
+}
+
+.routine-weekday-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.4rem;
+}
+
 .trainer-profile-hero {
     border-radius: 16px;
     border: 1px solid rgba(163, 230, 53, 0.18);
@@ -2358,7 +2482,7 @@ body {
 }
 
 .trainer-profile-social-chip i {
-    color: #a3e635;
+    color: #98E52B;
 }
 
 .trainer-profile-menu-code {
@@ -2744,9 +2868,9 @@ body {
     }
 }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+/* Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
    STUDENT MANAGEMENT - Pending requests & Accept/Reject
-   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+   Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â */
 
 /* Sidebar nav badge */
 .nav-badge {
@@ -2976,9 +3100,9 @@ body {
     color: #f59e0b;
 }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+/* Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
    STUDENT PROFILE EDITOR
-   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+   Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â */
 
 /* Full-width scrollable layout */
 .prof-editor-layout {
@@ -4714,7 +4838,7 @@ body.diet-food-picker-open {
 }
 
 .diet-progress-label.protein {
-    color: #a3e635;
+    color: #98E52B;
 }
 
 .diet-progress-label.carb {
@@ -4740,7 +4864,7 @@ body.diet-food-picker-open {
 }
 
 .diet-progress-fill.protein {
-    background: linear-gradient(90deg, #84cc16, #a3e635);
+    background: linear-gradient(90deg, #6FAF1D, #98E52B);
 }
 
 .diet-progress-fill.carb {
@@ -4813,7 +4937,7 @@ body.diet-food-picker-open {
 
 .diet-form-title {
     font-size: 0.85rem;
-    color: #a3e635;
+    color: #98E52B;
 }
 
 .diet-form-grid-2 {
@@ -4919,7 +5043,7 @@ body.diet-food-picker-open {
     height: 100%;
     width: 0;
     border-radius: inherit;
-    background: linear-gradient(90deg, #7fc31a, #a3e635);
+    background: linear-gradient(90deg, #7fc31a, #98E52B);
 }
 
 .meal-v2-progress-track.carb i {
@@ -5063,7 +5187,7 @@ body.diet-food-picker-open {
 }
 
 .macro-badge.protein {
-    color: #a3e635;
+    color: #98E52B;
 }
 
 .macro-badge.carb {
@@ -6128,8 +6252,8 @@ body.diet-food-picker-open {
 }
 
 .btn-check-set.active {
-    background: #A3E635;
-    border-color: #A3E635;
+    background: #98E52B;
+    border-color: #98E52B;
     color: #000;
     transform: scale(1.05);
 }
@@ -7082,7 +7206,7 @@ body.diet-food-picker-open {
     left: 0;
     right: 0;
     height: 3px;
-    background: linear-gradient(90deg, var(--primary-color), #84cc16, var(--primary-color));
+    background: linear-gradient(90deg, var(--primary-color), #6FAF1D, var(--primary-color));
     background-size: 200% 100%;
     animation: shimmer 3s ease infinite;
 }
@@ -7101,7 +7225,7 @@ body.diet-food-picker-open {
     width: 64px;
     height: 64px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--primary-color), #84cc16);
+    background: linear-gradient(135deg, var(--primary-color), #6FAF1D);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -7797,7 +7921,7 @@ body.diet-food-picker-open {
 }
 
 /* ---------------------------------------------------------------------------
-   TREINO SUBVIEW SYSTEM (Landing, Análise, Histórico)
+   TREINO SUBVIEW SYSTEM (Landing, AnÃ¡lise, HistÃ³rico)
    --------------------------------------------------------------------------- */
 
 /* Treino Options Landing */
@@ -7859,7 +7983,7 @@ body.diet-food-picker-open {
 }
 
 .treino-option-icon.active-icon {
-    background: linear-gradient(135deg, var(--primary-color), #84cc16);
+    background: linear-gradient(135deg, var(--primary-color), #6FAF1D);
     color: #121214;
     box-shadow: 0 4px 15px rgba(163, 230, 53, 0.3);
 }
@@ -7920,7 +8044,7 @@ body.diet-food-picker-open {
     color: var(--primary-color);
 }
 
-/* Dúvida Button */
+/* DÃºvida Button */
 .btn-duvida-treino {
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -8699,7 +8823,7 @@ body.diet-food-picker-open {
 }
 
 .trainer .msg-content {
-    background: linear-gradient(135deg, var(--primary-color), #84cc16);
+    background: linear-gradient(135deg, var(--primary-color), #6FAF1D);
     color: #121214;
     font-weight: 500;
     border-bottom-right-radius: 4px;
@@ -8760,7 +8884,7 @@ body.diet-food-picker-open {
 .btn-send-chat {
     width: 44px;
     height: 44px;
-    background: linear-gradient(135deg, var(--primary-color), #84cc16);
+    background: linear-gradient(135deg, var(--primary-color), #6FAF1D);
     color: #121214;
     border: none;
     border-radius: 12px;
@@ -9355,7 +9479,7 @@ body.diet-food-picker-open {
 
     padding: 1.1rem;
 
-    background: linear-gradient(135deg, var(--primary-color), #84cc16);
+    background: linear-gradient(135deg, var(--primary-color), #6FAF1D);
 
     color: #121214;
 
@@ -9619,7 +9743,7 @@ body.diet-food-picker-open {
 }
 
 .from-trainer .sc-bubble {
-    background: linear-gradient(135deg, var(--primary-color), #8BBE28);
+    background: linear-gradient(135deg, var(--primary-color), #6FAF1D);
     color: #000;
     border-bottom-left-radius: 4px;
 }
@@ -9665,7 +9789,7 @@ body.diet-food-picker-open {
 }
 
 .sc-delivered i {
-    color: #A3E635;
+    color: #98E52B;
     text-shadow: 0 0 8px rgba(163, 230, 53, 0.55);
 }
 
@@ -9789,7 +9913,7 @@ body.diet-food-picker-open {
 .student-chat-upload-bar {
     height: 100%;
     width: 0%;
-    background: linear-gradient(90deg, #84cc16, var(--primary-color));
+    background: linear-gradient(90deg, #6FAF1D, var(--primary-color));
     transition: width 0.2s ease;
 }
 
@@ -9899,9 +10023,9 @@ body.diet-food-picker-open {
     }
 }
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+/* Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
    EXERCISE CATALOG SCREEN
-   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+   Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â */
 
 .ex-catalog {
     display: flex;
@@ -9910,7 +10034,7 @@ body.diet-food-picker-open {
     padding: 0.5rem 0;
 }
 
-/* â”€â”€ Search Bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ Search Bar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 .ex-catalog-search {
     display: flex;
     align-items: center;
@@ -9948,7 +10072,7 @@ body.diet-food-picker-open {
     opacity: 0.7;
 }
 
-/* â”€â”€ Filter Chips â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ Filter Chips Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 .ex-chips-row {
     display: flex;
     gap: 0.5rem;
@@ -9991,7 +10115,7 @@ body.diet-food-picker-open {
     box-shadow: 0 0 16px rgba(163, 230, 53, 0.25);
 }
 
-/* â”€â”€ Exercise List â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Ã¢â€â‚¬Ã¢â€â‚¬ Exercise List Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 .ex-catalog-list {
     display: flex;
     flex-direction: column;
@@ -11551,7 +11675,7 @@ body.diet-food-picker-open {
     --card-bg: #121212;
     --card-hover: #171717;
     --input-bg: #141414;
-    --primary-color: #A3E635;
+    --primary-color: #98E52B;
     --primary-glow: rgba(163, 230, 53, 0.35);
     --text-main: #f5f5f5;
     --text-muted: #9aa09f;
@@ -13212,7 +13336,7 @@ body {
 }
 
 #view-student-log-workout .log-workout-sticky-header .btn-primary {
-    background: linear-gradient(135deg, #bef264, #a3e635 60%, #86efac);
+    background: linear-gradient(135deg, #bef264, #98E52B 60%, #86efac);
     color: #0f172a;
     border: none;
     font-weight: 800;
@@ -14746,7 +14870,7 @@ body {
 .diet-progress-fill {
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, #84cc16, #bef264);
+    background: linear-gradient(90deg, #6FAF1D, #bef264);
     transition: width 0.25s ease;
 }
 
@@ -14876,7 +15000,7 @@ body {
 .wb-meal-progress-fill {
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, #84cc16, #bef264);
+    background: linear-gradient(90deg, #6FAF1D, #bef264);
     transition: width 0.2s ease;
 }
 
@@ -15384,7 +15508,7 @@ body {
 
 .food-qty-control input[type="range"] {
     width: 100%;
-    accent-color: #a3e635;
+    accent-color: #98E52B;
 }
 
 .food-qty-meta {
@@ -16135,7 +16259,7 @@ body {
 }
 
 .diet-modern-check input[type="checkbox"] {
-    accent-color: #84cc16;
+    accent-color: #6FAF1D;
 }
 
 .diet-modern-base-qty {
@@ -16315,7 +16439,7 @@ body {
 }
 
 .diet-modern-chip.protein {
-    color: #a3e635;
+    color: #98E52B;
 }
 
 .diet-modern-chip.carb {
@@ -16763,12 +16887,12 @@ body {
     width: 16px;
     height: 16px;
     font-size: 0.96rem;
-    color: #a3e635;
+    color: #98E52B;
 }
 
 #trainer-dashboard-screen .sidebar .nav-item.active .ui-svg-icon,
 #trainer-dashboard-screen .sidebar .nav-item.active i {
-    color: #a3e635;
+    color: #98E52B;
 }
 
 #trainer-dashboard-screen .sidebar .nav-item-subtle[aria-disabled="true"] {
@@ -17365,7 +17489,7 @@ body {
         width: 14px;
         height: 3px;
         border-radius: 999px;
-        background: #a3e635;
+        background: #98E52B;
         display: block;
         margin-top: 0.12rem;
         box-shadow: 0 0 8px rgba(163, 230, 53, 0.5);
@@ -17508,7 +17632,7 @@ body {
 }
 
 #p-tab-treino .wb-name-input:focus {
-    border-bottom-color: #a3e635;
+    border-bottom-color: #98E52B;
     color: #fff;
 }
 
@@ -17646,7 +17770,7 @@ body {
 
 #p-tab-treino .ex-stat-input:focus {
     border-color: rgba(255, 255, 255, 0.12);
-    border-bottom-color: #a3e635;
+    border-bottom-color: #98E52B;
 }
 
 #p-tab-treino .ex-actions {
@@ -17667,7 +17791,7 @@ body {
 }
 
 #summary-intensidade[data-intensity="leve"] {
-    color: #84cc16;
+    color: #6FAF1D;
 }
 
 #summary-intensidade[data-intensity="moderado"] {
@@ -18514,7 +18638,7 @@ body {
 }
 
 .auth-screen .auth-input-shell:focus-within {
-    border-color: #a3e635;
+    border-color: #98E52B;
     box-shadow: 0 0 0 4px rgba(163, 230, 53, 0.16), 0 0 18px rgba(163, 230, 53, 0.2);
     background: rgba(24, 24, 27, 0.68);
 }
@@ -18629,7 +18753,7 @@ body {
 }
 
 .auth-screen .auth-footer a {
-    color: #a3e635;
+    color: #98E52B;
     text-decoration: none;
     border-bottom: 1px solid transparent;
     transition: border-color 160ms ease, color 160ms ease;
@@ -19475,7 +19599,7 @@ body.food-details-open {
         width: 14px;
         height: 3px;
         border-radius: 999px;
-        background: #a3e635;
+        background: #98E52B;
         display: block;
         margin-top: 0.1rem;
         box-shadow: 0 0 8px rgba(163, 230, 53, 0.5);
@@ -19569,7 +19693,7 @@ body.food-details-open {
         width: 14px;
         height: 3px;
         border-radius: 999px;
-        background: #a3e635;
+        background: #98E52B;
         display: block;
         margin-top: 0.1rem;
         box-shadow: 0 0 8px rgba(163, 230, 53, 0.5);
@@ -20482,3 +20606,5 @@ body.mobile-dashboard-mode #student-dashboard-screen #view-student-log-workout .
     grid-template-columns: 110px 1fr;
     gap: 0.45rem;
 }
+
+

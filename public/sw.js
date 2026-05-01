@@ -1,5 +1,5 @@
-﻿const PRECACHE_CACHE = "consultoria-precache-v12";
-const RUNTIME_CACHE = "consultoria-runtime-v12";
+﻿const PRECACHE_CACHE = "consultoria-precache-v14";
+const RUNTIME_CACHE = "consultoria-runtime-v14";
 const OFFLINE_URL = "./offline.html";
 
 const PRECACHE_URLS = [
@@ -19,7 +19,10 @@ const PRECACHE_URLS = [
   "./assets/vendor/phosphor/fill/Phosphor-Fill.woff2",
   "./assets/icons/icon-192.png",
   "./assets/icons/icon-512.png",
-  "./assets/icons/apple-touch-icon.png"
+  "./assets/icons/apple-touch-icon.png",
+  "./assets/icons/app-logo.png",
+  "./assets/logo.svg",
+  "./assets/logo-small.svg"
 ];
 
 self.addEventListener("message", (event) => {
@@ -169,3 +172,5 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(staleWhileRevalidate(request));
 });
+
+
