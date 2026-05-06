@@ -455,8 +455,6 @@
                                         style="display:none;" onchange="handleTrainerAttachment(event)">
                                     <input type="file" id="chat-video-input" accept="video/*" capture="environment"
                                         style="display:none;" onchange="handleTrainerAttachment(event)">
-                                    <input type="file" id="chat-audio-file-input" accept="audio/*"
-                                        style="display:none;" onchange="handleTrainerAttachment(event)">
 
                                     <div id="chat-attach-preview" class="chat-attach-preview" style="display:none;">
                                         <div id="chat-attach-preview-content" class="chat-attach-preview-content"></div>
@@ -483,19 +481,6 @@
                                             <button class="btn-attach-chat" onclick="openTrainerAttachmentPicker('video')"
                                                 title="Enviar vídeo">
                                                 <i class="ph-bold ph-video-camera"></i>
-                                            </button>
-                                            <button class="btn-attach-chat" onclick="openTrainerAttachmentPicker('audio')"
-                                                title="Enviar áudio">
-                                                <i class="ph-bold ph-waveform"></i>
-                                            </button>
-                                            <button class="btn-attach-chat btn-mic-chat"
-                                                onpointerdown="startTrainerHoldRecord(event)"
-                                                onpointerup="stopTrainerHoldRecord(event)"
-                                                onpointerleave="stopTrainerHoldRecord(event)"
-                                                onpointercancel="stopTrainerHoldRecord(event)"
-                                                onlostpointercapture="stopTrainerHoldRecord(event)"
-                                                title="Segure para gravar áudio">
-                                                <i class="ph-bold ph-microphone"></i>
                                             </button>
                                         </div>
                                         <textarea id="chat-reply-input" placeholder="Digite sua resposta..."
@@ -1037,6 +1022,10 @@
             <!-- ── TAB: CONFIGURAÇÕES ─────────────────────────────── -->
             <div id="p-tab-config" class="p-tab-content">
                 <div class="settings-grid settings-grid-config">
+                    <section class="settings-card settings-card-routine">
+                        <div id="trainer-routine-plan-editor"></div>
+                    </section>
+
                     <section class="settings-card settings-card-security">
                         <div class="settings-card-header">
                             <h2>Segurança da Conta</h2>

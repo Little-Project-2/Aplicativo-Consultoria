@@ -15,21 +15,19 @@
                     </div>
 
                     <nav class="sidebar-nav">
-                        <a href="#" class="nav-item active" id="snav-treino" onclick="switchStudentView('treino')">
+                        <a href="#" class="nav-item active" id="snav-home" onclick="switchStudentView('rotina')">
+                            <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M4 12 12 5l8 7M6 10.5V19h12v-8.5" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                            </svg>
+                            Rotina
+                        </a>
+                        <a href="#" class="nav-item" id="snav-treino" onclick="switchStudentView('treino')">
                             <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                 <path d="M3 9v6M6 7v10M18 7v10M21 9v6M6 12h12" fill="none" stroke="currentColor"
                                     stroke-width="2" stroke-linecap="round"></path>
                             </svg>
-                            Meu Treino
-                        </a>
-                        <a href="#" class="nav-item" id="snav-cardio" onclick="switchStudentView('cardio')">
-                            <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path d="M4 13c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-                                <path d="M12 13l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-                                <circle cx="12" cy="13" r="1.6" fill="currentColor"></circle>
-                                <path d="M7 18h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-                            </svg>
-                            Cardio
+                            Treino
                         </a>
                         <a href="#" class="nav-item" id="snav-dieta" onclick="switchStudentView('dieta')">
                             <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -46,12 +44,12 @@
                             </svg>
                             Água
                         </a>
-                        <a href="#" class="nav-item" id="snav-config" onclick="switchStudentView('config')">
+                        <a href="#" class="nav-item" id="snav-chat" onclick="switchStudentView('chat')">
                             <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z" fill="none" stroke="currentColor" stroke-width="2"></path>
-                                <path d="M19.4 13.5a7.7 7.7 0 0 0 .1-1.5 7.7 7.7 0 0 0-.1-1.5l2-1.5-2-3.4-2.4.8a7.3 7.3 0 0 0-2.6-1.5L14 2h-4l-.4 2.9A7.3 7.3 0 0 0 7 6.4l-2.4-.8-2 3.4 2 1.5A7.7 7.7 0 0 0 4.5 12c0 .5 0 1 .1 1.5l-2 1.5 2 3.4 2.4-.8a7.3 7.3 0 0 0 2.6 1.5L10 22h4l.4-2.9a7.3 7.3 0 0 0 2.6-1.5l2.4.8 2-3.4-2-1.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+                                <path d="M5 6h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-4 3v-3H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
                             </svg>
-                            Configurações
+                            Chat
                         </a>
                     </nav>
 
@@ -65,7 +63,7 @@
                 <!-- Main Content -->
                 <main class="main-content">
                     <div id="view-student-home" class="view-section">
-                        <div class="dashboard-header">
+                        <div class="dashboard-header" data-motion="hero">
                             <div class="user-info">
                                 <h2 id="dash-student-name">Olá, Aluno</h2>
                                 <p class="subtitle" style="display: flex; flex-direction: column; gap: 0.2rem;">
@@ -85,10 +83,18 @@
                                     </span>
                                 </p>
                             </div>
+                            <div class="student-home-top-actions">
+                                <button class="btn-icon" type="button" aria-label="Abrir configurações" onclick="switchStudentView('config')">
+                                    <i class="ph-bold ph-gear"></i>
+                                </button>
+                                <button class="btn-secondary student-home-profile-btn" type="button" onclick="switchStudentView('config')">
+                                    Meu Perfil
+                                </button>
+                            </div>
                         </div>
 
-                        <div class="dashboard-stats">
-                            <div class="stat-card">
+                        <div class="dashboard-stats" data-motion="surface">
+                            <div class="stat-card" data-motion="card">
                                 <div class="stat-icon">
                                     <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                         <path d="M3 9v6M6 7v10M18 7v10M21 9v6M6 12h12" fill="none" stroke="currentColor"
@@ -100,7 +106,7 @@
                                     <p>Treino</p>
                                 </div>
                             </div>
-                            <div class="stat-card">
+                            <div class="stat-card" data-motion="card">
                                 <div class="stat-icon">
                                     <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                         <path
@@ -114,7 +120,7 @@
                                     <p>Dieta</p>
                                 </div>
                             </div>
-                            <div class="stat-card">
+                            <div class="stat-card" data-motion="card">
                                 <div class="stat-icon">
                                     <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                         <path d="M13 2L5 13h5l-1 9 8-11h-5l1-9z" fill="currentColor"></path>
@@ -127,20 +133,54 @@
                             </div>
                         </div>
 
-                        <div class="student-goals">
+                        <section id="student-home-v2" class="student-home-v2" data-motion="surface">
+                            <article class="home-v2-card next-workout-card" data-motion="home-card">
+                                <div class="home-v2-card-head">
+                                    <h3><i class="ph-bold ph-barbell"></i> Próximo treino</h3>
+                                    <button type="button" class="home-v2-link-btn" onclick="switchStudentView('treino')">Abrir treino</button>
+                                </div>
+                                <div id="student-next-workout-card-body"></div>
+                            </article>
+
+                            <article class="home-v2-card" data-motion="home-card">
+                                <div class="home-v2-card-head">
+                                    <h3><i class="ph-bold ph-check-square"></i> Minha rotina</h3>
+                                    <button type="button" class="home-v2-link-btn" onclick="openRoutineHabitModal()">Adicionar hábito</button>
+                                </div>
+                                <div id="student-routine-list" class="student-routine-list"></div>
+                            </article>
+
+                            <article class="home-v2-card" data-motion="home-card">
+                                <div class="home-v2-card-head">
+                                    <h3><i class="ph-bold ph-bell-ringing"></i> Lembretes de hoje</h3>
+                                    <button type="button" class="home-v2-link-btn" onclick="openRoutineReminderModal()">Novo lembrete</button>
+                                </div>
+                                <div id="student-reminders-list" class="student-reminders-list"></div>
+                            </article>
+
+                            <article class="home-v2-card" data-motion="home-card">
+                                <div class="home-v2-card-head">
+                                    <h3><i class="ph-bold ph-gauge"></i> Cardio da semana</h3>
+                                    <button type="button" class="home-v2-link-btn" onclick="switchStudentView('cardio')">Abrir cardio</button>
+                                </div>
+                                <div id="student-routine-cardio-summary" class="student-routine-cardio-summary"></div>
+                            </article>
+                        </section>
+
+                        <div class="student-goals" data-motion="surface">
                             <h3 class="section-title">MINHAS METAS</h3>
                             <div class="goals-grid">
-                                <div class="goal-card">
+                                <div class="goal-card" data-motion="card">
                                     <span class="goal-label">Objetivo</span>
                                     <strong id="goal-main">--</strong>
                                     <span id="goal-sub" class="goal-sub">Sem objetivo definido</span>
                                 </div>
-                                <div class="goal-card">
+                                <div class="goal-card" data-motion="card">
                                     <span class="goal-label">Peso Atual</span>
                                     <strong id="goal-weight">--</strong>
                                     <span id="goal-weight-delta" class="goal-sub">Sem histórico</span>
                                 </div>
-                                <div class="goal-card">
+                                <div class="goal-card" data-motion="card">
                                     <span class="goal-label">Meta Calórica</span>
                                     <strong id="goal-kcal">--</strong>
                                     <span id="goal-kcal-hint" class="goal-sub">meta diária</span>
@@ -148,21 +188,21 @@
                             </div>
                         </div>
 
-                        <div class="student-notes">
+                        <div class="student-notes" data-motion="surface">
                             <h3 class="section-title">NOTAS DO TREINADOR</h3>
                             <div class="notes-card">
                                 <p id="trainer-notes-text" class="notes-text">Sem notas no momento.</p>
                             </div>
                         </div>
 
-                        <div class="student-last-workout">
+                        <div class="student-last-workout" data-motion="surface">
                             <h3 class="section-title">ÚLTIMO TREINO</h3>
                             <div id="last-workout-card" class="summary-card">
                                 <!-- Dynamic -->
                             </div>
                         </div>
 
-                        <div class="student-diet-summary">
+                        <div class="student-diet-summary" data-motion="surface">
                             <h3 class="section-title">RESUMO DA DIETA</h3>
                             <div id="student-diet-summary-list" class="diet-summary-list">
                                 <!-- Dynamic -->
@@ -222,11 +262,11 @@
                         <!-- Landing: Two Options -->
                         <div id="treino-landing" class="treino-landing">
                             <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem;">
-                                <button class="btn-top-back" type="button" aria-label="Voltar para configurações" onclick="switchStudentView('config')"
+                                <button class="btn-top-back" type="button" aria-label="Voltar para rotina" onclick="switchStudentView('rotina')"
                                     style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
                                     <i class="ph-bold ph-arrow-left"></i>
                                 </button>
-                                <span style="font-weight: 600; color: var(--text-muted);">CONFIG</span>
+                                <span style="font-weight: 600; color: var(--text-muted);">ROTINA</span>
                             </div>
                             <div class="dashboard-header" style="margin-top:0;">
                                 <div class="user-info">
@@ -238,12 +278,11 @@
                             <div class="treino-options-grid">
                                 <button class="treino-option-card" type="button" onclick="switchTreinoSubview('analise')">
                                     <div class="treino-option-icon active-icon">
-                                        <i class="ph-bold ph-list-magnifying-glass"></i>
+                                        <i class="ph-bold ph-play-circle"></i>
                                     </div>
                                     <div class="treino-option-info">
-                                        <h3>Analisar Meu Treino</h3>
-                                        <p>Veja os exercícios e detalhes do treino montado pelo seu treinador. Tire
-                                            dúvidas diretamente.</p>
+                                        <h3>Começar Meu Treino</h3>
+                                        <p>Abra os treinos liberados, escolha um bloco e inicie sua sessão agora.</p>
                                     </div>
                                     <i class="ph-bold ph-caret-right treino-option-arrow"></i>
                                 </button>
@@ -261,17 +300,9 @@
                                 </button>
                             </div>
 
-                            <!-- New: Mentoria / Dúvidas Section -->
-                            <div class="student-duvidas-section" style="margin-top: 2rem;">
-                                <h3 class="section-title" style="margin-bottom: 1rem; color: var(--text-main);">Minhas
-                                    Dúvidas</h3>
-                                <div id="student-duvidas-list" class="student-duvidas-list">
-                                    <!-- Injetado via JS -->
-                                </div>
-                            </div>
                         </div>
 
-                        <!-- Sub-view: Analisar Treino -->
+                        <!-- Sub-view: Começar Treino -->
                         <div id="treino-analise" style="display:none;">
                             <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
                                 <button class="btn-top-back" type="button" aria-label="Voltar para as opções de treino" onclick="switchTreinoSubview('landing')"
@@ -283,15 +314,13 @@
 
                             <div class="dashboard-header" style="margin-top:0.5rem;">
                                 <div class="user-info">
-                                    <h2><i class="ph-bold ph-list-magnifying-glass"
-                                            style="color:var(--primary-color);"></i> Analisar Meu Treino</h2>
-                                    <p class="subtitle">Painel completo de execução, progresso e suporte do treinador
-                                    </p>
+                                    <h2><i class="ph-bold ph-play-circle"
+                                            style="color:var(--primary-color);"></i> Começar Meu Treino</h2>
+                                    <p class="subtitle">Escolha o treino do dia e inicie sua sessão de execução.</p>
                                 </div>
-                                <button class="btn-duvida-treino" type="button" aria-label="Enviar dúvida ao treinador" onclick="openDuvidaModal()">
-                                    <i class="ph-bold ph-question"></i> Dúvida
-                                </button>
                             </div>
+
+                            <div id="student-workout-week-schedule" class="student-workout-week-schedule"></div>
 
                             <div id="workout-tabs-nav" class="workout-tabs-nav">
                                 <!-- Dynamic Tabs (A, B, C...) -->
@@ -300,6 +329,8 @@
                             <div id="student-workout-content-main" class="routine-content-area">
                                 <!-- Dynamic Routine Card populated by JS -->
                             </div>
+
+                            <div id="student-workout-cardio-integrated" class="student-workout-cardio-integrated"></div>
                         </div>
 
                         <!-- Sub-view: Histórico -->
@@ -441,56 +472,47 @@
 
                     <!-- VIEW: CARDIO -->
                     <div id="view-student-cardio" class="view-section" style="display: none;">
-                        <div class="dashboard-header">
+                        <div class="dashboard-header" data-motion="hero">
                             <div class="user-info">
                                 <h2>Meu Cardio</h2>
                                 <p class="subtitle">Plano semanal e sessões concluídas</p>
                             </div>
                         </div>
 
-                        <section id="student-home-v2" class="student-home-v2">
-                            <article class="home-v2-card next-workout-card">
-                                <div class="home-v2-card-head">
-                                    <h3>Próximo treino</h3>
-                                    <button type="button" class="home-v2-link-btn" onclick="switchStudentView('treino')">Abrir treino</button>
-                                </div>
-                                <div id="student-next-workout-card-body"></div>
-                            </article>
-
-                            <article class="home-v2-card">
-                                <div class="home-v2-card-head">
-                                    <h3>Minha rotina</h3>
-                                    <button type="button" class="home-v2-link-btn" onclick="openRoutineHabitModal()">Novo hábito</button>
-                                </div>
-                                <div id="student-routine-list" class="student-routine-list"></div>
-                            </article>
-
-                            <article class="home-v2-card">
-                                <div class="home-v2-card-head">
-                                    <h3>Lembretes de hoje</h3>
-                                    <button type="button" class="home-v2-link-btn" onclick="openRoutineReminderModal()">Novo lembrete</button>
-                                </div>
-                                <div id="student-reminders-list" class="student-reminders-list"></div>
-                            </article>
-                        </section>
-                        <div id="student-cardio-content-main" class="protocol-content-list">
+                        <div id="student-cardio-content-main" class="protocol-content-list" data-motion="surface">
                             <!-- Dynamic Content -->
                         </div>
                     </div>
 
-                    <div id="routine-habit-modal" class="modal" style="display:none;">
-                        <div class="modal-content">
-                            <h3 id="routine-habit-modal-title">Novo hábito</h3>
+                    <div id="routine-habit-modal" class="modal" style="display:none;" onclick="handleRoutineModalOverlayClick('routine-habit-modal', event)">
+                        <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="routine-habit-modal-title">
+                            <div class="routine-modal-head">
+                                <div>
+                                    <h3 id="routine-habit-modal-title">Novo hábito</h3>
+                                    <p class="routine-modal-subtitle">Escolha um modelo rápido ou personalize seu hábito.</p>
+                                </div>
+                                <button type="button" class="btn-icon routine-modal-close" aria-label="Fechar modal de hábito" onclick="closeRoutineHabitModal()">
+                                    <i class="ph-bold ph-x"></i>
+                                </button>
+                            </div>
+
+                            <div class="routine-habit-presets">
+                                <button type="button" class="routine-habit-preset" onclick="applyRoutineHabitPreset('water')"><i class="ph-bold ph-drop"></i> Beber água</button>
+                                <button type="button" class="routine-habit-preset" onclick="applyRoutineHabitPreset('walk')"><i class="ph-bold ph-person-simple-walk"></i> Caminhar</button>
+                                <button type="button" class="routine-habit-preset" onclick="applyRoutineHabitPreset('supplement')"><i class="ph-bold ph-pill"></i> Suplemento</button>
+                                <button type="button" class="routine-habit-preset" onclick="applyRoutineHabitPreset('sleep')"><i class="ph-bold ph-moon-stars"></i> Sono</button>
+                            </div>
+
                             <div class="field">
-                                <label for="routine-habit-title">Título</label>
+                                <label for="routine-habit-title">O que você quer fazer?</label>
                                 <input id="routine-habit-title" type="text" maxlength="80" placeholder="Ex.: Caminhar 20 minutos">
                             </div>
                             <div class="field">
-                                <label for="routine-habit-time">Horário</label>
+                                <label for="routine-habit-time">Em qual horário?</label>
                                 <input id="routine-habit-time" type="time" value="08:00">
                             </div>
                             <div class="field">
-                                <label for="routine-habit-recurrence">Recorrência</label>
+                                <label for="routine-habit-recurrence">Com que frequência?</label>
                                 <select id="routine-habit-recurrence" onchange="handleRoutineRecurrenceUI()">
                                     <option value="daily">Todos os dias</option>
                                     <option value="weekdays">Dias fixos</option>
@@ -515,9 +537,14 @@
                         </div>
                     </div>
 
-                    <div id="routine-reminder-modal" class="modal" style="display:none;">
+                    <div id="routine-reminder-modal" class="modal" style="display:none;" onclick="handleRoutineModalOverlayClick('routine-reminder-modal', event)">
                         <div class="modal-content">
-                            <h3>Novo lembrete</h3>
+                            <div class="routine-modal-head">
+                                <h3>Novo lembrete</h3>
+                                <button type="button" class="btn-icon routine-modal-close" aria-label="Fechar modal de lembrete" onclick="closeRoutineReminderModal()">
+                                    <i class="ph-bold ph-x"></i>
+                                </button>
+                            </div>
                             <div class="field">
                                 <label for="routine-reminder-title">Título</label>
                                 <input id="routine-reminder-title" type="text" maxlength="80" placeholder="Ex.: Tomar suplemento">
@@ -525,6 +552,25 @@
                             <div class="field">
                                 <label for="routine-reminder-time">Horário</label>
                                 <input id="routine-reminder-time" type="time" value="08:00">
+                            </div>
+                            <div class="field">
+                                <label for="routine-reminder-recurrence">Recorrência</label>
+                                <select id="routine-reminder-recurrence" onchange="handleRoutineReminderRecurrenceUI()">
+                                    <option value="daily">Todos os dias</option>
+                                    <option value="weekdays">Dias fixos</option>
+                                </select>
+                            </div>
+                            <div class="field" id="routine-reminder-weekdays-wrap" style="display:none;">
+                                <label>Dias da semana</label>
+                                <div class="routine-weekday-grid">
+                                    <label><input type="checkbox" value="seg">Seg</label>
+                                    <label><input type="checkbox" value="ter">Ter</label>
+                                    <label><input type="checkbox" value="qua">Qua</label>
+                                    <label><input type="checkbox" value="qui">Qui</label>
+                                    <label><input type="checkbox" value="sex">Sex</label>
+                                    <label><input type="checkbox" value="sab">Sáb</label>
+                                    <label><input type="checkbox" value="dom">Dom</label>
+                                </div>
                             </div>
                             <div class="modal-actions">
                                 <button type="button" class="btn-secondary" onclick="closeRoutineReminderModal()">Cancelar</button>
@@ -536,11 +582,11 @@
                     <!-- VIEW: DIETA -->
                     <div id="view-student-dieta" class="view-section" style="display: none;">
                         <div style="display: flex; align-items: center; gap: 1rem; margin: 1rem 0 2rem;">
-                            <button class="btn-top-back" type="button" aria-label="Voltar para configurações" onclick="switchStudentView('config')"
+                            <button class="btn-top-back" type="button" aria-label="Voltar para rotina" onclick="switchStudentView('rotina')"
                                 style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
                                 <i class="ph-bold ph-arrow-left"></i>
                             </button>
-                            <span style="font-weight: 600; color: var(--text-muted);">CONFIG</span>
+                            <span style="font-weight: 600; color: var(--text-muted);">ROTINA</span>
                         </div>
                         <div class="dashboard-header">
                             <div class="user-info">
@@ -557,13 +603,26 @@
 
                     <!-- VIEW: ÁGUA -->
                     <div id="view-student-agua" class="view-section" style="display: none;">
-                        <div class="dashboard-header">
+                        <div class="dashboard-header" data-motion="hero">
                             <div class="user-info">
                                 <h2>Água</h2>
-                                <p class="subtitle">Meta diária e histórico de hidratação</p>
+                                <p class="subtitle">Sua meta diária e botões rápidos para registrar água</p>
                             </div>
                         </div>
-                        <div id="student-water-content-main" class="protocol-content-list">
+                        <div id="student-water-content-main" class="protocol-content-list" data-motion="surface">
+                            <!-- Dynamic Content -->
+                        </div>
+                    </div>
+
+                    <!-- VIEW: CHAT -->
+                    <div id="view-student-chat" class="view-section" style="display: none;">
+                        <div class="dashboard-header" data-motion="hero">
+                            <div class="user-info">
+                                <h2>Chat</h2>
+                                <p class="subtitle">Canal direto com seu treinador</p>
+                            </div>
+                        </div>
+                        <div id="student-chat-content-main" class="protocol-content-list">
                             <!-- Dynamic Content -->
                         </div>
                     </div>
@@ -571,111 +630,129 @@
                     <!-- VIEW: CONFIGURAÇÕES -->
                     <div id="view-student-config" class="view-section" style="display: none;">
                         <div style="display: flex; align-items: center; gap: 1rem; margin: 1rem 0 2rem;">
-                            <button class="btn-top-back" type="button" aria-label="Voltar para treino" onclick="switchStudentView('treino')"
+                            <button class="btn-top-back" type="button" aria-label="Voltar para rotina" onclick="switchStudentView('rotina')"
                                 style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
                                 <i class="ph-bold ph-arrow-left"></i>
                             </button>
-                            <span style="font-weight: 600; color: var(--text-muted);">TREINO</span>
+                            <span style="font-weight: 600; color: var(--text-muted);">ROTINA</span>
                         </div>
-                        <!-- Profile Header Card -->
-                        <div class="perfil-header-card">
-                            <button class="perfil-avatar perfil-avatar-trigger" id="perfil-avatar" type="button" onclick="triggerStudentAvatarUpload()" title="Alterar foto de perfil">
-                                <i class="ph-bold ph-user"></i>
+                        <div class="student-config-tabs" role="tablist" aria-label="Seções do Meu Perfil">
+                            <button id="student-config-tab-perfil" class="student-config-tab active" type="button" role="tab" aria-selected="true" aria-controls="student-config-panel-perfil" onclick="switchStudentConfigSection('perfil')">
+                                Perfil
                             </button>
-                            <div class="perfil-header-info">
-                                <h2 id="perfil-nome">Aluno</h2>
-                                <div class="perfil-badges">
-                                    <span class="perfil-badge active"><i class="ph-bold ph-lightning"></i> PLANO
-                                        ATIVO</span>
-                                    <span class="perfil-badge muted"><i class="ph-bold ph-calendar-blank"></i> <span
-                                            id="perfil-membro-desde">Membro desde Mar 2026</span></span>
+                            <button id="student-config-tab-anamnesis" class="student-config-tab" type="button" role="tab" aria-selected="false" aria-controls="student-config-panel-anamnesis" onclick="switchStudentConfigSection('anamnesis')">
+                                Anamnese
+                            </button>
+                            <button id="student-config-tab-consultoria" class="student-config-tab" type="button" role="tab" aria-selected="false" aria-controls="student-config-panel-consultoria" onclick="switchStudentConfigSection('consultoria')">
+                                Minha consultoria
+                            </button>
+                            <button id="student-config-tab-evolucao" class="student-config-tab" type="button" role="tab" aria-selected="false" aria-controls="student-config-panel-evolucao" onclick="switchStudentConfigSection('evolucao')">
+                                Evolução
+                            </button>
+                        </div>
+
+                        <div class="student-config-panels">
+                            <section id="student-config-panel-perfil" class="student-config-panel active" role="tabpanel" aria-labelledby="student-config-tab-perfil">
+                                <div class="perfil-header-card">
+                                    <button class="perfil-avatar perfil-avatar-trigger" id="perfil-avatar" type="button" onclick="triggerStudentAvatarUpload()" title="Alterar foto de perfil">
+                                        <i class="ph-bold ph-user"></i>
+                                    </button>
+                                    <div class="perfil-header-info">
+                                        <h2 id="perfil-nome">Aluno</h2>
+                                        <div class="perfil-badges">
+                                            <span class="perfil-badge active"><i class="ph-bold ph-lightning"></i> PLANO
+                                                ATIVO</span>
+                                            <span class="perfil-badge muted"><i class="ph-bold ph-calendar-blank"></i> <span
+                                                    id="perfil-membro-desde">Membro desde Mar 2026</span></span>
+                                        </div>
+                                    </div>
+                                    <button class="btn-perfil-edit" type="button" aria-label="Editar perfil" onclick="openPerfilUpdateModal('geral')">
+                                        <i class="ph-bold ph-pencil-simple"></i> Editar Perfil
+                                    </button>
                                 </div>
-                            </div>
-                            <button class="btn-perfil-edit" type="button" aria-label="Editar perfil" onclick="openPerfilUpdateModal('geral')">
-                                <i class="ph-bold ph-pencil-simple"></i> Editar Perfil
-                            </button>
-                        </div>
-                        <div class="perfil-quick-actions">
-                            <button class="btn-secondary" type="button" onclick="openStudentConnectFromDashboard()">
-                                <i class="ph-bold ph-link"></i> Conectar conta
-                            </button>
-                            <button class="btn-secondary btn-perfil-logout" type="button" onclick="logout()">
-                                <i class="ph-bold ph-sign-out"></i> Sair da Conta
-                            </button>
-                        </div>
-                        <div id="student-consultoria-card" class="settings-card student-consultoria-card">
-                            <!-- Dynamic Content -->
-                        </div>
+                                <div class="perfil-quick-actions">
+                                    <button class="btn-secondary" type="button" onclick="openStudentConnectFromDashboard()">
+                                        <i class="ph-bold ph-link"></i> Conectar conta
+                                    </button>
+                                    <button class="btn-secondary btn-perfil-logout" type="button" onclick="logout()">
+                                        <i class="ph-bold ph-sign-out"></i> Sair da Conta
+                                    </button>
+                                </div>
+                                <div class="perfil-section-title" style="margin-top: 1.35rem;">
+                                    <i class="ph-fill ph-identification-card"></i>
+                                    <h3>Informações Pessoais</h3>
+                                </div>
+                                <div class="perfil-info-grid" id="perfil-info-grid">
+                                    <!-- Generated by JS -->
+                                </div>
+                                <input id="perfil-avatar-input" type="file" accept="image/*" style="display:none;" onchange="handleStudentAvatarInput(event)">
+                            </section>
 
-                        <!-- Physical Metrics Section -->
-                        <div class="perfil-section-title">
-                            <i class="ph-fill ph-chart-line-up"></i>
-                            <h3>Métricas Físicas</h3>
-                        </div>
-                        <div class="perfil-metrics-grid" id="perfil-metrics-grid">
-                            <!-- Generated by JS -->
-                        </div>
+                            <section id="student-config-panel-anamnesis" class="student-config-panel" role="tabpanel" aria-labelledby="student-config-tab-anamnesis">
+                                <div class="perfil-section-title">
+                                    <i class="ph-fill ph-clipboard-text"></i>
+                                    <h3>Minha Anamnese</h3>
+                                </div>
+                                <div class="perfil-anamnesis-card" id="perfil-anamnesis-summary">
+                                    <!-- Generated by JS -->
+                                </div>
+                            </section>
 
-                        <!-- Weight Progress Chart -->
-                        <div class="perfil-section-title" style="margin-top: 2rem;">
-                            <i class="ph-fill ph-chart-line"></i>
-                            <h3>Progresso de Peso</h3>
-                            <select id="perfil-chart-range" class="perfil-range-select" onchange="renderPerfilChart()">
-                                <option value="6">Últimos 6 registros</option>
-                                <option value="12">Últimos 12 registros</option>
-                                <option value="all">Todos</option>
-                            </select>
-                        </div>
-                        <div class="perfil-chart-card">
-                            <canvas id="perfil-weight-chart" width="600" height="220"></canvas>
-                            <div id="perfil-chart-empty" class="perfil-chart-empty" style="display:none;">
-                                <i class="ph-bold ph-chart-line-up"></i>
-                                <p>Atualize seu peso para ver o gráfico de progresso</p>
-                            </div>
-                        </div>
+                            <section id="student-config-panel-consultoria" class="student-config-panel" role="tabpanel" aria-labelledby="student-config-tab-consultoria">
+                                <div id="student-consultoria-card" class="settings-card student-consultoria-card">
+                                    <!-- Dynamic Content -->
+                                </div>
+                            </section>
 
-                        <!-- Informações Pessoais -->
-                        <div class="perfil-section-title" style="margin-top: 2rem;">
-                            <i class="ph-fill ph-identification-card"></i>
-                            <h3>Informações Pessoais</h3>
-                        </div>
-                        <div class="perfil-info-grid" id="perfil-info-grid">
-                            <!-- Generated by JS -->
-                        </div>
-                        <input id="perfil-avatar-input" type="file" accept="image/*" style="display:none;" onchange="handleStudentAvatarInput(event)">
+                            <section id="student-config-panel-evolucao" class="student-config-panel" role="tabpanel" aria-labelledby="student-config-tab-evolucao">
+                                <div class="perfil-section-title">
+                                    <i class="ph-fill ph-chart-line-up"></i>
+                                    <h3>Métricas Físicas</h3>
+                                </div>
+                                <div class="perfil-metrics-grid" id="perfil-metrics-grid">
+                                    <!-- Generated by JS -->
+                                </div>
 
-                        <!-- Minha Anamnese -->
-                        <div class="perfil-section-title" style="margin-top: 2rem;">
-                            <i class="ph-fill ph-clipboard-text"></i>
-                            <h3>Minha Anamnese</h3>
-                        </div>
-                        <div class="perfil-anamnesis-card" id="perfil-anamnesis-summary">
-                            <!-- Generated by JS -->
-                        </div>
+                                <div class="perfil-section-title" style="margin-top: 2rem;">
+                                    <i class="ph-fill ph-chart-line"></i>
+                                    <h3>Progresso de Peso</h3>
+                                    <select id="perfil-chart-range" class="perfil-range-select" onchange="renderPerfilChart()">
+                                        <option value="6">Últimos 6 registros</option>
+                                        <option value="12">Últimos 12 registros</option>
+                                        <option value="all">Todos</option>
+                                    </select>
+                                </div>
+                                <div class="perfil-chart-card">
+                                    <canvas id="perfil-weight-chart" width="600" height="220"></canvas>
+                                    <div id="perfil-chart-empty" class="perfil-chart-empty" style="display:none;">
+                                        <i class="ph-bold ph-chart-line-up"></i>
+                                        <p>Atualize seu peso para ver o gráfico de progresso</p>
+                                    </div>
+                                </div>
 
-                        <!-- Galeria de Progresso -->
-                        <div class="perfil-section-title" style="margin-top: 2rem;">
-                            <i class="ph-fill ph-images"></i>
-                            <h3>Galeria de Progresso</h3>
-                        </div>
-                        <div class="perfil-media-toolbar">
-                            <input id="perfil-media-input" type="file" accept="image/*,video/*" style="display:none;" onchange="handleStudentGalleryUpload(event)">
-                            <button class="btn-secondary" type="button" onclick="triggerStudentGalleryUpload()">
-                                <i class="ph-bold ph-upload-simple"></i> Enviar foto ou vídeo
-                            </button>
-                            <span id="perfil-media-status" class="perfil-media-status"></span>
-                        </div>
-                        <div class="perfil-media-grid" id="perfil-media-grid">
-                            <!-- Generated by JS -->
-                        </div>
+                                <div class="perfil-section-title" style="margin-top: 2rem;">
+                                    <i class="ph-fill ph-images"></i>
+                                    <h3>Galeria de Progresso</h3>
+                                </div>
+                                <div class="perfil-media-toolbar">
+                                    <input id="perfil-media-input" type="file" accept="image/*,video/*" style="display:none;" onchange="handleStudentGalleryUpload(event)">
+                                    <button class="btn-secondary" type="button" onclick="triggerStudentGalleryUpload()">
+                                        <i class="ph-bold ph-upload-simple"></i> Enviar foto ou vídeo
+                                    </button>
+                                    <span id="perfil-media-status" class="perfil-media-status"></span>
+                                </div>
+                                <div class="perfil-media-grid" id="perfil-media-grid">
+                                    <!-- Generated by JS -->
+                                </div>
 
-                        <!-- Recent Update History -->
-                        <div class="perfil-section-title" style="margin-top: 2rem;">
-                            <i class="ph-fill ph-clock-counter-clockwise"></i>
-                            <h3>Histórico de Alterações</h3>
-                        </div>
-                        <div class="perfil-history-list" id="perfil-history-list">
-                            <!-- Generated by JS -->
+                                <div class="perfil-section-title" style="margin-top: 2rem;">
+                                    <i class="ph-fill ph-clock-counter-clockwise"></i>
+                                    <h3>Histórico de Alterações</h3>
+                                </div>
+                                <div class="perfil-history-list" id="perfil-history-list">
+                                    <!-- Generated by JS -->
+                                </div>
+                            </section>
                         </div>
 
                         <div id="student-connect-tutorial-modal" class="perfil-modal-overlay" style="display:none;">
@@ -962,7 +1039,7 @@
                             </div>
                         </div>
                     </div>
-                    <div id="perfil-anamnesis-modal" class="perfil-modal-overlay" style="display:none;">
+                    <div id="perfil-anamnesis-modal" class="perfil-modal-overlay" style="display:none;" onclick="handlePerfilAnamnesisOverlayClick(event)">
                         <div class="perfil-modal" style="max-width:760px;">
                             <div class="perfil-modal-header">
                                 <h3>Minha Anamnese Completa</h3>
@@ -973,30 +1050,76 @@
                             <div class="perfil-modal-body" id="perfil-anamnesis-modal-body">
                                 <!-- Dynamic -->
                             </div>
+                            <div class="perfil-modal-footer">
+                                <button class="btn-secondary" type="button" onclick="closePerfilAnamnesisModal()">Fechar</button>
+                                <button class="btn-primary" type="button" onclick="openStudentAnamnesisEditor()">
+                                    <i class="ph-bold ph-pencil-simple"></i> Editar anamnese completa
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="student-payment-modal" class="perfil-modal-overlay" style="display:none;">
+                        <div class="perfil-modal student-payment-modal">
+                            <div class="perfil-modal-header">
+                                <h3>Pagar consultoria via PIX</h3>
+                                <button class="btn-icon" type="button" aria-label="Fechar pagamento" onclick="closeStudentPaymentModal()">
+                                    <i class="ph-bold ph-x"></i>
+                                </button>
+                            </div>
+                            <div class="perfil-modal-body">
+                                <div class="student-payment-modal-summary" id="student-payment-modal-summary">
+                                    <!-- Dynamic -->
+                                </div>
+                                <div id="student-payment-pix-unavailable" class="student-payment-pix-unavailable" style="display:none;">
+                                    <i class="ph-bold ph-warning-circle"></i>
+                                    <p>O treinador ainda não configurou os dados PIX para pagamento.</p>
+                                </div>
+                                <div id="student-payment-pix-content" class="student-payment-pix-content">
+                                    <div class="student-payment-pix-qr" id="student-payment-pix-qr">
+                                        <!-- Dynamic -->
+                                    </div>
+                                    <div class="student-payment-pix-copy-wrap">
+                                        <label for="student-payment-pix-copy">PIX copia e cola</label>
+                                        <textarea id="student-payment-pix-copy" class="q-input" rows="4" readonly></textarea>
+                                        <button id="student-payment-copy-btn" class="btn-secondary" type="button" onclick="copyStudentPaymentPix()">
+                                            <i class="ph-bold ph-copy"></i> Copiar PIX
+                                        </button>
+                                    </div>
+                                    <div class="student-payment-pix-instructions" id="student-payment-pix-instructions">
+                                        <!-- Dynamic -->
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="perfil-modal-footer">
+                                <button class="btn-secondary" type="button" onclick="closeStudentPaymentModal()">Fechar</button>
+                                <button id="student-payment-confirm-btn" class="btn-primary" type="button" onclick="submitStudentPaymentRequest()">
+                                    <i class="ph-bold ph-check-circle"></i> Já paguei
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </main>
 
                 <nav class="student-mobile-bottom-nav" aria-label="Navegação principal do aluno">
-                    <button type="button" class="student-mobile-nav-item active" id="m-snav-treino" onclick="switchStudentView('treino')" aria-label="Abrir treino">
-                        <i class="ph-thin ph-barbell"></i>
+                    <button type="button" class="student-mobile-nav-item active" id="m-snav-home" onclick="switchStudentView('rotina')" aria-label="Abrir rotina">
+                        <i class="ph-bold ph-house"></i>
+                        <span>Rotina</span>
+                    </button>
+                    <button type="button" class="student-mobile-nav-item" id="m-snav-treino" onclick="switchStudentView('treino')" aria-label="Abrir treino">
+                        <i class="ph-bold ph-barbell"></i>
                         <span>Treino</span>
                     </button>
-                    <button type="button" class="student-mobile-nav-item" id="m-snav-cardio" onclick="switchStudentView('cardio')" aria-label="Abrir cardio">
-                        <i class="ph-thin ph-gauge"></i>
-                        <span>Cardio</span>
-                    </button>
                     <button type="button" class="student-mobile-nav-item" id="m-snav-dieta" onclick="switchStudentView('dieta')" aria-label="Abrir dieta">
-                        <i class="ph-thin ph-bowl-food"></i>
+                        <i class="ph-bold ph-bowl-food"></i>
                         <span>Dieta</span>
                     </button>
                     <button type="button" class="student-mobile-nav-item" id="m-snav-agua" onclick="switchStudentView('agua')" aria-label="Abrir água">
-                        <i class="ph-thin ph-drop"></i>
+                        <i class="ph-bold ph-drop"></i>
                         <span>Água</span>
                     </button>
-                    <button type="button" class="student-mobile-nav-item" id="m-snav-config" onclick="switchStudentView('config')" aria-label="Abrir configurações">
-                        <i class="ph-thin ph-gear"></i>
-                        <span>Config</span>
+                    <button type="button" class="student-mobile-nav-item" id="m-snav-chat" onclick="switchStudentView('chat')" aria-label="Abrir chat">
+                        <i class="ph-bold ph-chat-circle-dots"></i>
+                        <span>Chat</span>
                     </button>
                 </nav>
             </div>
