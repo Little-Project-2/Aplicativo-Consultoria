@@ -23451,6 +23451,51 @@ body.mobile-dashboard-mode #student-dashboard-screen #view-student-log-workout .
     transition: width 220ms ease;
 }
 
+.q-test-notice {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.85rem;
+    margin: 0 0 0.85rem;
+    padding: 0.72rem 0.8rem;
+    border: 1px solid rgba(163, 230, 53, 0.24);
+    border-radius: 16px;
+    background: rgba(163, 230, 53, 0.09);
+    color: var(--text-main);
+}
+
+.q-test-notice div {
+    display: grid;
+    gap: 0.14rem;
+    min-width: 0;
+}
+
+.q-test-notice strong {
+    color: var(--primary-color);
+    font-size: 0.82rem;
+    line-height: 1.15;
+}
+
+.q-test-notice span {
+    color: rgba(226, 232, 240, 0.72);
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
+.q-test-notice button {
+    flex: 0 0 auto;
+    min-height: 38px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-main);
+    cursor: pointer;
+    font-size: 0.76rem;
+    font-weight: 800;
+    padding: 0.45rem 0.72rem;
+}
+
 .q-tabs-container {
     position: sticky;
     top: 0;
@@ -23787,6 +23832,15 @@ textarea.q-compact-free-text {
     .q-progress-badge {
         min-width: 50px;
         font-size: 0.76rem;
+    }
+
+    .q-test-notice {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .q-test-notice button {
+        width: 100%;
     }
 
     .q-tabs-container {

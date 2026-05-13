@@ -1509,6 +1509,97 @@ function isTrainerEvaluationModeActive() {
     return ENABLE_DEMO_ACCESS && memoryGetItem(TRAINER_EVALUATION_MODE_KEY) === '1';
 }
 
+function getEvaluationSandboxStudentIds() {
+    return new Set([String(ADMIN_STUDENT_CODE), String(SELF_TRAINING_STUDENT_CODE)]);
+}
+
+function isEvaluationSandboxRecord(record = {}) {
+    if (!record || typeof record !== 'object') return false;
+    const demoIds = getEvaluationSandboxStudentIds();
+    const recordIds = [
+        record.id,
+        record.studentId,
+        record.student_id,
+        record.ID_Usuario,
+        record.userId,
+        record.user_id
+    ].map((value) => String(value || '').trim()).filter(Boolean);
+    if (recordIds.some((id) => demoIds.has(id))) return true;
+
+    const trainerCode = sanitizeCodeInput(
+        record.trainerCode || record.trainer_code || record.currentTrainerCode || record.connectedTrainerCode || '',
+        5
+    );
+    return trainerCode === EVALUATION_TRAINER_CODE;
+}
+
+function filterEvaluationSandboxRecords(records) {
+    return Array.isArray(records) ? records.filter((record) => !isEvaluationSandboxRecord(record)) : [];
+}
+
+function clearEvaluationSandboxRuntimeContext() {
+    [
+        TRAINER_EVALUATION_MODE_KEY,
+        'currentStudentId',
+        'connectedTrainerCode',
+        'studentName',
+        'trainerName',
+        'currentTrainerCode',
+        'trainerCodeDefault',
+        'currentAnamnesis',
+        'currentUserId',
+        'currentUserEmail',
+        'currentUserName',
+        'currentUserRoles',
+        'currentUserRole',
+        'currentOnboardingStep'
+    ].forEach((key) => memoryRemoveItem(key));
+}
+
+function resetEvaluationSandbox() {
+    if (!ENABLE_DEMO_ACCESS) {
+        const message = 'Sandbox disponivel apenas em ambiente local.';
+        showEvaluationAccessUnavailable();
+        return { ok: false, message };
+    }
+
+    const previousEvaluationMode = isTrainerEvaluationModeActive();
+    setTrainerEvaluationMode(true);
+
+    const students = readStorageJSON('trainerStudents', []);
+    saveStudentData(filterEvaluationSandboxRecords(students), {
+        skipSupabaseSync: true,
+        stampDataUpdatedAt: false,
+        syncMode: 'local-only'
+    });
+
+    const trainers = readStorageJSON('allTrainers', []);
+    memorySetItem(
+        'allTrainers',
+        JSON.stringify(trainers.filter((trainer) => sanitizeCodeInput(trainer?.code || '', 5) !== EVALUATION_TRAINER_CODE))
+    );
+
+    memorySetItem('trainerNotifications', JSON.stringify(filterEvaluationSandboxRecords(readStorageJSON('trainerNotifications', []))));
+    memorySetItem('workoutHistory', JSON.stringify(filterEvaluationSandboxRecords(readStorageJSON('workoutHistory', []))));
+    getEvaluationSandboxStudentIds().forEach((studentId) => {
+        memoryRemoveItem(`student_chat_v1_${studentId}`);
+        memoryRemoveItem(`student_chat_beta_${studentId}`);
+    });
+
+    clearEvaluationSandboxRuntimeContext();
+    setTrainerEvaluationMode(true);
+    ensureEvaluationDemoData();
+    if (!previousEvaluationMode) setTrainerEvaluationMode(false);
+    setStudentSyncState('synced', 'Sandbox local');
+
+    if (document.getElementById('dash-stats-grid')) {
+        scheduleTrainerDashboardRefresh({ delayMs: 0, refreshProfile: true });
+    }
+    scheduleStudentDashboardRefresh({ delayMs: 0, refreshLegacyViews: true });
+
+    return { ok: true, message: 'Sandbox restaurado com Nicolas, Diego e Treinador Demo.' };
+}
+
 function syncEvaluationShortcutVisibility(root = document) {
     const scope = root && root.querySelectorAll ? root : document;
     scope.querySelectorAll('[data-evaluation-shortcuts]').forEach((section) => {
@@ -1534,7 +1625,8 @@ async function openStudentEvaluationDashboard() {
         return;
     }
 
-    setTrainerEvaluationMode(false);
+    window.__CONSULTORIA_REACT_AUTH__?.hide?.();
+    setTrainerEvaluationMode(true);
     ensureEvaluationDemoData();
     await ensureStudentEvaluationScreens();
 
@@ -1561,6 +1653,7 @@ async function openTrainerEvaluationDashboard() {
         return;
     }
 
+    window.__CONSULTORIA_REACT_AUTH__?.hide?.();
     setTrainerEvaluationMode(true);
     ensureEvaluationDemoData();
 
@@ -6711,10 +6804,76 @@ function openStudentQuestionnaireScreen(displayName = '', options = {}) {
     const qScreen = document.getElementById('student-questionnaire-screen');
     if (qScreen) qScreen.classList.add('active');
     switchQTab('saude');
+    setStudentQuestionnaireTestNotice(studentQuestionnaireEditContext?.source === 'test');
     const nameField = document.getElementById('q_nome');
     if (nameField && !nameField.value) {
         nameField.value = sanitizeUserInput(displayName || memoryGetItem('studentName') || '', { maxLen: 90 });
     }
+}
+
+function setStudentQuestionnaireTestNotice(active = false) {
+    const screen = document.getElementById('student-questionnaire-screen');
+    if (!screen) return;
+
+    const existing = document.getElementById('questionnaire-test-notice');
+    if (!active) {
+        existing?.remove();
+        return;
+    }
+
+    if (existing) return;
+
+    const notice = document.createElement('div');
+    notice.id = 'questionnaire-test-notice';
+    notice.className = 'q-test-notice';
+    notice.innerHTML = `
+        <div>
+            <strong>Modo teste</strong>
+            <span>Você pode responder, navegar e salvar sem gravar nada.</span>
+        </div>
+        <button type="button" onclick="closeStudentQuestionnaireTestMode()">Voltar ao login</button>
+    `;
+
+    const progress = screen.querySelector('.q-progress-track');
+    if (progress) progress.insertAdjacentElement('afterend', notice);
+    else screen.insertAdjacentElement('afterbegin', notice);
+}
+
+function resetStudentQuestionnaireTestForm(displayName = 'Aluno Teste') {
+    const form = document.getElementById('questionnaire-form');
+    if (form instanceof HTMLFormElement) form.reset();
+
+    setQuestionnaireInputValue('q_nome', displayName);
+    setQuestionnaireInputValue('q_idade', '');
+    setQuestionnaireSelectValue('q_genero', '', '');
+    setQuestionnaireInputValue('q_peso', '');
+    setQuestionnaireInputValue('q_altura', '');
+    setQuestionnaireSliderValue('q_sono', '7', 'val-sono', 'h');
+    setQuestionnaireSliderValue('q_estresse', '5', 'val-estresse', '');
+    toggleConditional('cond-dor', false);
+    toggleConditional('cond-med', false);
+    toggleConditional('cond-cirurgia', false);
+}
+
+async function openStudentQuestionnaireTestMode() {
+    await ensureScreenElement('student-questionnaire-screen', 'pages/student-questionnaire.html');
+    studentQuestionnaireEditContext = { source: 'test' };
+    window.__CONSULTORIA_REACT_AUTH__?.hide?.();
+    openStudentQuestionnaireScreen('Aluno Teste', { preserveContext: true });
+    resetStudentQuestionnaireTestForm('Aluno Teste');
+    setStudentQuestionnaireTestNotice(true);
+}
+
+function closeStudentQuestionnaireTestMode() {
+    studentQuestionnaireEditContext = null;
+    setStudentQuestionnaireTestNotice(false);
+    hideAllScreens();
+    const app = document.getElementById('app');
+    if (app) app.classList.remove('wide');
+    window.__CONSULTORIA_REACT_AUTH__?.showLogin?.({
+        message: 'Anamnese de teste fechada. Nenhum dado foi salvo.',
+        type: 'info'
+    });
 }
 
 async function openStudentConnectFromDashboard() {
@@ -7853,8 +8012,11 @@ if (typeof window !== 'undefined') {
         resendVerificationEmailFromLogin,
         handleProfileCreation,
         handleTestLogin,
+        openStudentQuestionnaireTestMode,
+        closeStudentQuestionnaireTestMode,
         openTrainerEvaluationDashboard,
         openStudentEvaluationDashboard,
+        resetEvaluationSandbox,
         completeProfileSetup,
         nextProfileSetupStep,
         prevProfileSetupStep,
@@ -14169,6 +14331,11 @@ async function submitQuestionnaire() {
         questionnaire
     };
 
+    if (studentQuestionnaireEditContext?.source === 'test') {
+        alert('Anamnese de teste validada. Nada foi salvo.');
+        return;
+    }
+
     const isProfileEditMode = studentQuestionnaireEditContext?.source === 'perfil';
     if (isProfileEditMode) {
         const returnSection = normalizeStudentConfigSection(studentQuestionnaireEditContext?.returnSection || 'anamnesis');
@@ -15261,9 +15428,10 @@ function persistStudentData(mutator, options = {}) {
 
 function saveStudentData(students, options = {}) {
     const skipSupabaseSync = !!options?.skipSupabaseSync;
+    const evaluationModeActive = isTrainerEvaluationModeActive();
     const syncModeRaw = String(options?.syncMode || '').trim().toLowerCase();
     const allowedModes = new Set(['local-only', 'batched', 'immediate']);
-    let syncMode = skipSupabaseSync
+    let syncMode = (skipSupabaseSync || evaluationModeActive)
         ? 'local-only'
         : (allowedModes.has(syncModeRaw) ? syncModeRaw : 'batched');
     const syncDelayMs = parseInt(options?.syncDelayMs, 10) || BATCHED_STUDENTS_SYNC_DEFAULT_DELAY_MS;
@@ -15295,19 +15463,28 @@ function saveStudentData(students, options = {}) {
         memorySetItem('trainerStudents', serializedStudents);
     }
     const persistentStorage = appStorage.isPersistent();
-    if (!persistentStorage && navigator.onLine !== false && isSupabaseReady()) {
+    if (!evaluationModeActive && !persistentStorage && navigator.onLine !== false && isSupabaseReady()) {
         setStudentSyncState('pending', 'Armazenamento local no limite. Mantendo sincronização remota.');
     }
     const resultBase = {
         ok: true,
         localOk: true,
         remoteOk: false,
-        message: persistentStorage ? 'Salvo localmente.' : 'Salvo temporariamente. Libere espaço do navegador para persistir.',
+        message: evaluationModeActive
+            ? 'Salvo no sandbox local.'
+            : (persistentStorage ? 'Salvo localmente.' : 'Salvo temporariamente. Libere espaço do navegador para persistir.'),
         opId
     };
 
     if (syncMode === 'local-only') {
-        logStudentPersistOperation({ opId, studentId, mode: syncMode, localOk: true, remoteOk: false, reason: 'local-only' });
+        logStudentPersistOperation({
+            opId,
+            studentId,
+            mode: syncMode,
+            localOk: true,
+            remoteOk: false,
+            reason: evaluationModeActive ? 'evaluation-sandbox-local-only' : 'local-only'
+        });
         return resultBase;
     }
 
@@ -24358,7 +24535,9 @@ async function saveStudentPlan() {
 
         let remoteSynced = true;
         let remoteMessage = '';
-        if (isSupabaseReady()) {
+        if (isTrainerEvaluationModeActive()) {
+            setStudentSyncState('synced', 'Sandbox local');
+        } else if (isSupabaseReady()) {
             if (navigator.onLine === false) {
                 remoteSynced = false;
                 remoteMessage = 'Salvo localmente. Sem conexão para sincronizar.';

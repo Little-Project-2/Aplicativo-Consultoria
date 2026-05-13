@@ -12,6 +12,11 @@ type LegacyRouterOptions = {
   force?: boolean;
 };
 
+export type SandboxResetResult = {
+  ok?: boolean;
+  message?: string;
+};
+
 declare global {
   interface Window {
     __CONSULTORIA_REACT_AUTH__?: {
@@ -22,6 +27,10 @@ declare global {
       showLogin: (feedback?: AuthFeedback) => void;
     };
     goToProfileCreate?: () => Promise<void> | void;
+    openTrainerEvaluationDashboard?: () => Promise<void> | void;
+    openStudentEvaluationDashboard?: () => Promise<void> | void;
+    openStudentQuestionnaireTestMode?: () => Promise<void> | void;
+    resetEvaluationSandbox?: () => Promise<SandboxResetResult | void> | SandboxResetResult | void;
     routeAuthenticatedSessionUser?: (user: User, options?: LegacyRouterOptions) => Promise<void>;
     setLoginRoleIntent?: (role: 'trainer' | 'student', options?: { silent?: boolean }) => string;
   }
@@ -71,4 +80,14 @@ export function waitForLegacyAuthRouter(timeoutMs = 5_000) {
     timeoutMs,
     'Roteamento legado de autenticacao'
   );
+}
+
+export async function waitForLegacySandbox(timeoutMs = 5_000) {
+  const [openTrainer, openStudent, resetSandbox] = await Promise.all([
+    waitForWindowFunction(() => window.openTrainerEvaluationDashboard, timeoutMs, 'Sandbox do treinador'),
+    waitForWindowFunction(() => window.openStudentEvaluationDashboard, timeoutMs, 'Sandbox do aluno'),
+    waitForWindowFunction(() => window.resetEvaluationSandbox, timeoutMs, 'Reset do sandbox')
+  ]);
+
+  return { openTrainer, openStudent, resetSandbox };
 }

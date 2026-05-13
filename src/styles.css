@@ -609,6 +609,121 @@
   grid-template-columns: 1fr 1fr;
 }
 
+.authx-test-options {
+  border: 1px solid var(--authx-border);
+  border-radius: 18px;
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  width: 100%;
+}
+
+.authx-test-options-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.authx-test-options-head span,
+.authx-test-options-head small {
+  font-weight: 850;
+}
+
+.authx-test-options-head span {
+  color: var(--authx-text);
+  font-size: 0.8rem;
+}
+
+.authx-test-options-head small {
+  color: var(--authx-muted);
+  font-size: 0.72rem;
+}
+
+.authx-test-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.authx-test-tile {
+  align-items: center;
+  aspect-ratio: 1 / 0.9;
+  background:
+    radial-gradient(circle at 50% 0, color-mix(in srgb, var(--authx-accent) 16%, transparent), transparent 50%),
+    rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--authx-border);
+  border-radius: 18px;
+  color: var(--authx-text);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  font: inherit;
+  justify-content: center;
+  min-height: 118px;
+  padding: 14px 10px;
+  text-align: center;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease,
+    background 180ms ease;
+  width: 100%;
+}
+
+.authx-test-tile:not(:disabled):hover {
+  border-color: var(--authx-border-strong);
+  box-shadow: 0 16px 36px var(--authx-glow);
+  transform: translateY(-2px);
+}
+
+.authx-test-tile:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.authx-test-tile:focus-visible {
+  box-shadow: 0 0 0 4px var(--authx-focus);
+  outline: none;
+}
+
+.authx-test-tile[data-tone="danger"] {
+  background:
+    radial-gradient(circle at 50% 0, color-mix(in srgb, #f97316 18%, transparent), transparent 50%),
+    rgba(255, 255, 255, 0.045);
+}
+
+.authx-test-tile[data-tone="danger"] .authx-test-tile-icon {
+  color: #ffb86b;
+}
+
+.authx-test-tile-icon {
+  align-items: center;
+  background: color-mix(in srgb, var(--authx-accent) 14%, transparent);
+  border: 1px solid var(--authx-border-strong);
+  border-radius: 16px;
+  color: var(--authx-accent);
+  display: inline-flex;
+  height: 48px;
+  justify-content: center;
+  margin-bottom: 12px;
+  width: 48px;
+}
+
+.authx-test-tile strong {
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+
+.authx-test-tile small {
+  color: var(--authx-muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.3;
+  margin-top: 4px;
+}
+
 .authx-card-footer {
   align-items: center;
   color: var(--authx-muted);
@@ -671,6 +786,16 @@
 
   .authx-secondary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .authx-test-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .authx-test-tile {
+    aspect-ratio: auto;
+    min-height: 118px;
+    width: 100%;
   }
 
   .authx-theme-toggle > span:last-child,

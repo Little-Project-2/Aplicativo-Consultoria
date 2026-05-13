@@ -14,10 +14,31 @@ import { BrandMark } from './components/BrandMark';
 import { Button } from './components/Button';
 import { RoleSelector } from './components/RoleSelector';
 import { ThemeToggle } from './components/ThemeToggle';
-import { ArrowLeftIcon, ArrowRightIcon, EyeIcon, GoogleIcon, LockIcon, MailIcon } from './components/icons';
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  CoachIcon,
+  EyeIcon,
+  GoogleIcon,
+  LockIcon,
+  MailIcon,
+  ResetIcon,
+  StudentIcon
+} from './components/icons';
 
 type LoginRole = 'trainer' | 'student';
-type LoadingAction = 'login' | 'google' | 'reset' | 'resend' | 'recovery' | 'signup' | null;
+type SandboxAction = 'trainer' | 'student' | 'reset';
+type LoadingAction =
+  | 'login'
+  | 'google'
+  | 'reset'
+  | 'resend'
+  | 'recovery'
+  | 'signup'
+  | 'sandbox-trainer'
+  | 'sandbox-student'
+  | 'sandbox-reset'
+  | null;
 
 type AuthExperienceProps = {
   externalFeedback: AuthFeedback | null;
@@ -48,6 +69,10 @@ function getPendingVerificationEmail() {
 
 function setPendingVerificationEmail(email: string) {
   window.localStorage.setItem('pendingVerificationEmail', email);
+}
+
+function isLocalSandboxHost() {
+  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 }
 
 function useThemeDocumentSync() {
@@ -304,6 +329,58 @@ export function AuthExperience({
     }
   };
 
+  const handleSandboxAction = async (action: SandboxAction) => {
+    showFeedback('', 'info');
+
+    if (!isLocalSandboxHost()) {
+      showFeedback('Sandbox disponivel apenas em localhost.', 'warning');
+      return;
+    }
+
+    if (!legacyReady) {
+      showFeedback('O sandbox ainda esta carregando. Tente novamente em alguns segundos.', 'warning');
+      return;
+    }
+
+    const loadingAction = `sandbox-${action}` as LoadingAction;
+    setLoading(loadingAction);
+
+    try {
+      if (action === 'trainer') {
+        if (typeof window.openTrainerEvaluationDashboard !== 'function') {
+          throw new Error('Sandbox do treinador ainda nao esta pronto.');
+        }
+        showFeedback('Abrindo Treinador Demo...', 'info');
+        await window.openTrainerEvaluationDashboard();
+        return;
+      }
+
+      if (action === 'student') {
+        if (typeof window.openStudentEvaluationDashboard !== 'function') {
+          throw new Error('Sandbox do aluno ainda nao esta pronto.');
+        }
+        showFeedback('Abrindo Aluno Demo...', 'info');
+        await window.openStudentEvaluationDashboard();
+        return;
+      }
+
+      if (typeof window.resetEvaluationSandbox !== 'function') {
+        throw new Error('Reset do sandbox ainda nao esta pronto.');
+      }
+      const result = await window.resetEvaluationSandbox();
+      const message =
+        result && typeof result === 'object' && 'message' in result && result.message
+          ? String(result.message)
+          : 'Sandbox restaurado com dados demo.';
+      const ok = !(result && typeof result === 'object' && result.ok === false);
+      showFeedback(message, ok ? 'success' : 'error');
+    } catch (error) {
+      showFeedback(error instanceof Error ? error.message : 'Nao foi possivel executar o sandbox.', 'error');
+    } finally {
+      setLoading(null);
+    }
+  };
+
   if (view === 'home') {
     return (
       <main className="authx-viewport" data-auth-view="home">
@@ -481,6 +558,54 @@ export function AuthExperience({
                   Reenviar verificacao
                 </Button>
               </div>
+
+              {isLocalSandboxHost() ? (
+                <section className="authx-test-options" aria-label="Sandbox de teste">
+                  <div className="authx-test-options-head">
+                    <span>Sandbox de teste</span>
+                    <small>Local sem Supabase</small>
+                  </div>
+                  <div className="authx-test-grid">
+                    <button
+                      className="authx-test-tile"
+                      disabled={!legacyReady || loading !== null}
+                      onClick={() => handleSandboxAction('trainer')}
+                      type="button"
+                    >
+                      <span className="authx-test-tile-icon">
+                        <CoachIcon />
+                      </span>
+                      <strong>Treinador Demo</strong>
+                      <small>Editar alunos</small>
+                    </button>
+                    <button
+                      className="authx-test-tile"
+                      disabled={!legacyReady || loading !== null}
+                      onClick={() => handleSandboxAction('student')}
+                      type="button"
+                    >
+                      <span className="authx-test-tile-icon">
+                        <StudentIcon />
+                      </span>
+                      <strong>Aluno Demo</strong>
+                      <small>Ver plano</small>
+                    </button>
+                    <button
+                      className="authx-test-tile"
+                      data-tone="danger"
+                      disabled={!legacyReady || loading !== null}
+                      onClick={() => handleSandboxAction('reset')}
+                      type="button"
+                    >
+                      <span className="authx-test-tile-icon">
+                        <ResetIcon />
+                      </span>
+                      <strong>Resetar Sandbox</strong>
+                      <small>Restaurar dados</small>
+                    </button>
+                  </div>
+                </section>
+              ) : null}
 
               <footer className="authx-card-footer">
                 <span>Nao tem uma conta?</span>
