@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+.playwright-cli/
 *.local
 
 # Editor directories and files
@@ -28,5 +29,3 @@ dist-ssr
 .vercel
 app-config.js
 public/app-config.js
-
-.vercel

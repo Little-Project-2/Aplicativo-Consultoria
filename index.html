@@ -23,13 +23,13 @@
     <meta name="twitter:description" content="Treinos e dietas de elite com acompanhamento próximo.">
     <meta name="twitter:image" content="https://aplicativo-consultoria.vercel.app/assets/icons/icon-512.png">
     <title>Consultoria Fitness – Treino e Dieta de Elite</title>
-    <link rel="manifest" href="manifest.json">
-    <link rel="icon" href="favicon.ico" type="image/x-icon">
-    <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
-    <link rel="preload" href="assets/vendor/phosphor/bold/Phosphor-Bold.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="assets/vendor/phosphor/fill/Phosphor-Fill.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="assets/vendor/phosphor/phosphor-local.css">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+    <link rel="preload" href="/assets/vendor/phosphor/bold/Phosphor-Bold.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/assets/vendor/phosphor/fill/Phosphor-Fill.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/assets/vendor/phosphor/phosphor-local.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -185,27 +185,9 @@
 </head>
 
 <body>
-    <div class="bg-glow-1"></div>
-    <div class="bg-glow-2"></div>
-    <div id="app">
-                <!-- SPA Containers -->
-        <div data-page="pages/home.html"></div>
-        <div data-page="pages/login.html"></div>
-        <div data-page="pages/profile-create.html"></div>
-        <div data-page="pages/profile-setup.html"></div>
-        <div data-page="pages/student-login.html"></div>
-        <div data-page="pages/student-confirm.html"></div>
-        <div data-page="pages/student-questionnaire.html"></div>
-        <div data-page="pages/student-dashboard.html"></div>
-        <div data-page="pages/student-workout.html"></div>
-        <div data-page="pages/student-diet.html"></div>
-
-        <!-- App Principal -->
-                <script src="app-config.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-        <script src="supabase.js"></script>
-        <script src="script.js"></script>
-        <script src="pwa-register.js"></script>
+    <div id="root"></div>
+    <script src="/app-config.js"></script>
+    <script type="module" src="/src/main.tsx"></script>
 </body>
 
 </html>

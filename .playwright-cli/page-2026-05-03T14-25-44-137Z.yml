@@ -1,8 +1,0 @@
-- main [ref=e2]:
-  - heading "Voce esta sem conexao" [level=1] [ref=e3]
-  - paragraph [ref=e4]: Sem internet no momento. Se voce ja abriu a plataforma antes, boa parte do app continua funcionando offline.
-  - generic [ref=e5]:
-    - link "Abrir area do aluno" [ref=e6] [cursor=pointer]:
-      - /url: ./index.html
-    - link "Abrir area do treinador" [ref=e7] [cursor=pointer]:
-      - /url: ./trainer.html

@@ -58,6 +58,27 @@
                     <span>OU</span>
                 </div>
 
+                <div class="evaluation-shortcuts trainer-evaluation-shortcuts" data-evaluation-shortcuts style="display:none;">
+                    <div class="evaluation-shortcuts-head">
+                        <span>Modo avaliação</span>
+                        <small>Entrar direto com dados demo locais</small>
+                    </div>
+                    <div class="evaluation-shortcuts-grid">
+                        <button class="evaluation-shortcut-btn" type="button" onclick="openTrainerEvaluationDashboard()">
+                            <i class="ph-bold ph-chart-line-up"></i>
+                            <span>Dashboard do Treinador</span>
+                        </button>
+                        <button class="evaluation-shortcut-btn" type="button" onclick="openStudentEvaluationDashboard()">
+                            <i class="ph-bold ph-user-focus"></i>
+                            <span>Dashboard do Aluno</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="divider">
+                    <span>LOGIN REAL</span>
+                </div>
+
                 <button class="btn-secondary" onclick="window.location.href='index.html'">Fazer login / cadastro</button>
                 <button class="btn-secondary" onclick="goToTrainerCreate()">Configurar consultoria</button>
             </div>
@@ -969,54 +990,158 @@
 
             <!-- ── TAB: PERFIL ─────────────────────────────────────── -->
             <div id="p-tab-perfil" class="p-tab-content">
-                <div class="info-grid">
-                    <div class="info-card ic-horizontal">
-                        <div class="ic-icon"><i class="ph-bold ph-calendar-blank"></i></div>
-                        <div class="ic-content"><span class="lbl">Idade</span><strong id="prof-idade">--
-                                anos</strong></div>
-                    </div>
-                    <div class="info-card ic-horizontal">
-                        <div class="ic-icon"><i class="ph-bold ph-scales"></i></div>
-                        <div class="ic-content"><span class="lbl">Peso</span><strong id="prof-peso">-- kg</strong>
+                <section class="student-profile-overview">
+                    <article class="student-profile-hero-card">
+                        <div class="student-profile-hero-main">
+                            <p class="profile-section-kicker">Visão geral do aluno</p>
+                            <h3 id="prof-overview-name">Aluno</h3>
+                            <p id="prof-overview-goal">Objetivo não informado.</p>
+                            <div id="prof-overview-badges" class="student-profile-badges"></div>
+                        </div>
+                        <div class="student-profile-hero-actions">
+                            <button type="button" class="btn-secondary btn-sm" onclick="switchProfileTab('anamnese')">
+                                <i class="ph-bold ph-clipboard-text"></i> Ver anamnese
+                            </button>
+                            <button type="button" class="btn-primary btn-sm" onclick="switchProfileTab('treino')">
+                                <i class="ph-bold ph-barbell"></i> Editar treino
+                            </button>
+                        </div>
+                    </article>
+
+                    <div class="info-grid profile-overview-metrics">
+                        <div class="info-card ic-horizontal">
+                            <div class="ic-icon"><i class="ph-bold ph-calendar-blank"></i></div>
+                            <div class="ic-content">
+                                <span class="lbl">Idade</span>
+                                <strong id="prof-idade">--</strong>
+                                <small id="prof-idade-hint">Nascimento não informado</small>
+                            </div>
+                        </div>
+                        <div class="info-card ic-horizontal">
+                            <div class="ic-icon"><i class="ph-bold ph-scales"></i></div>
+                            <div class="ic-content">
+                                <span class="lbl">Peso</span>
+                                <strong id="prof-peso">--</strong>
+                                <small id="prof-peso-delta">Sem histórico</small>
+                            </div>
+                        </div>
+                        <div class="info-card ic-horizontal">
+                            <div class="ic-icon"><i class="ph-bold ph-ruler"></i></div>
+                            <div class="ic-content">
+                                <span class="lbl">Altura</span>
+                                <strong id="prof-altura">--</strong>
+                                <small id="prof-imc">IMC não calculado</small>
+                            </div>
+                        </div>
+                        <div class="info-card ic-horizontal">
+                            <div class="ic-icon"><i class="ph-bold ph-gender-intersex"></i></div>
+                            <div class="ic-content">
+                                <span class="lbl">Gênero</span>
+                                <strong id="prof-genero">Não informado</strong>
+                                <small id="prof-bodyfat">Gordura não informada</small>
+                            </div>
+                        </div>
+                        <div class="info-card ic-horizontal">
+                            <div class="ic-icon text-success"><i class="ph-bold ph-fire"></i></div>
+                            <div class="ic-content">
+                                <span class="lbl">TMB</span>
+                                <strong class="text-success" id="prof-tmb">--</strong>
+                                <small>Base metabólica estimada</small>
+                            </div>
+                        </div>
+                        <div class="info-card ic-horizontal">
+                            <div class="ic-icon text-success"><i class="ph-bold ph-lightning"></i></div>
+                            <div class="ic-content">
+                                <span class="lbl">Meta calórica</span>
+                                <strong class="text-success" id="prof-gasto">--</strong>
+                                <small id="prof-gasto-hint">Sem meta definida</small>
+                            </div>
+                        </div>
+                        <div class="info-card ic-horizontal">
+                            <div class="ic-icon"><i class="ph-bold ph-person-simple-walk"></i></div>
+                            <div class="ic-content">
+                                <span class="lbl">Nível de atividade</span>
+                                <strong id="prof-atividade">Não informado</strong>
+                                <small id="prof-atividade-hint">Baseado na anamnese</small>
+                            </div>
+                        </div>
+                        <div class="info-card ic-horizontal">
+                            <div class="ic-icon"><i class="ph-bold ph-clock-countdown"></i></div>
+                            <div class="ic-content">
+                                <span class="lbl">Último treino</span>
+                                <strong id="prof-ultimo-treino">--</strong>
+                                <small id="prof-ultimo-treino-hint">Sem registros</small>
+                            </div>
                         </div>
                     </div>
-                    <div class="info-card ic-horizontal">
-                        <div class="ic-icon"><i class="ph-bold ph-ruler"></i></div>
-                        <div class="ic-content"><span class="lbl">Altura</span><strong id="prof-altura">--
-                                cm</strong></div>
+
+                    <div class="student-profile-overview-grid">
+                        <section class="student-profile-panel">
+                            <div class="student-profile-panel-head">
+                                <div>
+                                    <p class="profile-section-kicker">Evolução</p>
+                                    <h3>Medidas recentes</h3>
+                                </div>
+                                <button type="button" class="btn-secondary btn-sm" onclick="switchProfileTab('anamnese')">
+                                    Ver dados
+                                </button>
+                            </div>
+                            <div id="trainer-profile-progress-list" class="trainer-profile-progress-list"></div>
+                        </section>
+
+                        <section class="student-profile-panel">
+                            <div class="student-profile-panel-head">
+                                <div>
+                                    <p class="profile-section-kicker">Aderência</p>
+                                    <h3>Rotina e protocolo</h3>
+                                </div>
+                            </div>
+                            <div id="trainer-profile-adherence-grid" class="trainer-profile-adherence-grid"></div>
+                        </section>
+
+                        <section class="student-profile-panel">
+                            <div class="student-profile-panel-head">
+                                <div>
+                                    <p class="profile-section-kicker">Alertas</p>
+                                    <h3>Pontos de atenção</h3>
+                                </div>
+                            </div>
+                            <div id="trainer-profile-alerts-list" class="trainer-profile-alerts-list"></div>
+                        </section>
+
+                        <section class="student-profile-panel">
+                            <div class="student-profile-panel-head">
+                                <div>
+                                    <p class="profile-section-kicker">Notas</p>
+                                    <h3>Observações rápidas</h3>
+                                </div>
+                                <button type="button" class="btn-secondary btn-sm" onclick="switchProfileTab('config')">
+                                    Ajustar
+                                </button>
+                            </div>
+                            <div id="trainer-profile-notes-list" class="trainer-profile-notes-list"></div>
+                        </section>
                     </div>
-                    <div class="info-card ic-horizontal">
-                        <div class="ic-icon"><i class="ph-bold ph-gender-intersex"></i></div>
-                        <div class="ic-content"><span class="lbl">Gênero</span><strong id="prof-genero">Não
-                                Informado</strong></div>
-                    </div>
-                    <div class="info-card ic-horizontal">
-                        <div class="ic-icon text-success"><i class="ph-bold ph-fire"></i></div>
-                        <div class="ic-content"><span class="lbl">TMB</span><strong class="text-success"
-                                id="prof-tmb">-- kcal</strong></div>
-                    </div>
-                    <div class="info-card ic-horizontal">
-                        <div class="ic-icon text-success"><i class="ph-bold ph-lightning"></i></div>
-                        <div class="ic-content"><span class="lbl">Gasto Diário</span><strong class="text-success"
-                                id="prof-gasto">-- kcal</strong></div>
-                    </div>
-                </div>
-                <div class="info-card ic-horizontal" style="margin-top:1rem;">
-                    <div class="ic-icon"><i class="ph-bold ph-person-simple-walk"></i></div>
-                    <div class="ic-content"><span class="lbl">NÍVEL DE ATIVIDADE</span><strong
-                            id="prof-atividade">--</strong></div>
-                </div>
+                </section>
             </div>
 
             <!-- ── TAB: ANAMNESE ───────────────────────────────────── -->
             <div id="p-tab-anamnese" class="p-tab-content">
-                <div class="empty-state-card active" style="margin-top:0;border:none;">
-                    <i class="ph-fill ph-clipboard-text" style="color:var(--text-muted)"></i>
-                    <div class="empty-info">
-                        <h3>Respostas do Aluno</h3>
-                        <p>Os dados preenchidos no questionário aparecerão aqui.</p>
+                <section class="settings-card trainer-anamnesis-card">
+                    <div class="settings-card-header">
+                        <h2>Anamnese do Aluno</h2>
+                        <p class="subtitle">Visualização completa e organizada das respostas do questionário.</p>
                     </div>
-                </div>
+                    <div id="trainer-anamnesis-content" class="trainer-anamnesis-content">
+                        <div class="empty-state-card active" style="margin-top:0;border:none;">
+                            <i class="ph-fill ph-clipboard-text" style="color:var(--text-muted)"></i>
+                            <div class="empty-info">
+                                <h3>Respostas do Aluno</h3>
+                                <p>Os dados preenchidos no questionário aparecerão aqui.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
             </div>
 
             <!-- ── TAB: CONFIGURAÇÕES ─────────────────────────────── -->
@@ -1024,39 +1149,6 @@
                 <div class="settings-grid settings-grid-config">
                     <section class="settings-card settings-card-routine">
                         <div id="trainer-routine-plan-editor"></div>
-                    </section>
-
-                    <section class="settings-card settings-card-security">
-                        <div class="settings-card-header">
-                            <h2>Segurança da Conta</h2>
-                            <p class="subtitle">Senha global do treinador com validação em tempo real.</p>
-                        </div>
-                        <div class="settings-field">
-                            <label>Senha atual</label>
-                            <div class="settings-password-wrap">
-                                <input type="password" id="trainer-current-password" class="q-input" placeholder="Digite a senha atual">
-                                <button type="button" class="settings-eye-btn" onclick="togglePasswordVisibility('trainer-current-password', this)" aria-label="Mostrar senha"><i class="ph-bold ph-eye"></i></button>
-                            </div>
-                        </div>
-                        <div class="settings-field">
-                            <label>Nova senha</label>
-                            <div class="settings-password-wrap">
-                                <input type="password" id="trainer-new-password" class="q-input" placeholder="Mínimo 8 caracteres com letras e números" oninput="handleTrainerPasswordInputFeedback()">
-                                <button type="button" class="settings-eye-btn" onclick="togglePasswordVisibility('trainer-new-password', this)" aria-label="Mostrar senha"><i class="ph-bold ph-eye"></i></button>
-                            </div>
-                            <small id="trainer-password-hint" class="settings-field-hint">Use pelo menos 8 caracteres com letras e números.</small>
-                        </div>
-                        <div class="settings-field">
-                            <label>Confirmar nova senha</label>
-                            <div class="settings-password-wrap">
-                                <input type="password" id="trainer-confirm-password" class="q-input" placeholder="Repita a nova senha" oninput="handleTrainerPasswordInputFeedback()">
-                                <button type="button" class="settings-eye-btn" onclick="togglePasswordVisibility('trainer-confirm-password', this)" aria-label="Mostrar senha"><i class="ph-bold ph-eye"></i></button>
-                            </div>
-                        </div>
-                        <div class="settings-actions-row">
-                            <button class="btn-secondary btn-sm settings-local-btn" onclick="changeTrainerPassword()">Alterar senha</button>
-                        </div>
-                        <p id="trainer-password-feedback" class="settings-feedback" aria-live="polite"></p>
                     </section>
 
                     <section class="settings-card settings-card-billing">
@@ -1124,6 +1216,10 @@
                         <div class="settings-field">
                             <label>Histórico mensal</label>
                             <div id="student-billing-history-list" class="settings-history-list"></div>
+                        </div>
+                        <div class="settings-field">
+                            <label>Solicitações de pagamento do aluno</label>
+                            <div id="student-payment-requests-list" class="settings-payment-request-list"></div>
                         </div>
                     </section>
                 </div>

@@ -1,384 +1,529 @@
-﻿<div id="student-questionnaire-screen" class="screen">
-            <div class="q-tabs-container">
-                <button class="q-tab active" onclick="switchQTab('saude')" id="btn-tab-saude">
-                    <i class="ph-bold ph-heart"></i>
-                    <span>Saúde</span>
-                </button>
-                <button class="q-tab" onclick="switchQTab('nutricao')" id="btn-tab-nutricao">
-                    <i class="ph-bold ph-apple-logo"></i>
-                    <span>Nutrição</span>
-                </button>
-                <button class="q-tab" onclick="switchQTab('rotina')" id="btn-tab-rotina">
-                    <i class="ph-bold ph-moon"></i>
-                    <span>Rotina</span>
-                </button>
-                <button class="q-tab" onclick="switchQTab('treino')" id="btn-tab-treino">
-                    <i class="ph-bold ph-barbell"></i>
-                    <span>Treino</span>
-                </button>
-                <button class="q-tab" onclick="switchQTab('metas')" id="btn-tab-metas">
-                    <i class="ph-bold ph-target"></i>
-                    <span>Metas</span>
-                </button>
-            </div>
-
-            <div class="q-content-container">
-                <form id="questionnaire-form" onsubmit="event.preventDefault(); submitQuestionnaire();">
-
-                    <!-- TAB: SAÚDE -->
-                    <div id="q-tab-saude" class="q-tab-content active">
-                        <div class="q-header-title">
-                            <i class="ph-fill ph-heartbeat"></i>
-                            <h3>Saúde & Perfil Basal</h3>
-                        </div>
-
-                        <div class="q-field">
-                            <label>NOME COMPLETO</label>
-                            <input type="text" id="q_nome" class="q-input" placeholder="Ex: João Silva"
-                                autocomplete="off" required style="text-transform: capitalize;">
-                        </div>
-
-                        <div class="q-grid-2cols">
-                            <div class="q-field" style="margin-bottom: 0;">
-                                <label>IDADE</label>
-                                <input type="number" id="q_idade" class="q-input" placeholder="Ex: 25"
-                                    autocomplete="off" required>
-                            </div>
-                            <div class="q-field" style="margin-bottom: 0;">
-                                <label>GÊNERO</label>
-                                <select id="q_genero" class="q-input" required>
-                                    <option value="" disabled selected>Selecione</option>
-                                    <option value="M">Masculino</option>
-                                    <option value="F">Feminino</option>
-                                </select>
-                            </div>
-                            <div class="q-field" style="margin-bottom: 0;">
-                                <label>PESO (KG)</label>
-                                <input type="number" step="0.1" id="q_peso" class="q-input" placeholder="Ex: 70.5"
-                                    autocomplete="off" required>
-                            </div>
-                            <div class="q-field" style="margin-bottom: 0;">
-                                <label>ALTURA (CM)</label>
-                                <input type="number" id="q_altura" class="q-input" placeholder="Ex: 175"
-                                    autocomplete="off" required>
-                            </div>
-                        </div>
-
-
-                        <div class="q-field">
-                            <label>DOR EM ARTICULAÇÕES AO FAZER ESFORÇO?</label>
-                            <div class="segmented-control">
-                                <label class="segment-opt"><input type="radio" name="q_dor" value="sim"
-                                        onchange="toggleConditional('cond-dor', true)"><span>Sim</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_dor" value="nao" checked
-                                        onchange="toggleConditional('cond-dor', false)"><span>Não</span></label>
-                            </div>
-                            <div class="conditional-input" id="cond-dor">
-                                <input type="text" id="q_dor_desc" class="q-input"
-                                    placeholder="Quais articulações? (joelho, ombro, coluna...)" autocomplete="off">
-                            </div>
-                        </div>
-
-                        <div class="q-field">
-                            <label>CONDIÇÕES MÉDICAS</label>
-                            <div class="pill-group">
-                                <label class="pill"><input type="checkbox" name="q_cond"
-                                        value="diabetes"><span>Diabetes</span></label>
-                                <label class="pill"><input type="checkbox" name="q_cond"
-                                        value="hipertensao"><span>Hipertensão</span></label>
-                                <label class="pill"><input type="checkbox" name="q_cond" value="sopro"><span>Sopro
-                                        cardíaco</span></label>
-                                <label class="pill"><input type="checkbox" name="q_cond"
-                                        value="asma"><span>Asma</span></label>
-                                <label class="pill"><input type="checkbox" name="q_cond"
-                                        value="artrite"><span>Artrite</span></label>
-                                <label class="pill"><input type="checkbox" name="q_cond" value="hernia"><span>Hérnia de
-                                        disco</span></label>
-                            </div>
-                        </div>
-
-                        <div class="q-field">
-                            <label>USO DE MEDICAMENTOS CONTÍNUOS?</label>
-                            <div class="segmented-control">
-                                <label class="segment-opt"><input type="radio" name="q_med" value="sim"
-                                        onchange="toggleConditional('cond-med', true)"><span>Sim</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_med" value="nao" checked
-                                        onchange="toggleConditional('cond-med', false)"><span>Não</span></label>
-                            </div>
-                            <div class="conditional-input" id="cond-med">
-                                <input type="text" id="q_med_desc" class="q-input" placeholder="Quais medicamentos?" autocomplete="off">
-                            </div>
-                        </div>
-
-                        <div class="q-field">
-                            <label>JÁ PASSOU POR CIRURGIA?</label>
-                            <div class="segmented-control">
-                                <label class="segment-opt"><input type="radio" name="q_cirurgia" value="sim"
-                                        onchange="toggleConditional('cond-cirurgia', true)"><span>Sim</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_cirurgia" value="nao" checked
-                                        onchange="toggleConditional('cond-cirurgia', false)"><span>Não</span></label>
-                            </div>
-                            <div class="conditional-input" id="cond-cirurgia">
-                                <input type="text" id="q_cirurgia_desc" class="q-input" placeholder="Qual cirurgia e há quanto tempo?"
-                                    autocomplete="off">
-                            </div>
-                        </div>
-
-                        <div class="q-actions right">
-                            <button type="button" class="btn-primary q-btn-next"
-                                onclick="switchQTab('nutricao')">Proximo <i class="ph-bold ph-caret-right"></i></button>
-                        </div>
-                    </div>
-
-                    <!-- TAB: NUTRIÇÃO -->
-                    <div id="q-tab-nutricao" class="q-tab-content">
-                        <div class="q-header-title">
-                            <i class="ph-fill ph-apple-logo"></i>
-                            <h3>Nutrição</h3>
-                        </div>
-
-                        <div class="q-field">
-                            <label>RESTRIÇÕES ALIMENTARES</label>
-                            <div class="pill-group">
-                                <label class="pill"><input type="checkbox" name="q_restr"
-                                        value="lactose"><span>Lactose</span></label>
-                                <label class="pill"><input type="checkbox" name="q_restr"
-                                        value="gluten"><span>Glúten</span></label>
-                                <label class="pill"><input type="checkbox" name="q_restr"
-                                        value="amendoim"><span>Amendoim</span></label>
-                                <label class="pill"><input type="checkbox" name="q_restr"
-                                        value="frutos_mar"><span>Frutos do mar</span></label>
-                                <label class="pill"><input type="checkbox" name="q_restr"
-                                        value="ovo"><span>Ovo</span></label>
-                                <label class="pill"><input type="checkbox" name="q_restr"
-                                        value="soja"><span>Soja</span></label>
-                            </div>
-                        </div>
-
-                        <div class="q-field">
-                            <label>ALIMENTOS QUE NÃO COME DE JEITO NENHUM</label>
-                            <input type="text" id="q_nao_come" class="q-input" placeholder="Ex: brócolis, fígado..." autocomplete="off">
-                        </div>
-
-                        <div class="q-field">
-                            <label>INTESTINO FUNCIONA REGULARMENTE?</label>
-                            <div class="segmented-control">
-                                <label class="segment-opt"><input type="radio" name="q_intestino" value="sim"
-                                        checked><span>Sim</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_intestino"
-                                        value="nao"><span>Não</span></label>
-                            </div>
-                        </div>
-
-                        <div class="q-field">
-                            <label>QUANTAS REFEIÇÕES POR DIA (REALISTA)?</label>
-                            <div class="pill-group">
-                                <label class="pill circle"><input type="radio" name="q_refeicoes"
-                                        value="2"><span>2</span></label>
-                                <label class="pill circle"><input type="radio" name="q_refeicoes"
-                                        value="3"><span>3</span></label>
-                                <label class="pill circle"><input type="radio" name="q_refeicoes" value="4"
-                                        checked><span>4</span></label>
-                                <label class="pill circle"><input type="radio" name="q_refeicoes"
-                                        value="5"><span>5</span></label>
-                                <label class="pill circle"><input type="radio" name="q_refeicoes"
-                                        value="6"><span>6</span></label>
-                            </div>
-                        </div>
-
-                        <div class="q-actions between">
-                            <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('saude')"><i
-                                    class="ph-bold ph-caret-left"></i> Anterior</button>
-                            <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('rotina')">Proximo
-                                <i class="ph-bold ph-caret-right"></i></button>
-                        </div>
-                    </div>
-
-                    <!-- TAB: ROTINA -->
-                    <div id="q-tab-rotina" class="q-tab-content">
-                        <div class="q-header-title">
-                            <i class="ph-fill ph-moon"></i>
-                            <h3>Rotina</h3>
-                        </div>
-
-                        <div class="q-field">
-                            <label>HORAS DE SONO POR NOITE</label>
-                            <div class="slider-container">
-                                <input type="range" id="q_sono" class="q-slider" min="4" max="12" value="7"
-                                    oninput="document.getElementById('val-sono').innerText = this.value + 'h'">
-                                <span class="slider-val" id="val-sono">7h</span>
-                            </div>
-                        </div>
-
-                        <div class="q-field">
-                            <label>ACORDA DESCANSADO?</label>
-                            <div class="segmented-control">
-                                <label class="segment-opt"><input type="radio" name="q_descansado" value="sim"
-                                        checked><span>Sim</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_descansado"
-                                        value="nao"><span>Não</span></label>
-                            </div>
-                        </div>
-
-                        <div class="q-field">
-                            <label>NÍVEL DE ESTRESSE (1-10)</label>
-                            <div class="slider-container">
-                                <input type="range" id="q_estresse" class="q-slider" min="1" max="10" value="5"
-                                    oninput="document.getElementById('val-estresse').innerText = this.value">
-                                <span class="slider-val" id="val-estresse">5</span>
-                            </div>
-                        </div>
-
-                        <div class="q-field">
-                            <label>TABAGISMO</label>
-                            <div class="segmented-control">
-                                <label class="segment-opt"><input type="radio" name="q_fumo" value="nao"
-                                        checked><span>Não fuma</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_fumo"
-                                        value="ocasional"><span>Ocasional</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_fumo"
-                                        value="diario"><span>Diario</span></label>
-                            </div>
-                        </div>
-
-                        <div class="q-field">
-                            <label>CONSUMO DE ÁLCOOL</label>
-                            <div class="segmented-control">
-                                <label class="segment-opt"><input type="radio" name="q_alcool" value="nao"
-                                        checked><span>Não bebe</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_alcool" value="fds"><span>Fim de
-                                        semana</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_alcool"
-                                        value="diario"><span>Diario</span></label>
-                            </div>
-                        </div>
-
-                        <div class="q-field">
-                            <label>ESTILO DE TRABALHO</label>
-                            <div class="segmented-control">
-                                <label class="segment-opt"><input type="radio" name="q_trab" value="sentado"
-                                        checked><span>Sentado</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_trab" value="em_pe"><span>Em
-                                        pe</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_trab"
-                                        value="movimento"><span>
-                                        Movimento</span></label>
-                            </div>
-                        </div>
-
-                        <div class="q-actions between">
-                            <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('nutricao')"><i
-                                    class="ph-bold ph-caret-left"></i> Anterior</button>
-                            <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('treino')">Proximo
-                                <i class="ph-bold ph-caret-right"></i></button>
-                        </div>
-                    </div>
-
-                    <!-- TAB: TREINO -->
-                    <div id="q-tab-treino" class="q-tab-content">
-                        <div class="q-header-title">
-                            <i class="ph-fill ph-barbell"></i>
-                            <h3>Treino</h3>
-                        </div>
-
-                        <div class="q-field">
-                            <label>TEMPO DE PRATICA DE MUSCULACAO</label>
-                            <input type="text" id="q_tempo_pratica" class="q-input" placeholder="Ex: 2 anos, 6 meses, iniciante..."
-                                autocomplete="off">
-                        </div>
-
-                        <div class="q-field">
-                            <label>EXERCÍCIOS QUE AMA FAZER</label>
-                            <input type="text" id="q_exercicios_ama" class="q-input" placeholder="Ex: Supino, Agachamento..."
-                                autocomplete="off">
-                        </div>
-
-                        <div class="q-field">
-                            <label>EXERCÍCIOS QUE DETESTA</label>
-                            <input type="text" id="q_exercicios_detesta" class="q-input" placeholder="Ex: Leg Press, Abdominal..."
-                                autocomplete="off">
-                        </div>
-
-                        <div class="q-field">
-                            <label>DIAS DISPONÍVEIS PARA TREINAR</label>
-                            <div class="pill-group">
-                                <label class="pill"><input type="checkbox" name="q_dias" value="seg"
-                                        checked><span>Segunda</span></label>
-                                <label class="pill"><input type="checkbox" name="q_dias"
-                                        value="ter"><span>Terça</span></label>
-                                <label class="pill"><input type="checkbox" name="q_dias" value="qua"
-                                        checked><span>Quarta</span></label>
-                                <label class="pill"><input type="checkbox" name="q_dias"
-                                        value="qui"><span>Quinta</span></label>
-                                <label class="pill"><input type="checkbox" name="q_dias" value="sex"
-                                        checked><span>Sexta</span></label>
-                                <label class="pill"><input type="checkbox" name="q_dias"
-                                        value="sab"><span>Sábado</span></label>
-                                <label class="pill"><input type="checkbox" name="q_dias"
-                                        value="dom"><span>Domingo</span></label>
-                            </div>
-                        </div>
-
-                        <div class="q-field">
-                            <label>DURAÇÃO DA SESSÃO (MINUTOS)</label>
-                            <div class="segmented-control">
-                                <label class="segment-opt"><input type="radio" name="q_duracao"
-                                        value="30"><span>30'</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_duracao"
-                                        value="45"><span>45'</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_duracao" value="60"
-                                        checked><span>60'</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_duracao"
-                                        value="75"><span>75'</span></label>
-                                <label class="segment-opt"><input type="radio" name="q_duracao"
-                                        value="90"><span>90'</span></label>
-                            </div>
-                        </div>
-
-                        <div class="q-actions between">
-                            <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('rotina')"><i
-                                    class="ph-bold ph-caret-left"></i> Anterior</button>
-                            <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('metas')">Proximo
-                                <i class="ph-bold ph-caret-right"></i></button>
-                        </div>
-                    </div>
-
-                    <!-- TAB: METAS -->
-                    <div id="q-tab-metas" class="q-tab-content">
-                        <div class="q-header-title">
-                            <i class="ph-fill ph-target"></i>
-                            <h3>Metas</h3>
-                        </div>
-
-                        <div class="q-field">
-                            <label>O QUE MAIS TE INCOMODA NO CORPO HOJE?</label>
-                            <textarea id="q_incomoda" class="q-input" rows="2"
-                                placeholder="Ex: barriga, braços finos, postura..."></textarea>
-                        </div>
-
-                        <div class="q-field">
-                            <label>QUAL SEU OBJETIVO EM 3 MESES?</label>
-                            <textarea class="q-input" id="q_objetivo" rows="2"
-                                placeholder="Ex: perder 5kg, ganhar massa, definir..."></textarea>
-                        </div>
-
-                        <div class="q-field">
-                            <label>JÁ FEZ CONSULTORIA ANTES? O QUE GOSTOU/ODIOU?</label>
-                            <textarea id="q_consultoria_antes" class="q-input" rows="2"
-                                placeholder="Ex: Sim, mas o treinador nunca mudava o treino..."></textarea>
-                        </div>
-
-                        <div class="q-actions between">
-                            <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('treino')"><i
-                                    class="ph-bold ph-caret-left"></i> Anterior</button>
-                            <div style="display: flex; gap: 1rem;">
-                                <button type="button" class="btn-secondary"><i class="ph-bold ph-copy"></i>
-                                    Copiar</button>
-                                <button type="submit" class="btn-primary" style="width: auto; padding: 1rem 2rem;"><i
-                                        class="ph-bold ph-floppy-disk"></i> Salvar</button>
-                            </div>
-                        </div>
-                    </div>
-                </form>
-            </div>
+<div id="student-questionnaire-screen" class="screen">
+    <div class="q-hero">
+        <div>
+            <span class="q-step-label" id="q-step-label">Etapa 1 de 5</span>
+            <h2>Anamnese inicial</h2>
+            <p>Base para montar seu treino, dieta e acompanhamento.</p>
         </div>
+        <span class="q-progress-badge" id="q-progress-count">20%</span>
+    </div>
+
+    <div class="q-progress-track" aria-hidden="true">
+        <span id="q-progress-fill" style="width: 20%;"></span>
+    </div>
+
+    <div class="q-tabs-container" role="tablist" aria-label="Etapas da anamnese">
+        <button class="q-tab active" type="button" onclick="switchQTab('saude')" id="btn-tab-saude" role="tab"
+            aria-controls="q-tab-saude" aria-selected="true">
+            <i class="ph-bold ph-heart"></i>
+            <span>Saúde</span>
+        </button>
+        <button class="q-tab" type="button" onclick="switchQTab('nutricao')" id="btn-tab-nutricao" role="tab"
+            aria-controls="q-tab-nutricao" aria-selected="false">
+            <i class="ph-bold ph-apple-logo"></i>
+            <span>Nutrição</span>
+        </button>
+        <button class="q-tab" type="button" onclick="switchQTab('rotina')" id="btn-tab-rotina" role="tab"
+            aria-controls="q-tab-rotina" aria-selected="false">
+            <i class="ph-bold ph-moon"></i>
+            <span>Rotina</span>
+        </button>
+        <button class="q-tab" type="button" onclick="switchQTab('treino')" id="btn-tab-treino" role="tab"
+            aria-controls="q-tab-treino" aria-selected="false">
+            <i class="ph-bold ph-barbell"></i>
+            <span>Treino</span>
+        </button>
+        <button class="q-tab" type="button" onclick="switchQTab('metas')" id="btn-tab-metas" role="tab"
+            aria-controls="q-tab-metas" aria-selected="false">
+            <i class="ph-bold ph-target"></i>
+            <span>Metas</span>
+        </button>
+    </div>
+
+    <div class="q-content-container">
+        <form id="questionnaire-form" onsubmit="event.preventDefault(); submitQuestionnaire();" novalidate>
+
+            <!-- TAB: SAÚDE -->
+            <div id="q-tab-saude" class="q-tab-content active" role="tabpanel" aria-labelledby="btn-tab-saude">
+                <div class="q-header-title">
+                    <i class="ph-fill ph-heartbeat"></i>
+                    <div>
+                        <h3>Saúde & perfil basal</h3>
+                        <small>Os dados básicos ficam no começo para liberar o restante por toque.</small>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label for="q_nome">Nome completo</label>
+                    <input type="text" id="q_nome" class="q-input" placeholder="Ex: João Silva" autocomplete="name"
+                        style="text-transform: capitalize;">
+                </div>
+
+                <div class="q-grid-2cols">
+                    <div class="q-field compact">
+                        <label for="q_idade">Idade</label>
+                        <input type="number" id="q_idade" class="q-input" placeholder="25" inputmode="numeric" min="10"
+                            max="100" autocomplete="off">
+                    </div>
+                    <div class="q-field compact">
+                        <label for="q_genero">Gênero</label>
+                        <select id="q_genero" class="q-input">
+                            <option value="" disabled selected>Selecione</option>
+                            <option value="M">Masculino</option>
+                            <option value="F">Feminino</option>
+                        </select>
+                    </div>
+                    <div class="q-field compact">
+                        <label for="q_peso">Peso (kg)</label>
+                        <input type="number" step="0.1" id="q_peso" class="q-input" placeholder="70.5"
+                            inputmode="decimal" min="20" max="350" autocomplete="off">
+                    </div>
+                    <div class="q-field compact">
+                        <label for="q_altura">Altura (cm)</label>
+                        <input type="number" id="q_altura" class="q-input" placeholder="175" inputmode="numeric"
+                            min="100" max="250" autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label>Dor em articulações ao fazer esforço?</label>
+                    <div class="segmented-control">
+                        <label class="segment-opt"><input type="radio" name="q_dor" value="sim"
+                                onchange="toggleConditional('cond-dor', true)"><span>Sim</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_dor" value="nao" checked
+                                onchange="toggleConditional('cond-dor', false)"><span>Não</span></label>
+                    </div>
+                    <div class="conditional-input" id="cond-dor">
+                        <div class="q-preset-row">
+                            <button type="button" class="q-preset"
+                                onclick="appendQuestionnairePreset('q_dor_desc', 'Joelho')">Joelho</button>
+                            <button type="button" class="q-preset"
+                                onclick="appendQuestionnairePreset('q_dor_desc', 'Ombro')">Ombro</button>
+                            <button type="button" class="q-preset"
+                                onclick="appendQuestionnairePreset('q_dor_desc', 'Coluna')">Coluna</button>
+                            <button type="button" class="q-preset"
+                                onclick="appendQuestionnairePreset('q_dor_desc', 'Punho')">Punho</button>
+                        </div>
+                        <input type="text" id="q_dor_desc" class="q-input q-compact-free-text"
+                            placeholder="Detalhe se precisar" autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <div class="q-label-row">
+                        <label>Condições médicas</label>
+                        <button type="button" class="q-inline-clear" onclick="clearQuestionnaireChecks('q_cond')">
+                            Nenhuma
+                        </button>
+                    </div>
+                    <div class="pill-group">
+                        <label class="pill"><input type="checkbox" name="q_cond"
+                                value="diabetes"><span>Diabetes</span></label>
+                        <label class="pill"><input type="checkbox" name="q_cond"
+                                value="hipertensao"><span>Hipertensão</span></label>
+                        <label class="pill"><input type="checkbox" name="q_cond" value="sopro"><span>Sopro
+                                cardíaco</span></label>
+                        <label class="pill"><input type="checkbox" name="q_cond"
+                                value="asma"><span>Asma</span></label>
+                        <label class="pill"><input type="checkbox" name="q_cond"
+                                value="artrite"><span>Artrite</span></label>
+                        <label class="pill"><input type="checkbox" name="q_cond" value="hernia"><span>Hérnia de
+                                disco</span></label>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label>Uso de medicamentos contínuos?</label>
+                    <div class="segmented-control">
+                        <label class="segment-opt"><input type="radio" name="q_med" value="sim"
+                                onchange="toggleConditional('cond-med', true)"><span>Sim</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_med" value="nao" checked
+                                onchange="toggleConditional('cond-med', false)"><span>Não</span></label>
+                    </div>
+                    <div class="conditional-input" id="cond-med">
+                        <input type="text" id="q_med_desc" class="q-input" placeholder="Quais medicamentos?"
+                            autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label>Já passou por cirurgia?</label>
+                    <div class="segmented-control">
+                        <label class="segment-opt"><input type="radio" name="q_cirurgia" value="sim"
+                                onchange="toggleConditional('cond-cirurgia', true)"><span>Sim</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_cirurgia" value="nao" checked
+                                onchange="toggleConditional('cond-cirurgia', false)"><span>Não</span></label>
+                    </div>
+                    <div class="conditional-input" id="cond-cirurgia">
+                        <input type="text" id="q_cirurgia_desc" class="q-input"
+                            placeholder="Qual cirurgia e há quanto tempo?" autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="q-actions right">
+                    <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('nutricao')">Próximo <i
+                            class="ph-bold ph-caret-right"></i></button>
+                </div>
+            </div>
+
+            <!-- TAB: NUTRIÇÃO -->
+            <div id="q-tab-nutricao" class="q-tab-content" role="tabpanel" aria-labelledby="btn-tab-nutricao">
+                <div class="q-header-title">
+                    <i class="ph-fill ph-apple-logo"></i>
+                    <div>
+                        <h3>Nutrição</h3>
+                        <small>Preferências e limites para a dieta começar mais realista.</small>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <div class="q-label-row">
+                        <label>Restrições alimentares</label>
+                        <button type="button" class="q-inline-clear" onclick="clearQuestionnaireChecks('q_restr')">
+                            Nenhuma
+                        </button>
+                    </div>
+                    <div class="pill-group">
+                        <label class="pill"><input type="checkbox" name="q_restr"
+                                value="lactose"><span>Lactose</span></label>
+                        <label class="pill"><input type="checkbox" name="q_restr"
+                                value="gluten"><span>Glúten</span></label>
+                        <label class="pill"><input type="checkbox" name="q_restr"
+                                value="amendoim"><span>Amendoim</span></label>
+                        <label class="pill"><input type="checkbox" name="q_restr"
+                                value="frutos_mar"><span>Frutos do mar</span></label>
+                        <label class="pill"><input type="checkbox" name="q_restr"
+                                value="ovo"><span>Ovo</span></label>
+                        <label class="pill"><input type="checkbox" name="q_restr"
+                                value="soja"><span>Soja</span></label>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label for="q_nao_come">Alimentos que não come de jeito nenhum</label>
+                    <div class="q-preset-row">
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_nao_come', 'Fígado')">Fígado</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_nao_come', 'Peixe')">Peixe</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_nao_come', 'Ovo')">Ovo</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_nao_come', 'Leite')">Leite</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_nao_come', 'Verduras')">Verduras</button>
+                    </div>
+                    <input type="text" id="q_nao_come" class="q-input q-compact-free-text"
+                        placeholder="Outro alimento" autocomplete="off">
+                </div>
+
+                <div class="q-field">
+                    <label>Intestino funciona regularmente?</label>
+                    <div class="segmented-control">
+                        <label class="segment-opt"><input type="radio" name="q_intestino" value="sim"
+                                checked><span>Sim</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_intestino"
+                                value="nao"><span>Não</span></label>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label>Quantas refeições por dia são realistas?</label>
+                    <div class="pill-group meal-count">
+                        <label class="pill circle"><input type="radio" name="q_refeicoes"
+                                value="2"><span>2</span></label>
+                        <label class="pill circle"><input type="radio" name="q_refeicoes"
+                                value="3"><span>3</span></label>
+                        <label class="pill circle"><input type="radio" name="q_refeicoes" value="4"
+                                checked><span>4</span></label>
+                        <label class="pill circle"><input type="radio" name="q_refeicoes"
+                                value="5"><span>5</span></label>
+                        <label class="pill circle"><input type="radio" name="q_refeicoes"
+                                value="6"><span>6</span></label>
+                    </div>
+                </div>
+
+                <div class="q-actions between">
+                    <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('saude')"><i
+                            class="ph-bold ph-caret-left"></i> Anterior</button>
+                    <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('rotina')">Próximo
+                        <i class="ph-bold ph-caret-right"></i></button>
+                </div>
+            </div>
+
+            <!-- TAB: ROTINA -->
+            <div id="q-tab-rotina" class="q-tab-content" role="tabpanel" aria-labelledby="btn-tab-rotina">
+                <div class="q-header-title">
+                    <i class="ph-fill ph-moon"></i>
+                    <div>
+                        <h3>Rotina</h3>
+                        <small>Sono, estresse e contexto do dia a dia.</small>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label for="q_sono">Horas de sono por noite</label>
+                    <div class="slider-container">
+                        <input type="range" id="q_sono" class="q-slider" min="4" max="12" value="7"
+                            oninput="document.getElementById('val-sono').innerText = this.value + 'h'">
+                        <span class="slider-val" id="val-sono">7h</span>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label>Acorda descansado?</label>
+                    <div class="segmented-control">
+                        <label class="segment-opt"><input type="radio" name="q_descansado" value="sim"
+                                checked><span>Sim</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_descansado"
+                                value="nao"><span>Não</span></label>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label for="q_estresse">Nível de estresse</label>
+                    <div class="slider-container stress-slider">
+                        <span class="q-slider-edge">1</span>
+                        <input type="range" id="q_estresse" class="q-slider" min="1" max="10" value="5"
+                            oninput="document.getElementById('val-estresse').innerText = this.value">
+                        <span class="q-slider-edge">10</span>
+                        <span class="slider-val" id="val-estresse">5</span>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label>Tabagismo</label>
+                    <div class="segmented-control">
+                        <label class="segment-opt"><input type="radio" name="q_fumo" value="nao"
+                                checked><span>Não fuma</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_fumo"
+                                value="ocasional"><span>Ocasional</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_fumo"
+                                value="diario"><span>Diário</span></label>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label>Consumo de álcool</label>
+                    <div class="segmented-control">
+                        <label class="segment-opt"><input type="radio" name="q_alcool" value="nao"
+                                checked><span>Não bebe</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_alcool" value="fds"><span>Fim de
+                                semana</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_alcool"
+                                value="diario"><span>Diário</span></label>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label>Estilo de trabalho</label>
+                    <div class="segmented-control">
+                        <label class="segment-opt"><input type="radio" name="q_trab" value="sentado"
+                                checked><span>Sentado</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_trab" value="em_pe"><span>Em
+                                pé</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_trab"
+                                value="movimento"><span>Movimento</span></label>
+                    </div>
+                </div>
+
+                <div class="q-actions between">
+                    <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('nutricao')"><i
+                            class="ph-bold ph-caret-left"></i> Anterior</button>
+                    <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('treino')">Próximo
+                        <i class="ph-bold ph-caret-right"></i></button>
+                </div>
+            </div>
+
+            <!-- TAB: TREINO -->
+            <div id="q-tab-treino" class="q-tab-content" role="tabpanel" aria-labelledby="btn-tab-treino">
+                <div class="q-header-title">
+                    <i class="ph-fill ph-barbell"></i>
+                    <div>
+                        <h3>Treino</h3>
+                        <small>Experiência, preferências e agenda disponível.</small>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label for="q_tempo_pratica">Tempo de prática de musculação</label>
+                    <div class="q-preset-row">
+                        <button type="button" class="q-preset"
+                            onclick="setQuestionnairePreset('q_tempo_pratica', 'Nunca treinei')">Nunca</button>
+                        <button type="button" class="q-preset"
+                            onclick="setQuestionnairePreset('q_tempo_pratica', 'Menos de 6 meses')">&lt; 6
+                            meses</button>
+                        <button type="button" class="q-preset"
+                            onclick="setQuestionnairePreset('q_tempo_pratica', '6 a 12 meses')">6-12 meses</button>
+                        <button type="button" class="q-preset"
+                            onclick="setQuestionnairePreset('q_tempo_pratica', '1 a 2 anos')">1-2 anos</button>
+                        <button type="button" class="q-preset"
+                            onclick="setQuestionnairePreset('q_tempo_pratica', 'Mais de 2 anos')">+2 anos</button>
+                    </div>
+                    <input type="text" id="q_tempo_pratica" class="q-input q-compact-free-text"
+                        placeholder="Ou descreva seu histórico" autocomplete="off">
+                </div>
+
+                <div class="q-field">
+                    <label for="q_exercicios_ama">Exercícios que ama fazer</label>
+                    <div class="q-preset-row">
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_exercicios_ama', 'Supino')">Supino</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_exercicios_ama', 'Agachamento')">Agachamento</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_exercicios_ama', 'Puxada')">Puxada</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_exercicios_ama', 'Remada')">Remada</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_exercicios_ama', 'Cardio')">Cardio</button>
+                    </div>
+                    <input type="text" id="q_exercicios_ama" class="q-input q-compact-free-text"
+                        placeholder="Outro exercício" autocomplete="off">
+                </div>
+
+                <div class="q-field">
+                    <label for="q_exercicios_detesta">Exercícios que detesta</label>
+                    <div class="q-preset-row">
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_exercicios_detesta', 'Leg press')">Leg
+                            press</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_exercicios_detesta', 'Abdominal')">Abdominal</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_exercicios_detesta', 'Esteira')">Esteira</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_exercicios_detesta', 'Afundo')">Afundo</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_exercicios_detesta', 'Nenhum')">Nenhum</button>
+                    </div>
+                    <input type="text" id="q_exercicios_detesta" class="q-input q-compact-free-text"
+                        placeholder="Outro exercício" autocomplete="off">
+                </div>
+
+                <div class="q-field">
+                    <div class="q-label-row">
+                        <label>Dias disponíveis para treinar</label>
+                        <button type="button" class="q-inline-clear"
+                            onclick="setQuestionnaireCheckboxValues('q_dias', ['seg','ter','qua','qui','sex'])">
+                            Dias úteis
+                        </button>
+                    </div>
+                    <div class="pill-group day-picker">
+                        <label class="pill"><input type="checkbox" name="q_dias" value="seg"
+                                checked><span>Seg</span></label>
+                        <label class="pill"><input type="checkbox" name="q_dias" value="ter"><span>Ter</span></label>
+                        <label class="pill"><input type="checkbox" name="q_dias" value="qua"
+                                checked><span>Qua</span></label>
+                        <label class="pill"><input type="checkbox" name="q_dias" value="qui"><span>Qui</span></label>
+                        <label class="pill"><input type="checkbox" name="q_dias" value="sex"
+                                checked><span>Sex</span></label>
+                        <label class="pill"><input type="checkbox" name="q_dias" value="sab"><span>Sáb</span></label>
+                        <label class="pill"><input type="checkbox" name="q_dias" value="dom"><span>Dom</span></label>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label>Duração da sessão</label>
+                    <div class="segmented-control session-duration">
+                        <label class="segment-opt"><input type="radio" name="q_duracao"
+                                value="30"><span>30 min</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_duracao"
+                                value="45"><span>45 min</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_duracao" value="60"
+                                checked><span>60 min</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_duracao"
+                                value="75"><span>75 min</span></label>
+                        <label class="segment-opt"><input type="radio" name="q_duracao"
+                                value="90"><span>90 min</span></label>
+                    </div>
+                </div>
+
+                <div class="q-actions between">
+                    <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('rotina')"><i
+                            class="ph-bold ph-caret-left"></i> Anterior</button>
+                    <button type="button" class="btn-primary q-btn-next" onclick="switchQTab('metas')">Próximo
+                        <i class="ph-bold ph-caret-right"></i></button>
+                </div>
+            </div>
+
+            <!-- TAB: METAS -->
+            <div id="q-tab-metas" class="q-tab-content" role="tabpanel" aria-labelledby="btn-tab-metas">
+                <div class="q-header-title">
+                    <i class="ph-fill ph-target"></i>
+                    <div>
+                        <h3>Metas</h3>
+                        <small>Escolha uma base pronta e ajuste com suas palavras se quiser.</small>
+                    </div>
+                </div>
+
+                <div class="q-field">
+                    <label for="q_incomoda">O que mais te incomoda no corpo hoje?</label>
+                    <div class="q-preset-row">
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_incomoda', 'Barriga')">Barriga</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_incomoda', 'Postura')">Postura</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_incomoda', 'Braços')">Braços</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_incomoda', 'Pernas')">Pernas</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_incomoda', 'Condicionamento')">Condicionamento</button>
+                    </div>
+                    <textarea id="q_incomoda" class="q-input q-compact-free-text" rows="2"
+                        placeholder="Complemente se quiser"></textarea>
+                </div>
+
+                <div class="q-field">
+                    <label for="q_objetivo">Objetivo em 3 meses</label>
+                    <div class="q-preset-row">
+                        <button type="button" class="q-preset"
+                            onclick="setQuestionnairePreset('q_objetivo', 'Emagrecer mantendo massa muscular')">Emagrecer</button>
+                        <button type="button" class="q-preset"
+                            onclick="setQuestionnairePreset('q_objetivo', 'Ganhar massa muscular')">Ganhar
+                            massa</button>
+                        <button type="button" class="q-preset"
+                            onclick="setQuestionnairePreset('q_objetivo', 'Definir e melhorar composição corporal')">Definir</button>
+                        <button type="button" class="q-preset"
+                            onclick="setQuestionnairePreset('q_objetivo', 'Ficar mais forte e consistente')">Força</button>
+                        <button type="button" class="q-preset"
+                            onclick="setQuestionnairePreset('q_objetivo', 'Melhorar saúde, rotina e disposição')">Saúde</button>
+                    </div>
+                    <textarea class="q-input q-compact-free-text" id="q_objetivo" rows="2"
+                        placeholder="Ajuste o objetivo"></textarea>
+                </div>
+
+                <div class="q-field">
+                    <label for="q_consultoria_antes">Já fez consultoria antes?</label>
+                    <div class="q-preset-row">
+                        <button type="button" class="q-preset"
+                            onclick="setQuestionnairePreset('q_consultoria_antes', 'Nunca fiz consultoria antes.')">Nunca
+                            fiz</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_consultoria_antes', 'Gostei da cobrança')">Gostei da
+                            cobrança</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_consultoria_antes', 'Faltou acompanhamento')">Faltou
+                            acompanhamento</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_consultoria_antes', 'Treino repetitivo')">Treino
+                            repetitivo</button>
+                        <button type="button" class="q-preset"
+                            onclick="appendQuestionnairePreset('q_consultoria_antes', 'Dieta difícil')">Dieta
+                            difícil</button>
+                    </div>
+                    <textarea id="q_consultoria_antes" class="q-input q-compact-free-text" rows="2"
+                        placeholder="Conte algo importante"></textarea>
+                </div>
+
+                <div class="q-actions between">
+                    <button type="button" class="btn-secondary q-btn-prev" onclick="switchQTab('treino')"><i
+                            class="ph-bold ph-caret-left"></i> Anterior</button>
+                    <button type="submit" class="btn-primary q-btn-submit"><i class="ph-bold ph-floppy-disk"></i>
+                        Salvar anamnese</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>

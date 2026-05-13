@@ -222,6 +222,9 @@ const SELF_TRAINING_STUDENT_CODE = '77777';
 const SELF_TRAINING_STUDENT_NAME = 'Diego';
 const SELF_TRAINING_STUDENT_CODES = [SELF_TRAINING_STUDENT_CODE];
 const ENABLE_DEMO_ACCESS = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+const EVALUATION_TRAINER_CODE = '00001';
+const EVALUATION_TRAINER_NAME = 'Treinador Demo';
+const TRAINER_EVALUATION_MODE_KEY = 'trainer_evaluation_mode_v1';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TRAINER_SETTINGS_KEY = 'trainer_settings_v1';
 const PENDING_SIGNUP_CONTEXT_KEY = 'pending_signup_context_v1';
@@ -437,11 +440,14 @@ const DIETA_MEAL_PRESETS = {
 };
 
 const DIETA_MEAL_NAMES = {
-    3: ['Cafe da Manha', 'Almoco', 'Jantar'],
-    4: ['Cafe da Manha', 'Almoco', 'Lanche', 'Jantar'],
-    5: ['Cafe da Manha', 'Almoco', 'Lanche', 'Jantar', 'Ceia'],
-    6: ['Cafe da Manha', 'Colacao', 'Almoco', 'Lanche', 'Jantar', 'Ceia']
+    3: ['Café da manhã', 'Almoço', 'Jantar'],
+    4: ['Café da manhã', 'Almoço', 'Lanche', 'Jantar'],
+    5: ['Café da manhã', 'Almoço', 'Lanche', 'Jantar', 'Ceia'],
+    6: ['Café da manhã', 'Colação', 'Almoço', 'Lanche', 'Jantar', 'Ceia']
 };
+
+const DIET_EXTRA_ITEM_INDEX_OFFSET = 10000;
+const DIET_QTY_SAVE_DEBOUNCE_MS = 520;
 
 function roundMacro(value, min = 0) {
     const n = Math.round(Number(value) || 0);
@@ -475,7 +481,7 @@ function getDietaMealCount(questionnaire) {
 }
 
 function buildMealItemsFromTargets(mealName, targets) {
-    const name = String(mealName || '').toLowerCase();
+    const name = normalizeText(mealName || '');
     const p = roundMacro(targets.protein, 8);
     const c = roundMacro(targets.carb, 5);
     const f = roundMacro(targets.fat, 3);
@@ -491,7 +497,7 @@ function buildMealItemsFromTargets(mealName, targets) {
     if (name.includes('almoco')) {
         return [
             { nome: 'Frango grelhado', qtd: `${Math.max(120, Math.round(p * 4.2))} g`, kcal: roundMacro(totalKcal * 0.5), prot: roundMacro(p * 0.62), carb: roundMacro(c * 0.12), gord: roundMacro(f * 0.45) },
-            { nome: 'Arroz + feijao', qtd: `${Math.max(120, Math.round(c * 3.2))} g`, kcal: roundMacro(totalKcal * 0.5), prot: roundMacro(p * 0.38), carb: roundMacro(c * 0.88), gord: roundMacro(f * 0.55) }
+            { nome: 'Arroz + feijão', qtd: `${Math.max(120, Math.round(c * 3.2))} g`, kcal: roundMacro(totalKcal * 0.5), prot: roundMacro(p * 0.38), carb: roundMacro(c * 0.88), gord: roundMacro(f * 0.55) }
         ];
     }
 
@@ -1463,12 +1469,126 @@ function ensureAdminStudent() {
     saveStudentData(students, { studentId: demoStudentId });
 }
 
+function buildEvaluationTrainerIdentity() {
+    return {
+        code: EVALUATION_TRAINER_CODE,
+        name: EVALUATION_TRAINER_NAME,
+        displayName: EVALUATION_TRAINER_NAME,
+        consultoriaName: 'Consultoria Demo',
+        services: 'ambos',
+        headline: 'Painel local para avaliar fluxos de treino, dieta e alunos.',
+        bio: 'Perfil de avaliação local. Use para testar o dashboard sem login real.',
+        specialties: ['Hipertrofia', 'Emagrecimento', 'Nutrição'],
+        handle: 'demo.consultoria',
+        themePreset: TRAINER_THEME_PRESETS[0],
+        onboardingComplete: true
+    };
+}
+
+function ensureEvaluationDemoData() {
+    if (!ENABLE_DEMO_ACCESS) return null;
+    ensureAdminStudent();
+    ensureSelfTrainingStudent();
+    const trainerIdentity = cacheTrainerLocal(buildEvaluationTrainerIdentity());
+    memorySetItem('trainerName', 'Demo');
+    memorySetItem('currentTrainerCode', EVALUATION_TRAINER_CODE);
+    memorySetItem('trainerCodeDefault', EVALUATION_TRAINER_CODE);
+    return trainerIdentity || buildEvaluationTrainerIdentity();
+}
+
+function setTrainerEvaluationMode(enabled = false) {
+    if (enabled && ENABLE_DEMO_ACCESS) {
+        memorySetItem(TRAINER_EVALUATION_MODE_KEY, '1');
+        return true;
+    }
+    memoryRemoveItem(TRAINER_EVALUATION_MODE_KEY);
+    return false;
+}
+
+function isTrainerEvaluationModeActive() {
+    return ENABLE_DEMO_ACCESS && memoryGetItem(TRAINER_EVALUATION_MODE_KEY) === '1';
+}
+
+function syncEvaluationShortcutVisibility(root = document) {
+    const scope = root && root.querySelectorAll ? root : document;
+    scope.querySelectorAll('[data-evaluation-shortcuts]').forEach((section) => {
+        section.style.display = ENABLE_DEMO_ACCESS ? '' : 'none';
+    });
+}
+
+function showEvaluationAccessUnavailable() {
+    const message = 'Modo avaliação disponível apenas em ambiente local.';
+    const hasInline = setAuthInlineFeedback('login-inline-feedback', message, 'warning');
+    if (!hasInline) alert(message);
+}
+
+async function ensureStudentEvaluationScreens() {
+    await ensureScreenElement('student-dashboard-screen', 'pages/student-dashboard.html');
+    await ensureScreenElement('student-workout-screen', 'pages/student-workout.html');
+    await ensureScreenElement('student-diet-screen', 'pages/student-diet.html');
+}
+
+async function openStudentEvaluationDashboard() {
+    if (!ENABLE_DEMO_ACCESS) {
+        showEvaluationAccessUnavailable();
+        return;
+    }
+
+    setTrainerEvaluationMode(false);
+    ensureEvaluationDemoData();
+    await ensureStudentEvaluationScreens();
+
+    const students = readStorageJSON('trainerStudents', []);
+    const demoStudent = students.find((s) => String(s.id) === String(ADMIN_STUDENT_CODE)) || {
+        id: ADMIN_STUDENT_CODE,
+        name: ADMIN_STUDENT_NAME,
+        trainerCode: EVALUATION_TRAINER_CODE,
+        active: true,
+        pending: false
+    };
+
+    const opened = openStudentDashboardSession(demoStudent);
+    if (!opened) {
+        const message = 'Não foi possível abrir o dashboard do aluno demo.';
+        const hasInline = setAuthInlineFeedback('login-inline-feedback', message, 'error');
+        if (!hasInline) alert(message);
+    }
+}
+
+async function openTrainerEvaluationDashboard() {
+    if (!ENABLE_DEMO_ACCESS) {
+        showEvaluationAccessUnavailable();
+        return;
+    }
+
+    setTrainerEvaluationMode(true);
+    ensureEvaluationDemoData();
+
+    if (!isTrainerDashboardContext() || !document.getElementById('trainer-dashboard-screen')) {
+        window.location.href = 'trainer.html';
+        return;
+    }
+
+    trainerDashboardInitPromise = null;
+    hideAllScreens();
+    const app = document.getElementById('app');
+    if (app) app.classList.add('wide');
+    const dashboard = document.getElementById('trainer-dashboard-screen');
+    if (dashboard) dashboard.classList.add('active');
+    await initTrainerDashboard({ force: true });
+    showTrainerRuntimeMessage('Modo avaliação do treinador ativo.', 'success');
+}
+
 function goToHome() {
     stopSupabaseRealtimeSync();
     clearDashboardRuntimeTimers();
     memoryRemoveItem('currentStudentId');
     memoryRemoveItem('connectedTrainerCode');
     memoryRemoveItem('studentName');
+    if (window.__CONSULTORIA_REACT_AUTH__?.showHome && !document.getElementById('home-screen')) {
+        window.__CONSULTORIA_REACT_AUTH__.showHome();
+        return;
+    }
     const opened = activateScreen('home-screen');
     if (!opened) {
         goToGlobalLogin();
@@ -1636,7 +1756,15 @@ function normalizeDietMetaShape(meta) {
     };
 }
 
-function normalizeDietMealItem(item = {}) {
+function createStableDietId(prefix = 'diet', label = '', index = 0, seed = '') {
+    const base = normalizeText(`${label || prefix} ${seed || ''}`)
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 44);
+    return `${prefix}-${base || 'item'}-${Math.max(0, parseInt(index, 10) || 0)}`;
+}
+
+function normalizeDietMealItem(item = {}, itemIdx = 0, mealId = '') {
     const name = sanitizeUserInput(item.nome || item.name || '', { maxLen: 140 }) || 'Alimento';
     const qtd = sanitizeUserInput(item.qtd || '100g', { maxLen: 40 }) || '100g';
     const kcal = parseDecimalSafe(item.kcal);
@@ -1647,6 +1775,7 @@ function normalizeDietMealItem(item = {}) {
     const unitKey = normalizeFoodUnitKey(item.unitKey || item.unit_key || parsedQty.unit || 'g');
     const amount = Math.max(0.1, parseDecimalSafe(item.amount || item.portionAmount) || parsedQty.amount || 1);
     return {
+        id: sanitizeUserInput(item.id || item.itemId || item.item_id || createStableDietId('food', name, itemIdx, mealId), { maxLen: 80 }),
         nome: name,
         qtd,
         kcal: Number.isFinite(kcal) ? kcal : Math.round((prot * 4) + (carb * 4) + (gord * 9)),
@@ -1661,16 +1790,63 @@ function normalizeDietMealItem(item = {}) {
         unitKey,
         portionId: String(item.portionId || item.portion_id || ''),
         portionLabel: sanitizeUserInput(item.portionLabel || item.portion_label || '', { maxLen: 80 }),
-        portions: Array.isArray(item.portions) ? item.portions.map(normalizeFoodPortionRow).filter(Boolean) : []
+        portions: Array.isArray(item.portions) ? item.portions.map(normalizeFoodPortionRow).filter(Boolean) : [],
+        addedByStudent: !!item.addedByStudent
     };
 }
 
 function normalizeDietMealBlocksShape(mealBlocks) {
     const blocks = Array.isArray(mealBlocks) ? mealBlocks : [];
-    return blocks.map((meal, idx) => ({
-        name: sanitizeUserInput(meal?.name || `Refeição ${idx + 1}`, { maxLen: 80 }) || `Refeição ${idx + 1}`,
-        items: Array.isArray(meal?.items) ? meal.items.map(normalizeDietMealItem) : []
-    }));
+    return blocks.map((meal, idx) => {
+        const name = sanitizeUserInput(meal?.name || `Refeição ${idx + 1}`, { maxLen: 80 }) || `Refeição ${idx + 1}`;
+        const id = sanitizeUserInput(meal?.id || meal?.mealId || meal?.meal_id || createStableDietId('meal', name, idx), { maxLen: 80 });
+        return {
+            id,
+            name,
+            note: sanitizeUserInput(meal?.note || meal?.notes || meal?.observacao || '', { allowNewlines: true, maxLen: 260 }),
+            time: sanitizeUserInput(meal?.time || meal?.horario || '', { maxLen: 32 }),
+            items: Array.isArray(meal?.items) ? meal.items.map((item, itemIdx) => normalizeDietMealItem(item, itemIdx, id)) : []
+        };
+    });
+}
+
+function normalizeDietExtraItem(row = {}, extraIdx = 0, mealIdx = 0) {
+    const item = normalizeDietMealItem(row, extraIdx, `extra-${mealIdx}`);
+    return {
+        ...item,
+        id: sanitizeUserInput(row.id || row.extraId || row.extra_id || createStableDietId('extra', item.nome, extraIdx, `${mealIdx}-${row.addedAt || ''}`), { maxLen: 90 }),
+        checked: row.checked !== false,
+        addedByStudent: true,
+        addedAt: row.addedAt || row.added_at || new Date().toISOString()
+    };
+}
+
+function getEmptyDietLogItem() {
+    return {
+        checked: false,
+        qty: '',
+        amount: 1,
+        unitKey: 'g',
+        portionId: '',
+        portionLabel: '',
+        substitute: {
+            enabled: false,
+            name: '',
+            qty: '',
+            kcal: 0,
+            prot: 0,
+            carb: 0,
+            gord: 0,
+            foodId: '',
+            baseQty: 100,
+            baseUnit: 'g',
+            source: 'manual',
+            amount: 1,
+            unitKey: 'g',
+            portionId: '',
+            portionLabel: ''
+        }
+    };
 }
 
 function normalizeDietLogsShape(dietLogs, mealBlocks) {
@@ -1693,6 +1869,7 @@ function normalizeDietLogsShape(dietLogs, mealBlocks) {
                 const row = items[itemIdxKey] && typeof items[itemIdxKey] === 'object' ? items[itemIdxKey] : {};
                 const sub = row.substitute && typeof row.substitute === 'object' ? row.substitute : {};
                 normalizedItems[itemIdx] = {
+                    ...getEmptyDietLogItem(),
                     checked: !!row.checked,
                     qty: sanitizeUserInput(row.qty || '', { maxLen: 40 }),
                     amount: Math.max(0.1, parseDecimalSafe(row.amount) || parseAmountAndUnit(row.qty || '', row.unitKey || row.unit_key || 'g').amount || 1),
@@ -1718,43 +1895,31 @@ function normalizeDietLogsShape(dietLogs, mealBlocks) {
                     }
                 };
             });
-            normalizedMeals[mealIdx] = { items: normalizedItems };
+            const extras = Array.isArray(mealLog.extras)
+                ? mealLog.extras.map((extra, extraIdx) => normalizeDietExtraItem(extra, extraIdx, mealIdx)).filter(Boolean)
+                : [];
+            normalizedMeals[mealIdx] = { items: normalizedItems, extras };
         });
 
         // ensure all current meal items have a log slot
         (Array.isArray(mealBlocks) ? mealBlocks : []).forEach((meal, mealIdx) => {
-            if (!normalizedMeals[mealIdx]) normalizedMeals[mealIdx] = { items: {} };
+            if (!normalizedMeals[mealIdx]) normalizedMeals[mealIdx] = { items: {}, extras: [] };
+            if (!Array.isArray(normalizedMeals[mealIdx].extras)) normalizedMeals[mealIdx].extras = [];
             (Array.isArray(meal?.items) ? meal.items : []).forEach((_, itemIdx) => {
                 if (!normalizedMeals[mealIdx].items[itemIdx]) {
-                    normalizedMeals[mealIdx].items[itemIdx] = {
-                        checked: false,
-                        qty: '',
-                        amount: 1,
-                        unitKey: 'g',
-                        portionId: '',
-                        portionLabel: '',
-                        substitute: {
-                            enabled: false,
-                            name: '',
-                            qty: '',
-                            kcal: 0,
-                            prot: 0,
-                            carb: 0,
-                            gord: 0,
-                            foodId: '',
-                            baseQty: 100,
-                            baseUnit: 'g',
-                            source: 'manual',
-                            amount: 1,
-                            unitKey: 'g',
-                            portionId: '',
-                            portionLabel: ''
-                        }
-                    };
+                    normalizedMeals[mealIdx].items[itemIdx] = getEmptyDietLogItem();
                 }
             });
         });
-        normalized[dateKey] = { meals: normalizedMeals };
+        const meta = entry.meta && typeof entry.meta === 'object'
+            ? {
+                completed: !!entry.meta.completed,
+                completedAt: entry.meta.completedAt || entry.meta.completed_at || null,
+                copiedFrom: sanitizeUserInput(entry.meta.copiedFrom || entry.meta.copied_from || '', { maxLen: 20 }),
+                copiedAt: entry.meta.copiedAt || entry.meta.copied_at || ''
+            }
+            : {};
+        normalized[dateKey] = { meals: normalizedMeals, meta };
     });
     return normalized;
 }
@@ -4446,6 +4611,42 @@ function buildDietLogRowsForSync(student, dateKey, dayLog) {
                 updated_at: new Date().toISOString()
             });
         });
+        (Array.isArray(meal?.extras) ? meal.extras : []).forEach((extra, extraIdx) => {
+            const normalizedExtra = normalizeDietExtraItem(extra, extraIdx, mealIdx);
+            rows.push({
+                student_user_id: studentUserId,
+                student_local_id: studentLocalId,
+                log_date: safeDate,
+                meal_idx: Number.isFinite(mealIdx) ? mealIdx : 0,
+                item_idx: DIET_EXTRA_ITEM_INDEX_OFFSET + extraIdx,
+                checked: normalizedExtra.checked !== false,
+                qty: String(normalizedExtra.qtd || ''),
+                amount: Math.max(0.1, parseDecimalSafe(normalizedExtra.amount) || parseAmountAndUnit(normalizedExtra.qtd || '', normalizedExtra.unitKey || 'g').amount || 1),
+                unit_key: normalizeFoodUnitKey(normalizedExtra.unitKey || parseAmountAndUnit(normalizedExtra.qtd || '', 'g').unit || 'g'),
+                portion_id: String(normalizedExtra.portionId || '') || null,
+                portion_label: sanitizeUserInput(normalizedExtra.portionLabel || '', { maxLen: 80 }) || null,
+                substitute: {
+                    enabled: true,
+                    extra: true,
+                    id: normalizedExtra.id || '',
+                    name: normalizedExtra.nome || 'Extra',
+                    qty: normalizedExtra.qtd || '',
+                    kcal: normalizedExtra.kcal || 0,
+                    prot: normalizedExtra.prot || 0,
+                    carb: normalizedExtra.carb || 0,
+                    gord: normalizedExtra.gord || 0,
+                    foodId: normalizedExtra.foodId || '',
+                    baseQty: normalizedExtra.baseQty || 100,
+                    baseUnit: normalizedExtra.baseUnit || normalizedExtra.unitKey || 'g',
+                    source: normalizedExtra.source || 'manual',
+                    amount: normalizedExtra.amount || 1,
+                    unitKey: normalizedExtra.unitKey || 'g',
+                    portionId: normalizedExtra.portionId || '',
+                    portionLabel: normalizedExtra.portionLabel || ''
+                },
+                updated_at: new Date().toISOString()
+            });
+        });
     });
     return rows;
 }
@@ -4921,7 +5122,7 @@ async function loadSPAComponents() {
     const promises = Array.from(containers).map(async (container) => {
         const url = container.getAttribute('data-page');
         try {
-            const res = await fetch(url);
+            const res = await fetch(url, { cache: 'no-store' });
             if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
             const html = await res.text();
             const sanitizedHtml = html.replace(/<script[\s\S]*?<\/script>/gi, '');
@@ -4953,7 +5154,9 @@ async function ensureScreenElement(screenId, pagePath) {
     }
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
+async function bootLegacyApp() {
+    if (window.__CONSULTORIA_LEGACY_BOOTED__) return;
+    window.__CONSULTORIA_LEGACY_BOOTED__ = true;
     applyMobileDashboardMode(true);
     await loadSPAComponents();
     setupClientSideFormProtection();
@@ -4966,6 +5169,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     upgradeSidebarNavIcons();
     setupInstallButton();
     setupWorkoutExitGuard();
+    setupStudentRoutineActionBindings();
+    syncEvaluationShortcutVisibility();
     initSignupUXBindings();
 
     // Haptic para ações de salvar plano, quando existirem
@@ -5055,7 +5260,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (login) {
         await goToGlobalLogin();
     }
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootLegacyApp, { once: true });
+} else {
+    bootLegacyApp();
+}
 
 window.addEventListener('online', () => {
     const students = readStorageJSON('trainerStudents', []);
@@ -5291,6 +5502,12 @@ function shareTrainerCode() {
 }
 
 async function goToGlobalLogin() {
+    const reactAuth = window.__CONSULTORIA_REACT_AUTH__;
+    if (reactAuth?.showLogin && !document.getElementById('global-login-screen')) {
+        if (reactAuth.isHomeVisible?.()) return;
+        reactAuth.showLogin();
+        return;
+    }
     const loginScreen = await ensureScreenElement('global-login-screen', 'pages/login.html');
     if (!loginScreen) {
         console.warn('Tela de login indisponivel, abrindo home.');
@@ -5305,6 +5522,14 @@ async function goToGlobalLogin() {
     if (testButton) {
         testButton.style.display = ENABLE_DEMO_ACCESS ? '' : 'none';
     }
+    syncEvaluationShortcutVisibility(loginScreen);
+    bindLoginRoleIntentButtons();
+    if (!normalizeLoginRoleIntent(memoryGetItem(LOGIN_ROLE_INTENT_KEY))) {
+        const defaultRoleIntent = getDefaultLoginRoleIntent();
+        loginRoleIntentRuntime = defaultRoleIntent;
+        memorySetItem(LOGIN_ROLE_INTENT_KEY, defaultRoleIntent);
+    }
+    updateLoginRoleIntentUI();
     setLoginRecoveryMode(isSupabaseRecoveryFlowActive());
     activateScreen('global-login-screen', { animate: true });
 }
@@ -5595,6 +5820,101 @@ function prioritizeTrainerRoles(rolesLike, legacyRole = '') {
 
 function hasAppRole(rolesLike, role) {
     return normalizeAppRoles(rolesLike).includes(role);
+}
+
+const LOGIN_ROLE_INTENT_KEY = 'loginRoleIntent';
+let loginRoleIntentRuntime = '';
+
+function normalizeLoginRoleIntent(role) {
+    const normalized = normalizeAppRole(role);
+    return normalized === 'trainer' || normalized === 'student' ? normalized : '';
+}
+
+function getDefaultLoginRoleIntent() {
+    return isTrainerDashboardContext() ? 'trainer' : 'student';
+}
+
+function getStoredLoginRoleIntent() {
+    return loginRoleIntentRuntime || normalizeLoginRoleIntent(memoryGetItem(LOGIN_ROLE_INTENT_KEY));
+}
+
+function getSelectedLoginRoleInputIntent() {
+    const selected = document.querySelector('input[name="login-role-intent"]:checked');
+    return normalizeLoginRoleIntent(selected?.value || '');
+}
+
+function getLoginRoleIntent() {
+    return getSelectedLoginRoleInputIntent() || getStoredLoginRoleIntent() || getDefaultLoginRoleIntent();
+}
+
+function getLoginRoleIntentLabel(role) {
+    return normalizeLoginRoleIntent(role) === 'trainer' ? 'Treinador' : 'Aluno';
+}
+
+function updateLoginRoleIntentUI(roleOverride = '') {
+    const selectedRole = normalizeLoginRoleIntent(roleOverride) || getLoginRoleIntent();
+    document.querySelectorAll('[data-login-role-intent]').forEach((button) => {
+        const role = normalizeLoginRoleIntent(button.getAttribute('data-login-role-intent'));
+        const isSelected = role === selectedRole;
+        button.classList.toggle('is-selected', isSelected);
+        button.setAttribute('aria-checked', isSelected ? 'true' : 'false');
+        const input = button.querySelector?.('input[name="login-role-intent"]');
+        if (input instanceof HTMLInputElement) {
+            input.checked = isSelected;
+        }
+    });
+
+    const loginButton = document.getElementById('login-submit-btn');
+    const loginText = document.getElementById('login-btn-text');
+    if (loginText && !loginButton?.classList.contains('is-loading')) {
+        const label = `Entrar como ${getLoginRoleIntentLabel(selectedRole)}`;
+        loginText.textContent = label;
+        loginText.dataset.defaultText = label;
+    }
+}
+
+function setLoginRoleIntent(role, options = {}) {
+    const selectedRole = normalizeLoginRoleIntent(role) || getDefaultLoginRoleIntent();
+    loginRoleIntentRuntime = selectedRole;
+    memorySetItem(LOGIN_ROLE_INTENT_KEY, selectedRole);
+    updateLoginRoleIntentUI(selectedRole);
+    if (!options?.silent) {
+        setAuthInlineFeedback('login-inline-feedback', '', 'info');
+    }
+    return selectedRole;
+}
+
+function bindLoginRoleIntentButtons() {
+    const loginScreen = document.getElementById('global-login-screen');
+    if (!loginScreen) return;
+
+    const selectFromButton = (button, event, options = {}) => {
+        if (!button) return;
+        if (options?.preventDefault) event.preventDefault();
+        const input = button.querySelector?.('input[name="login-role-intent"]');
+        if (input instanceof HTMLInputElement) {
+            input.checked = true;
+        }
+        setLoginRoleIntent(button.getAttribute('data-login-role-intent'));
+    };
+
+    loginScreen.querySelectorAll('[data-login-role-intent]').forEach((button) => {
+        if (button.dataset.roleIntentButtonBound === '1') return;
+        button.dataset.roleIntentButtonBound = '1';
+        button.addEventListener('click', (event) => selectFromButton(button, event));
+        button.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            selectFromButton(button, event, { preventDefault: true });
+        });
+    });
+
+    if (loginScreen.dataset.roleIntentBound === '1') return;
+    loginScreen.dataset.roleIntentBound = '1';
+    loginScreen.addEventListener('click', (event) => {
+        const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+        const button = target?.closest?.('[data-login-role-intent]');
+        if (button) selectFromButton(button, event);
+    });
 }
 
 function isEmailConfirmed(user) {
@@ -6411,8 +6731,12 @@ async function openStudentConnectFromDashboard() {
     showTrainerConnectScreen();
 }
 
-async function routeByOnboarding(user, profile, roles) {
-    const normalizedRoles = normalizeAppRoles(roles, profile?.role);
+async function routeByOnboarding(user, profile, roles, options = {}) {
+    let normalizedRoles = normalizeAppRoles(roles, profile?.role);
+    const accessIntent = normalizeLoginRoleIntent(options?.accessIntent);
+    if (accessIntent && normalizedRoles.includes(accessIntent)) {
+        normalizedRoles = [accessIntent, ...normalizedRoles.filter((role) => role !== accessIntent)];
+    }
     const hasTrainer = normalizedRoles.includes('trainer');
     const hasStudent = normalizedRoles.includes('student');
     const onboardingStep = mapOnboardingStep(profile, normalizedRoles);
@@ -6429,6 +6753,16 @@ async function routeByOnboarding(user, profile, roles) {
             return;
         }
         await showProfileSetupScreen(profile, normalizedRoles, user);
+        return;
+    }
+
+    if (accessIntent === 'student' && hasStudent) {
+        if (onboardingStep === 'trainer_connect' && (profile?.onboarding_step || '') !== 'trainer_connect') {
+            await upsertOwnProfile({ id: user.id, onboarding_step: 'trainer_connect' });
+        }
+        const connectedCode = sanitizeCodeInput(profile?.connected_trainer_code || '', 5);
+        if (await openStudentDashboardForUser(user.id, connectedCode)) return;
+        showTrainerConnectScreen();
         return;
     }
 
@@ -6635,12 +6969,42 @@ function normalizeTrainerSpecialtiesList(value) {
 
 function setAuthInlineFeedback(elementId, message = '', type = 'info') {
     const feedback = document.getElementById(elementId);
-    if (!feedback) return false;
+    if (!feedback) {
+        if (elementId === 'login-inline-feedback' && window.__CONSULTORIA_REACT_AUTH__?.setFeedback) {
+            window.__CONSULTORIA_REACT_AUTH__.setFeedback(message || '', type);
+            return true;
+        }
+        return false;
+    }
     feedback.textContent = message || '';
     feedback.style.display = message ? 'block' : 'none';
     feedback.classList.remove('is-error', 'is-success', 'is-info', 'is-warning');
     if (message) feedback.classList.add(`is-${type}`);
     return true;
+}
+
+function getLoginRoleMismatchMessage(role) {
+    if (normalizeLoginRoleIntent(role) === 'trainer') {
+        return 'Essa conta nao possui acesso de treinador. Entre com uma conta de treinador ou escolha Aluno.';
+    }
+    return 'Essa conta nao possui acesso de aluno. Entre com uma conta de aluno ou escolha Treinador.';
+}
+
+async function rejectLoginRoleIntent(role) {
+    const selectedRole = normalizeLoginRoleIntent(role) || getDefaultLoginRoleIntent();
+    const message = getLoginRoleMismatchMessage(selectedRole);
+    if (typeof window.supabase?.auth?.signOut === 'function') {
+        try {
+            suppressSignedOutRedirectToHome = true;
+            await window.supabase.auth.signOut();
+        } catch (err) {
+            console.warn('Falha ao encerrar sessao apos papel invalido.', err);
+        }
+    }
+    await goToGlobalLogin();
+    setLoginRoleIntent(selectedRole, { silent: true });
+    const hasInline = setAuthInlineFeedback('login-inline-feedback', message, 'warning');
+    if (!hasInline) alert(message);
 }
 
 function getSupabaseUnavailableMessage(mode = 'login') {
@@ -6972,6 +7336,7 @@ async function completeProfileSetup() {
 async function handleEmailLogin() {
     const email = sanitizeEmailInput(document.getElementById('login-email')?.value);
     const pass = document.getElementById('login-pass')?.value || '';
+    const accessIntent = setLoginRoleIntent(getLoginRoleIntent(), { silent: true });
     const showLoginFeedback = (message, type = 'error') => {
         const hasInline = setAuthInlineFeedback('login-inline-feedback', message, type);
         if (!hasInline && message) alert(message);
@@ -7014,6 +7379,7 @@ async function handleEmailLogin() {
             return;
         }
 
+        memorySetItem(LOGIN_ROLE_INTENT_KEY, accessIntent);
         await routeAuthenticatedSessionUser(data.user, { force: true });
     } finally {
         setAuthSubmitLoading({
@@ -7107,28 +7473,7 @@ async function completePasswordRecovery() {
 }
 
 function handleTestLogin() {
-    const showLoginFeedback = (message, type = 'info') => {
-        const hasInline = setAuthInlineFeedback('login-inline-feedback', message, type);
-        if (!hasInline && message) alert(message);
-    };
-
-    if (!ENABLE_DEMO_ACCESS) {
-        showLoginFeedback('Acesso de teste disponivel apenas em ambiente local.', 'warning');
-        return;
-    }
-
-    ensureAdminStudent();
-    const students = readStorageJSON('trainerStudents', []);
-    const demoStudent = students.find((s) => String(s.id) === String(ADMIN_STUDENT_CODE)) || {
-        id: ADMIN_STUDENT_CODE,
-        name: ADMIN_STUDENT_NAME,
-        trainerCode: '00001',
-        active: true,
-        pending: false
-    };
-
-    showLoginFeedback('Entrando em modo teste...', 'success');
-    openStudentDashboardSession(demoStudent);
+    void openStudentEvaluationDashboard();
 }
 
 async function resendVerificationEmailFromLogin() {
@@ -7305,6 +7650,7 @@ async function handleGoogleLogin() {
         alert('Login Google indisponivel no momento.');
         return;
     }
+    setLoginRoleIntent(getLoginRoleIntent(), { silent: true });
     const { error } = await window.supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: `${window.location.origin}/` }
@@ -7477,13 +7823,20 @@ async function processLogin(user) {
         })) || { ...profile, trainer_code: trainerCode };
     }
 
+    const accessIntent = getStoredLoginRoleIntent();
+    if (accessIntent && !roles.includes(accessIntent)) {
+        await rejectLoginRoleIntent(accessIntent);
+        return;
+    }
+    setTrainerEvaluationMode(false);
+
     if (safeEmail) memorySetItem('currentUserEmail', safeEmail);
     memorySetItem('studentName', safeUserName);
     memorySetItem('trainerName', safeUserName.split(' ')[0]);
     if (profile?.trainer_code) memorySetItem('currentTrainerCode', sanitizeCodeInput(profile.trainer_code, 5));
     await runOneShotLegacyMigration(activeUser, profile, roles);
 
-    await routeByOnboarding(activeUser, profile, roles);
+    await routeByOnboarding(activeUser, profile, roles, { accessIntent });
     if (safeEmail) clearPendingSignupContext(safeEmail);
 }
 
@@ -7491,6 +7844,8 @@ if (typeof window !== 'undefined') {
     Object.assign(window, {
         goToGlobalLogin,
         goToProfileCreate,
+        routeAuthenticatedSessionUser,
+        setLoginRoleIntent,
         handleEmailLogin,
         startPasswordRecoveryFromLogin,
         completePasswordRecovery,
@@ -7498,6 +7853,8 @@ if (typeof window !== 'undefined') {
         resendVerificationEmailFromLogin,
         handleProfileCreation,
         handleTestLogin,
+        openTrainerEvaluationDashboard,
+        openStudentEvaluationDashboard,
         completeProfileSetup,
         nextProfileSetupStep,
         prevProfileSetupStep,
@@ -7585,7 +7942,7 @@ const ROUTINE_HABIT_PRESETS = {
         weekdays: []
     }
 };
-const STUDENT_VIEW_KEYS = ['home', 'treino', 'cardio', 'dieta', 'agua', 'chat', 'config', 'log-workout', 'workout-summary'];
+const STUDENT_VIEW_KEYS = ['home', 'treino', 'cardio', 'dieta', 'checkin', 'agua', 'chat', 'config', 'log-workout', 'workout-summary'];
 const STUDENT_MOTION_STAGGER_STEP_MS = 38;
 const STUDENT_MOTION_EXIT_MS = 120;
 const STUDENT_MOTION_ENTRY_LOCK_MS = 230;
@@ -7758,6 +8115,7 @@ function renderStudentViewContent(targetView) {
     }
     if (targetView === 'cardio') renderStudentCardioMain();
     if (targetView === 'dieta') renderStudentDietMain();
+    if (targetView === 'checkin') renderStudentCheckinMain();
     if (targetView === 'agua') renderStudentWaterMain();
     if (targetView === 'chat') renderStudentChatMain();
     if (targetView === 'config') renderStudentPerfil();
@@ -7780,6 +8138,8 @@ async function switchStudentView(view) {
         treino: 'treino',
         cardio: 'cardio',
         dieta: 'dieta',
+        checkin: 'checkin',
+        'check-in': 'checkin',
         agua: 'agua',
         chat: 'chat',
         config: 'config',
@@ -7787,7 +8147,7 @@ async function switchStudentView(view) {
         'workout-summary': 'workout-summary'
     };
     const targetView = aliasMap[String(view || '').trim()] || 'home';
-    const protectedViews = ['home', 'treino', 'cardio', 'dieta', 'agua', 'chat', 'config', 'log-workout', 'workout-summary'];
+    const protectedViews = ['home', 'treino', 'cardio', 'dieta', 'checkin', 'agua', 'chat', 'config', 'log-workout', 'workout-summary'];
     if (protectedViews.includes(targetView) && !ENABLE_DEMO_ACCESS) {
         const activeUser = await getSupabaseSessionUser();
         if (!activeUser || !isEmailConfirmed(activeUser)) {
@@ -7836,7 +8196,7 @@ async function switchStudentView(view) {
             if (nav) nav.classList.toggle('active', v === activeNavView);
         });
 
-        const mobileNavViews = ['home', 'treino', 'dieta', 'agua', 'chat'];
+        const mobileNavViews = ['home', 'treino', 'dieta', 'checkin', 'agua', 'chat'];
         mobileNavViews.forEach((v) => {
             const mobileNav = document.getElementById(`m-snav-${v}`);
             if (mobileNav) mobileNav.classList.toggle('active', v === activeNavView);
@@ -9989,6 +10349,7 @@ function computeDietMacroData(student, dateKey = getTodayDateKey()) {
     let consumedKcal = 0;
     let checkedItems = 0;
     let totalItems = 0;
+    let extraItems = 0;
 
     blocks.forEach((meal, mealIdx) => {
         (meal.items || []).forEach((item, itemIdx) => {
@@ -10002,6 +10363,15 @@ function computeDietMacroData(student, dateKey = getTodayDateKey()) {
             if (!logEntry || !logEntry.checked) return;
             checkedItems += 1;
             const consumed = computeDietConsumedMacros(item, logEntry);
+            consumedProtein += consumed.prot;
+            consumedCarb += consumed.carb;
+            consumedFat += consumed.gord;
+            consumedKcal += consumed.kcal;
+        });
+        getDietMealExtras(dayLog, mealIdx).forEach((extra) => {
+            extraItems += 1;
+            if (extra.checked === false) return;
+            const consumed = computeDietExtraMacros(extra);
             consumedProtein += consumed.prot;
             consumedCarb += consumed.carb;
             consumedFat += consumed.gord;
@@ -10043,6 +10413,9 @@ function computeDietMacroData(student, dateKey = getTodayDateKey()) {
         completion: {
             done: checkedItems,
             total: totalItems
+        },
+        extras: {
+            total: extraItems
         }
     };
 }
@@ -10070,6 +10443,39 @@ function getDietItemBaseMacros(item) {
 
 function getDietLogItem(dayLog, mealIdx, itemIdx) {
     return dayLog?.meals?.[mealIdx]?.items?.[itemIdx] || null;
+}
+
+function getDietMealLog(dayLog, mealIdx) {
+    if (!dayLog || !dayLog.meals || typeof dayLog.meals !== 'object') return { items: {}, extras: [] };
+    const mealLog = dayLog.meals?.[mealIdx];
+    if (!mealLog || typeof mealLog !== 'object') return { items: {}, extras: [] };
+    if (!mealLog.items || typeof mealLog.items !== 'object') mealLog.items = {};
+    if (!Array.isArray(mealLog.extras)) mealLog.extras = [];
+    return mealLog;
+}
+
+function getDietMealExtras(dayLog, mealIdx) {
+    const mealLog = getDietMealLog(dayLog, mealIdx);
+    return Array.isArray(mealLog.extras)
+        ? mealLog.extras.map((extra, extraIdx) => normalizeDietExtraItem(extra, extraIdx, mealIdx)).filter(Boolean)
+        : [];
+}
+
+function computeDietExtraMacros(extraItem) {
+    const item = normalizeDietExtraItem(extraItem);
+    const parsedQty = parseAmountAndUnit(item.qtd || '', item.unitKey || item.baseUnit || 'g');
+    const calc = computeMacrosByAmount({
+        id: item.foodId || item.id || '',
+        name: item.nome || 'Extra',
+        base_qty: item.baseQty || parsedQty.amount || 100,
+        base_unit: item.baseUnit || parsedQty.unit || 'g',
+        kcal: item.kcal || 0,
+        protein: item.prot || 0,
+        carb: item.carb || 0,
+        fat: item.gord || 0,
+        portions: Array.isArray(item.portions) ? item.portions : []
+    }, Math.max(0.1, parseDecimalSafe(item.amount) || parsedQty.amount || item.baseQty || 1), normalizeFoodUnitKey(item.unitKey || parsedQty.unit || item.baseUnit || 'g'), item.portionId || '');
+    return { prot: calc.protein, carb: calc.carb, gord: calc.fat, kcal: calc.kcal };
 }
 
 function getStudentDietLogForDate(student, dateKey) {
@@ -13635,25 +14041,66 @@ async function confirmConnection() {
     switchQTab('saude');
 }
 
+const QUESTIONNAIRE_TABS = ['saude', 'nutricao', 'rotina', 'treino', 'metas'];
+const QUESTIONNAIRE_TAB_LABELS = {
+    saude: 'Saúde',
+    nutricao: 'Nutrição',
+    rotina: 'Rotina',
+    treino: 'Treino',
+    metas: 'Metas'
+};
+
+function updateQuestionnaireProgress(tabName) {
+    const currentIndex = Math.max(0, QUESTIONNAIRE_TABS.indexOf(tabName));
+    const total = QUESTIONNAIRE_TABS.length;
+    const percent = Math.round(((currentIndex + 1) / total) * 100);
+    const stepLabel = document.getElementById('q-step-label');
+    const progressCount = document.getElementById('q-progress-count');
+    const progressFill = document.getElementById('q-progress-fill');
+    if (stepLabel) stepLabel.textContent = `Etapa ${currentIndex + 1} de ${total} · ${QUESTIONNAIRE_TAB_LABELS[tabName] || ''}`;
+    if (progressCount) progressCount.textContent = `${percent}%`;
+    if (progressFill) progressFill.style.width = `${percent}%`;
+}
+
 function switchQTab(tabName) {
+    const resolvedTab = QUESTIONNAIRE_TABS.includes(tabName) ? tabName : QUESTIONNAIRE_TABS[0];
     // Hide all tabs
     const tabs = document.querySelectorAll('.q-tab-content');
     tabs.forEach(tab => tab.classList.remove('active'));
 
     // Deactivate all buttons
     const btns = document.querySelectorAll('.q-tab');
-    btns.forEach(btn => btn.classList.remove('active'));
+    btns.forEach((btn) => {
+        btn.classList.remove('active');
+        btn.setAttribute('aria-selected', 'false');
+    });
 
     // Show selected
-    const tabEl = document.getElementById(`q-tab-${tabName}`);
-    const btnEl = document.getElementById(`btn-tab-${tabName}`);
+    const tabEl = document.getElementById(`q-tab-${resolvedTab}`);
+    const btnEl = document.getElementById(`btn-tab-${resolvedTab}`);
     if (tabEl) tabEl.classList.add('active');
-    if (btnEl) btnEl.classList.add('active');
+    if (btnEl) {
+        btnEl.classList.add('active');
+        btnEl.setAttribute('aria-selected', 'true');
+        btnEl.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    }
+    updateQuestionnaireProgress(resolvedTab);
+    const questionnaireScreen = document.getElementById('student-questionnaire-screen');
+    if (questionnaireScreen?.classList.contains('active')) {
+        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        const behavior = reducedMotion ? 'auto' : 'smooth';
+        requestAnimationFrame(() => {
+            questionnaireScreen.scrollTo({ top: 0, behavior });
+            questionnaireScreen.scrollIntoView({ block: 'start', behavior });
+        });
+    }
 
     // Note: renderQuestions() was removed to preserve the full HTML questionnaire layout
 }
 
 async function submitQuestionnaire() {
+    if (!validateQuestionnaireBaseFields()) return;
+
     // Collect specific student data
     const nome = sanitizeUserInput(document.getElementById('q_nome')?.value, { maxLen: 90 }) || 'Aluno';
     const ageRaw = parseInt(document.getElementById('q_idade')?.value, 10);
@@ -14037,18 +14484,17 @@ async function initStudentDashboard(options = {}) {
         const dashName = document.getElementById('dash-student-name');
         if (dashName) dashName.innerText = `Olá, ${studentName.split(' ')[0]} `;
         const dashTrainer = document.getElementById('dash-student-trainer');
-        if (dashTrainer) dashTrainer.innerText = trainerCode || 'Consultoria';
+        if (dashTrainer) {
+            dashTrainer.innerText = getTrainerDisplayNameByCode(trainerCode)
+                || memoryGetItem('trainerName')
+                || 'Sua consultoria';
+        }
 
         // Sync sidebar name
         const sideName = document.getElementById('side-student-name');
         if (sideName) sideName.innerText = studentName.split(' ')[0];
 
-        // Show student's own access code
-        const scRef = document.getElementById('student-code-ref');
-        if (scRef) scRef.innerText = studentId;
-
         if (!studentId) {
-            renderStudentBaseCalories(null);
             setProtocolStatus(false);
             return;
         }
@@ -14094,8 +14540,6 @@ async function initStudentDashboard(options = {}) {
                 });
             }
         }
-
-        renderStudentBaseCalories(student || null);
 
         if (student && student.active) {
             setProtocolStatus(true);
@@ -14372,6 +14816,396 @@ function switchStudentConfigSection(section = 'perfil', options = {}) {
     return normalized;
 }
 
+function normalizeStudentWeeklyCheckinsShape(raw = {}) {
+    const safeRaw = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const sortedEntries = Object.entries(safeRaw)
+        .filter(([weekKey]) => /^\d{4}-\d{2}-\d{2}$/.test(String(weekKey || '')))
+        .sort(([left], [right]) => left.localeCompare(right))
+        .slice(-24);
+
+    return sortedEntries.reduce((acc, [weekKey, entry]) => {
+        const safeEntry = entry && typeof entry === 'object' ? entry : {};
+        acc[weekKey] = {
+            notes: sanitizeUserInput(
+                safeEntry.notes || safeEntry.note || safeEntry.observacoes || safeEntry.observacao || '',
+                { allowNewlines: true, maxLen: 600 }
+            ),
+            completedAt: sanitizeUserInput(safeEntry.completedAt || safeEntry.completed_at || '', { maxLen: 40 }),
+            updatedAt: sanitizeUserInput(safeEntry.updatedAt || safeEntry.updated_at || safeEntry.savedAt || '', { maxLen: 40 }),
+            createdAt: sanitizeUserInput(safeEntry.createdAt || safeEntry.created_at || safeEntry.updatedAt || safeEntry.updated_at || '', { maxLen: 40 })
+        };
+        return acc;
+    }, {});
+}
+
+function getStudentWeeklyCheckins(student = {}) {
+    return normalizeStudentWeeklyCheckinsShape(student?.weeklyCheckins || student?.weekly_checkins || {});
+}
+
+function formatStudentCheckinDateRange(weekStart) {
+    const start = weekStart instanceof Date ? new Date(weekStart) : new Date(weekStart);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    const fmt = (date) => date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    return `${fmt(start)} a ${fmt(end)}`;
+}
+
+function isStudentCheckinDateWithinWeek(iso = '', weekStart = new Date()) {
+    if (!iso) return false;
+    const target = new Date(iso);
+    if (Number.isNaN(target.getTime())) return false;
+    const start = weekStart instanceof Date ? new Date(weekStart) : new Date(weekStart);
+    start.setHours(0, 0, 0, 0);
+    const endExclusive = new Date(start);
+    endExclusive.setDate(start.getDate() + 7);
+    return target.getTime() >= start.getTime() && target.getTime() < endExclusive.getTime();
+}
+
+function buildStudentWeeklyCheckinContext(student = {}, baseDate = new Date()) {
+    const weekStart = getCurrentWeekMondayDate(baseDate);
+    const weekKey = formatDateKeyFromDate(weekStart);
+    const weeklyCheckins = getStudentWeeklyCheckins(student);
+    const checkinEntry = weeklyCheckins[weekKey] || {
+        notes: '',
+        completedAt: '',
+        updatedAt: '',
+        createdAt: ''
+    };
+
+    const history = Array.isArray(student?.metricHistory) ? student.metricHistory : [];
+    const weightEntriesThisWeek = history
+        .filter((entry) => entry?.weight && isStudentCheckinDateWithinWeek(entry?.date, weekStart))
+        .sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime());
+    const latestWeightEntry = weightEntriesThisWeek[0] || null;
+
+    const currentUserId = String(memoryGetItem('currentUserId') || '').trim();
+    const mediaItems = currentUserId && studentMediaState.loadedForUser === currentUserId && Array.isArray(studentMediaState.items)
+        ? studentMediaState.items.map((item, index) => ({ ...item, previewIndex: index }))
+        : [];
+    const mediaThisWeek = mediaItems.filter((item) => isStudentCheckinDateWithinWeek(item?.created_at, weekStart));
+    const notes = String(checkinEntry.notes || '').trim();
+    const taskList = [
+        {
+            key: 'peso',
+            title: 'Atualizar peso',
+            description: latestWeightEntry
+                ? `Último registro em ${formatDate(latestWeightEntry.date).trim()}`
+                : 'Registre seu peso atual da semana',
+            done: !!latestWeightEntry
+        },
+        {
+            key: 'midia',
+            title: 'Enviar fotos do shape',
+            description: mediaThisWeek.length > 0
+                ? `${mediaThisWeek.length} arquivo(s) enviado(s) nesta semana`
+                : 'Frente, lado e costas já ajudam bastante',
+            done: mediaThisWeek.length > 0
+        },
+        {
+            key: 'notas',
+            title: 'Escrever observações',
+            description: notes
+                ? 'Observações salvas para o treinador'
+                : 'Conte como foi sua semana, energia, fome e treino',
+            done: !!notes
+        }
+    ];
+    const tasksDone = taskList.filter((task) => task.done).length;
+
+    return {
+        weekStart,
+        weekKey,
+        dateRangeLabel: formatStudentCheckinDateRange(weekStart),
+        checkinEntry,
+        notes,
+        latestWeightEntry,
+        mediaThisWeek,
+        mediaPreview: mediaThisWeek.slice(0, 4),
+        taskList,
+        tasksDone,
+        tasksTotal: taskList.length,
+        completed: !!checkinEntry.completedAt
+    };
+}
+
+function refreshStudentCheckinViewIfVisible() {
+    if (inferCurrentStudentViewKey() === 'checkin') {
+        renderStudentCheckinMain();
+    }
+}
+
+function updateStudentCurrentWeekCheckin(mutator) {
+    if (typeof mutator !== 'function') {
+        return { ok: false, message: 'Atualização inválida.' };
+    }
+
+    return persistStudentData((students, studentIdx) => {
+        const student = students[studentIdx];
+        if (!student || typeof student !== 'object') return;
+
+        const weeklyCheckins = getStudentWeeklyCheckins(student);
+        const now = new Date().toISOString();
+        const weekKey = formatDateKeyFromDate(getCurrentWeekMondayDate(new Date()));
+        const entry = {
+            notes: '',
+            completedAt: '',
+            updatedAt: '',
+            createdAt: now,
+            ...(weeklyCheckins[weekKey] || {})
+        };
+
+        mutator(entry, { student, now, weekKey });
+
+        entry.notes = sanitizeUserInput(entry.notes || '', { allowNewlines: true, maxLen: 600 });
+        entry.completedAt = sanitizeUserInput(entry.completedAt || '', { maxLen: 40 });
+        entry.updatedAt = sanitizeUserInput(entry.updatedAt || now, { maxLen: 40 }) || now;
+        entry.createdAt = sanitizeUserInput(entry.createdAt || now, { maxLen: 40 }) || now;
+
+        weeklyCheckins[weekKey] = entry;
+        student.weeklyCheckins = normalizeStudentWeeklyCheckinsShape(weeklyCheckins);
+        students[studentIdx] = student;
+    });
+}
+
+function saveStudentWeeklyCheckinNotes() {
+    const notes = sanitizeUserInput(document.getElementById('student-checkin-notes')?.value, {
+        allowNewlines: true,
+        maxLen: 600
+    });
+    const result = updateStudentCurrentWeekCheckin((entry, ctx) => {
+        entry.notes = notes;
+        entry.updatedAt = ctx.now;
+    });
+
+    if (!result?.ok) {
+        showDietRuntimeMessage(result?.message || 'Não foi possível salvar suas observações agora.', 'error');
+        return;
+    }
+
+    showDietRuntimeMessage(notes ? 'Observações do check-in salvas.' : 'Observações do check-in removidas.', 'success');
+    renderStudentCheckinMain();
+}
+
+function toggleStudentWeeklyCheckinStatus(forceComplete = null) {
+    const { student } = getStudentData();
+    if (!student) return;
+
+    const notes = sanitizeUserInput(document.getElementById('student-checkin-notes')?.value, {
+        allowNewlines: true,
+        maxLen: 600
+    });
+    const context = buildStudentWeeklyCheckinContext(student);
+    const shouldComplete = forceComplete === null ? !context.completed : !!forceComplete;
+
+    if (shouldComplete && !notes && !context.latestWeightEntry && context.mediaThisWeek.length === 0) {
+        showDietRuntimeMessage('Atualize peso, envie uma foto ou escreva observações antes de concluir o check-in.', 'info');
+        return;
+    }
+
+    const result = updateStudentCurrentWeekCheckin((entry, ctx) => {
+        entry.notes = notes;
+        entry.updatedAt = ctx.now;
+        entry.completedAt = shouldComplete ? ctx.now : '';
+    });
+
+    if (!result?.ok) {
+        showDietRuntimeMessage(result?.message || 'Não foi possível atualizar o check-in.', 'error');
+        return;
+    }
+
+    showDietRuntimeMessage(shouldComplete ? 'Check-in semanal concluído.' : 'Check-in reaberto para edição.', 'success');
+    renderStudentCheckinMain();
+}
+
+async function openStudentEvolutionFromCheckin(section = 'evolucao') {
+    await switchStudentView('config');
+    switchStudentConfigSection(section);
+}
+
+function renderStudentCheckinMain() {
+    const container = document.getElementById('student-checkin-content-main');
+    const subtitleEl = document.getElementById('student-checkin-subtitle');
+    const primaryActionBtn = document.querySelector('#view-student-checkin .student-checkin-hero-actions .btn-primary');
+    if (!container) return;
+
+    const { student } = getStudentData();
+    if (!student) {
+        container.innerHTML = `
+            <div class="perfil-history-empty" data-motion="surface">
+                <i class="ph-bold ph-user-circle"></i>
+                <p>Não encontramos seu perfil do aluno para montar o check-in.</p>
+            </div>
+        `;
+        return;
+    }
+
+    const userId = String(memoryGetItem('currentUserId') || '').trim();
+    if (
+        userId
+        && !studentMediaState.loading
+        && (studentMediaState.loadedForUser !== userId || !studentMediaState.loadedAt)
+    ) {
+        void loadStudentMediaGallery().then(() => {
+            refreshStudentCheckinViewIfVisible();
+        });
+    }
+
+    const context = buildStudentWeeklyCheckinContext(student);
+    const weightValue = parseFloat(student.weight) || 0;
+    const completionText = context.completed
+        ? `Concluído em ${formatDate(context.checkinEntry.completedAt).trim()}`
+        : context.tasksDone > 0
+            ? `${context.tasksDone} de ${context.tasksTotal} etapas concluídas`
+            : 'Nenhuma etapa concluída ainda';
+    const completionTone = context.completed ? 'is-complete' : (context.tasksDone > 0 ? 'is-progress' : 'is-pending');
+    const mediaSummaryText = studentMediaState.loading
+        ? 'Carregando galeria...'
+        : studentMediaState.error
+            ? studentMediaState.error
+            : `${context.mediaThisWeek.length} arquivo(s) nesta semana`;
+
+    if (subtitleEl) {
+        subtitleEl.textContent = `Semana de ${context.dateRangeLabel} • ${completionText}`;
+    }
+    if (primaryActionBtn) {
+        primaryActionBtn.innerHTML = context.completed
+            ? '<i class="ph-bold ph-arrow-counter-clockwise"></i> Reabrir'
+            : '<i class="ph-bold ph-check-circle"></i> Concluir';
+    }
+
+    const historyKeys = Array.from(new Set([context.weekKey, ...Object.keys(getStudentWeeklyCheckins(student))]))
+        .sort((left, right) => right.localeCompare(left))
+        .slice(0, 6);
+    const historyItems = historyKeys.map((weekKey) => {
+        const weekContext = buildStudentWeeklyCheckinContext(student, new Date(`${weekKey}T12:00:00`));
+        const statusLabel = weekContext.completed
+            ? 'Concluído'
+            : weekContext.tasksDone > 0
+                ? 'Em andamento'
+                : 'Sem atividade';
+        return `
+            <div class="student-checkin-history-item ${weekContext.completed ? 'is-complete' : ''}">
+                <div>
+                    <strong>Semana ${escHtml(weekContext.dateRangeLabel)}</strong>
+                    <span>${escHtml(statusLabel)} • ${weekContext.tasksDone}/${weekContext.tasksTotal} etapas</span>
+                </div>
+                <small>${weekContext.checkinEntry.completedAt ? escHtml(formatDate(weekContext.checkinEntry.completedAt).trim()) : '—'}</small>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <section class="student-checkin-summary-grid">
+            <article class="student-checkin-summary-card ${completionTone}" data-motion="card">
+                <span class="student-checkin-summary-label">Status da semana</span>
+                <strong>${context.completed ? 'Check-in concluído' : 'Check-in em aberto'}</strong>
+                <small>${escHtml(completionText)}</small>
+            </article>
+            <article class="student-checkin-summary-card" data-motion="card">
+                <span class="student-checkin-summary-label">Peso atual</span>
+                <strong>${weightValue > 0 ? `${weightValue} kg` : 'Sem registro'}</strong>
+                <small>${context.latestWeightEntry ? `Atualizado em ${escHtml(formatDate(context.latestWeightEntry.date).trim())}` : 'Atualize o peso desta semana'}</small>
+            </article>
+            <article class="student-checkin-summary-card" data-motion="card">
+                <span class="student-checkin-summary-label">Fotos e vídeos</span>
+                <strong>${studentMediaState.loading ? '...' : context.mediaThisWeek.length}</strong>
+                <small>${escHtml(mediaSummaryText)}</small>
+            </article>
+            <article class="student-checkin-summary-card" data-motion="card">
+                <span class="student-checkin-summary-label">Observações</span>
+                <strong>${context.notes ? 'Salvas' : 'Pendentes'}</strong>
+                <small>${context.notes ? 'Seu treinador já pode consultar.' : 'Use este campo para resumir a semana.'}</small>
+            </article>
+        </section>
+
+        <div class="student-checkin-layout">
+            <section class="student-checkin-main-card" data-motion="surface">
+                <div class="perfil-section-title">
+                    <i class="ph-fill ph-check-square"></i>
+                    <h3>Checklist do check-in</h3>
+                </div>
+                <div class="student-checkin-task-list">
+                    ${context.taskList.map((task) => `
+                        <button type="button" class="student-checkin-task ${task.done ? 'is-done' : ''}" onclick="${task.key === 'peso' ? "openPerfilUpdateModal('peso')" : task.key === 'midia' ? 'triggerStudentGalleryUpload()' : "document.getElementById('student-checkin-notes')?.focus()"}">
+                            <span class="student-checkin-task-icon">
+                                <i class="ph-bold ${task.done ? 'ph-check-circle' : task.key === 'peso' ? 'ph-barbell' : task.key === 'midia' ? 'ph-camera' : 'ph-note-pencil'}"></i>
+                            </span>
+                            <span class="student-checkin-task-copy">
+                                <strong>${escHtml(task.title)}</strong>
+                                <small>${escHtml(task.description)}</small>
+                            </span>
+                        </button>
+                    `).join('')}
+                </div>
+
+                <div class="perfil-section-title" style="margin-top: 1.6rem;">
+                    <i class="ph-fill ph-note-pencil"></i>
+                    <h3>Observações da semana</h3>
+                </div>
+                <p class="student-checkin-helper">
+                    Conte como ficaram energia, sono, fome, treinos, retenção, dores ou qualquer ajuste que o treinador precise ver.
+                </p>
+                <textarea id="student-checkin-notes" class="student-checkin-notes-input" placeholder="Ex: peso oscilou, treino de pernas encaixou melhor, senti mais fome à noite...">${escHtml(context.notes)}</textarea>
+                <div class="student-checkin-form-actions">
+                    <button class="btn-secondary" type="button" onclick="saveStudentWeeklyCheckinNotes()">
+                        <i class="ph-bold ph-floppy-disk"></i> Salvar observações
+                    </button>
+                    <button class="btn-primary" type="button" onclick="toggleStudentWeeklyCheckinStatus()">
+                        <i class="ph-bold ${context.completed ? 'ph-arrow-counter-clockwise' : 'ph-check-circle'}"></i> ${context.completed ? 'Reabrir check-in' : 'Concluir check-in'}
+                    </button>
+                </div>
+            </section>
+
+            <aside class="student-checkin-side-column">
+                <section class="student-checkin-side-card" data-motion="surface">
+                    <div class="perfil-section-title">
+                        <i class="ph-fill ph-images-square"></i>
+                        <h3>Últimos envios</h3>
+                    </div>
+                    ${context.mediaPreview.length > 0 ? `
+                        <div class="student-checkin-media-grid">
+                            ${context.mediaPreview.map((item) => `
+                                <button type="button" class="student-checkin-media-thumb" onclick="openPerfilMediaViewer(${item.previewIndex})" aria-label="Abrir mídia enviada em ${escHtml(formatDate(item.created_at).trim())}">
+                                    ${String(item.media_type || '').toLowerCase() === 'video'
+                                        ? `<video src="${escHtml(item.signedUrl)}" muted playsinline></video><span class="student-checkin-media-badge">Vídeo</span>`
+                                        : `<img src="${escHtml(item.signedUrl)}" alt="Foto de progresso enviada pelo aluno">`
+                                    }
+                                </button>
+                            `).join('')}
+                        </div>
+                    ` : `
+                        <div class="student-checkin-empty">
+                            <i class="ph-bold ${studentMediaState.loading ? 'ph-spinner-gap' : 'ph-camera'}"></i>
+                            <p>${escHtml(studentMediaState.loading ? 'Carregando sua galeria...' : 'Nenhuma foto enviada nesta semana ainda.')}</p>
+                        </div>
+                    `}
+                    <button class="btn-secondary student-checkin-side-action" type="button" onclick="triggerStudentGalleryUpload()">
+                        <i class="ph-bold ph-upload-simple"></i> Enviar fotos do shape
+                    </button>
+                </section>
+
+                <section class="student-checkin-side-card" data-motion="surface">
+                    <div class="perfil-section-title">
+                        <i class="ph-fill ph-clock-counter-clockwise"></i>
+                        <h3>Semanas recentes</h3>
+                    </div>
+                    <div class="student-checkin-history-list">
+                        ${historyItems || `
+                            <div class="student-checkin-empty">
+                                <i class="ph-bold ph-calendar-blank"></i>
+                                <p>Seus check-ins vão aparecer aqui ao longo das semanas.</p>
+                            </div>
+                        `}
+                    </div>
+                    <button class="btn-secondary student-checkin-side-action" type="button" onclick="openStudentEvolutionFromCheckin()">
+                        <i class="ph-bold ph-chart-line-up"></i> Abrir evolução completa
+                    </button>
+                </section>
+            </aside>
+        </div>
+    `;
+}
+
 function getStudentData() {
     const studentId = memoryGetItem('currentStudentId');
     const students = readStorageJSON('trainerStudents', []);
@@ -14602,28 +15436,6 @@ function syncStudentTmbData(student) {
     return tmb;
 }
 
-function renderStudentBaseCalories(student) {
-    const valueEl = document.getElementById('status-gasto-base');
-    const hintEl = document.getElementById('status-gasto-base-hint');
-    if (!valueEl) return;
-
-    if (!student) {
-        valueEl.innerText = '--';
-        if (hintEl) hintEl.innerText = 'Meta Calórica Diária';
-        return;
-    }
-
-    const tmb = syncStudentTmbData(student);
-    if (!tmb) {
-        valueEl.innerText = '--';
-        if (hintEl) hintEl.innerText = 'Meta Calórica Diária';
-        return;
-    }
-
-    valueEl.innerText = `${tmb} kcal`;
-    if (hintEl) hintEl.innerText = 'Meta Calórica Diária';
-}
-
 function getIMCLabel(imc) {
     if (imc < 18.5) return 'Abaixo do peso';
     if (imc < 25) return 'Peso saudável';
@@ -14830,12 +15642,48 @@ function decodeRoutineToken(token = '') {
     }
 }
 
+function ensureRoutineModalDashboardRoot(modal) {
+    if (!modal) return;
+    const dashboardScreen = document.getElementById('student-dashboard-screen');
+    if (dashboardScreen && modal.parentElement !== dashboardScreen) {
+        dashboardScreen.appendChild(modal);
+    }
+}
+
+function setupStudentRoutineActionBindings() {
+    if (document.documentElement.dataset.studentRoutineActionsBound === '1') return;
+    document.documentElement.dataset.studentRoutineActionsBound = '1';
+    document.addEventListener('click', (event) => {
+        const trigger = event.target?.closest?.('[data-student-routine-action]');
+        if (!trigger) return;
+        const action = String(trigger.getAttribute('data-student-routine-action') || '').trim();
+        if (!action) return;
+        event.preventDefault();
+        if (action === 'open-workout') {
+            switchStudentView('treino');
+            return;
+        }
+        if (action === 'add-habit') {
+            openRoutineHabitModal();
+            return;
+        }
+        if (action === 'add-reminder') {
+            openRoutineReminderModal();
+            return;
+        }
+        if (action === 'open-cardio') {
+            switchStudentView('cardio');
+        }
+    });
+}
+
 function renderStudentHomeMain(forcedStudent = null) {
     const selected = forcedStudent ? { student: normalizeStudentDietSchema(forcedStudent) } : getCurrentStudentSelection();
     const student = selected.student;
     const nextWorkoutEl = document.getElementById('student-next-workout-card-body');
     const routineEl = document.getElementById('student-routine-list');
     const remindersEl = document.getElementById('student-reminders-list');
+    const routineBaseEl = document.getElementById('student-routine-base-list');
     const cardioSummaryEl = document.getElementById('student-routine-cardio-summary');
     if (!nextWorkoutEl || !routineEl || !remindersEl || !student) return;
 
@@ -14860,7 +15708,7 @@ function renderStudentHomeMain(forcedStudent = null) {
     const dueHabits = routine.habits.filter((habit) => isHabitDueToday(habit));
     const checkinsMap = getTodayCheckinsMap(routine);
     routineEl.innerHTML = dueHabits.length === 0
-        ? '<div class="empty-state-card active"><div class="empty-info"><h3>Nenhum hábito para hoje</h3><p>Crie seu primeiro hábito para montar sua rotina.</p></div></div>'
+        ? '<div class="student-routine-empty" data-motion="list-item"><i class="ph-bold ph-calendar-check"></i><strong>Nenhum hábito para hoje</strong><span>Crie seu primeiro hábito para montar sua rotina.</span></div>'
         : dueHabits.map((habit) => {
             const done = checkinsMap.has(habit.id);
             const recurrenceLabel = getRoutineRecurrenceLabel(habit);
@@ -14887,7 +15735,7 @@ function renderStudentHomeMain(forcedStudent = null) {
         .filter((reminder) => isReminderDueToday(reminder))
         .sort((a, b) => String(a.timeHHmm).localeCompare(String(b.timeHHmm)));
     remindersEl.innerHTML = remindersToday.length === 0
-        ? '<div class="empty-state-card active"><div class="empty-info"><h3>Sem lembretes hoje</h3><p>Adicione lembretes para não esquecer tarefas importantes.</p></div></div>'
+        ? '<div class="student-routine-empty" data-motion="list-item"><i class="ph-bold ph-bell-slash"></i><strong>Sem lembretes hoje</strong><span>Adicione lembretes para não esquecer tarefas importantes.</span></div>'
         : remindersToday.map((reminder) => `
             <div class="student-reminder-item is-active" data-motion="list-item">
                 <div class="student-reminder-main">
@@ -14899,6 +15747,45 @@ function renderStudentHomeMain(forcedStudent = null) {
                 </div>
             </div>
         `).join('');
+
+    if (routineBaseEl) {
+        const activeHabits = routine.habits.filter((habit) => habit?.active !== false);
+        const activeReminders = routine.reminders.filter((reminder) => reminder?.active !== false);
+        const completedToday = dueHabits.filter((habit) => checkinsMap.has(habit.id)).length;
+        const pendingToday = Math.max(0, dueHabits.length - completedToday);
+        const baseRows = [
+            {
+                icon: 'ph-check-square-offset',
+                label: 'Hábitos ativos',
+                value: String(activeHabits.length),
+                hint: pendingToday > 0 ? `${pendingToday} pendente${pendingToday === 1 ? '' : 's'} hoje` : 'Tudo em dia'
+            },
+            {
+                icon: 'ph-bell-simple-ringing',
+                label: 'Lembretes',
+                value: String(activeReminders.length),
+                hint: remindersToday.length > 0 ? `${remindersToday.length} para hoje` : 'Nenhum hoje'
+            },
+            {
+                icon: 'ph-seal-check',
+                label: 'Concluídos hoje',
+                value: `${completedToday}/${dueHabits.length}`,
+                hint: dueHabits.length > 0 ? 'hábitos do dia' : 'sem agenda hoje'
+            }
+        ];
+        routineBaseEl.innerHTML = (activeHabits.length || activeReminders.length)
+            ? baseRows.map((row) => `
+                <div class="student-routine-base-item">
+                    <i class="ph-bold ${row.icon}"></i>
+                    <div>
+                        <span>${escHtml(row.label)}</span>
+                        <strong>${escHtml(row.value)}</strong>
+                    </div>
+                    <small>${escHtml(row.hint)}</small>
+                </div>
+            `).join('')
+            : '<div class="student-routine-empty compact"><i class="ph-bold ph-calendar-plus"></i><strong>Nenhuma atividade ainda</strong><span>Adicione hábitos e lembretes para começar.</span></div>';
+    }
 
     if (cardioSummaryEl) {
         renderStudentRoutineCardioSummary(student, cardioSummaryEl);
@@ -14989,6 +15876,7 @@ function persistRoutineMutation(mutator) {
 function openRoutineHabitModal(habitId = '') {
     const modal = document.getElementById('routine-habit-modal');
     if (!modal) return;
+    ensureRoutineModalDashboardRoot(modal);
     if (modal.__hideTimer) {
         clearTimeout(modal.__hideTimer);
         modal.__hideTimer = null;
@@ -15151,6 +16039,7 @@ function deleteHabit(habitId = '') {
 function openRoutineReminderModal() {
     const modal = document.getElementById('routine-reminder-modal');
     if (!modal) return;
+    ensureRoutineModalDashboardRoot(modal);
     if (modal.__hideTimer) {
         clearTimeout(modal.__hideTimer);
         modal.__hideTimer = null;
@@ -16064,6 +16953,76 @@ function setQuestionnaireInputValue(id, value = '') {
     el.value = String(value ?? '');
 }
 
+function dispatchQuestionnaireFieldChange(el) {
+    if (!el) return;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function setQuestionnairePreset(id, value = '') {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = String(value ?? '');
+    dispatchQuestionnaireFieldChange(el);
+}
+
+function appendQuestionnairePreset(id, value = '') {
+    const el = document.getElementById(id);
+    const nextValue = sanitizeUserInput(value, { allowNewlines: true, maxLen: 120 });
+    if (!el || !nextValue) return;
+
+    const currentParts = String(el.value || '')
+        .split(/[,\n;]+/)
+        .map((item) => sanitizeUserInput(item, { allowNewlines: true, maxLen: 120 }).trim())
+        .filter(Boolean);
+    const alreadySelected = currentParts.some((item) => normalizeText(item) === normalizeText(nextValue));
+    if (!alreadySelected) currentParts.push(nextValue);
+    el.value = currentParts.join(', ');
+    dispatchQuestionnaireFieldChange(el);
+}
+
+function clearQuestionnaireChecks(name) {
+    document.querySelectorAll(`input[name="${name}"]`).forEach((checkbox) => {
+        checkbox.checked = false;
+        dispatchQuestionnaireFieldChange(checkbox);
+    });
+}
+
+function validateQuestionnaireBaseFields() {
+    const requiredFields = [
+        { id: 'q_nome', label: 'seu nome' },
+        { id: 'q_idade', label: 'sua idade' },
+        { id: 'q_genero', label: 'seu gênero' },
+        { id: 'q_peso', label: 'seu peso' },
+        { id: 'q_altura', label: 'sua altura' }
+    ];
+    const missing = requiredFields.find(({ id }) => !String(document.getElementById(id)?.value || '').trim());
+    if (missing) {
+        switchQTab('saude');
+        alert(`Preencha ${missing.label} para salvar a anamnese.`);
+        setTimeout(() => document.getElementById(missing.id)?.focus(), 80);
+        return false;
+    }
+
+    const numericRules = [
+        { id: 'q_idade', label: 'idade', min: 10, max: 100 },
+        { id: 'q_peso', label: 'peso', min: 20, max: 350 },
+        { id: 'q_altura', label: 'altura', min: 100, max: 250 }
+    ];
+    const invalid = numericRules.find(({ id, min, max }) => {
+        const parsed = parseFloat(String(document.getElementById(id)?.value || '').replace(',', '.'));
+        return !Number.isFinite(parsed) || parsed < min || parsed > max;
+    });
+    if (invalid) {
+        switchQTab('saude');
+        alert(`Confira o campo ${invalid.label} antes de salvar.`);
+        setTimeout(() => document.getElementById(invalid.id)?.focus(), 80);
+        return false;
+    }
+
+    return true;
+}
+
 function setQuestionnaireSelectValue(id, value = '', fallback = '') {
     const el = document.getElementById(id);
     if (!el) return;
@@ -16602,6 +17561,7 @@ async function handleStudentGalleryUpload(event) {
 
     setPerfilMediaStatus('Arquivo enviado para sua galeria.', 'success');
     await loadStudentMediaGallery(true);
+    refreshStudentCheckinViewIfVisible();
 }
 
 function openPerfilMediaViewer(index) {
@@ -16659,6 +17619,7 @@ async function deleteActivePerfilMedia() {
     setPerfilMediaStatus('Arquivo removido da galeria.', 'success');
     closePerfilMediaViewer();
     await loadStudentMediaGallery(true);
+    refreshStudentCheckinViewIfVisible();
 }
 
 function renderPerfilHistory(student) {
@@ -17017,13 +17978,13 @@ async function savePerfilUpdate() {
 
         closePerfilUpdateModal();
         renderStudentPerfil();
+        refreshStudentCheckinViewIfVisible();
 
         // Also update dashboard name if changed
         const nameEl = document.getElementById('dash-student-name');
         if (nameEl) nameEl.innerText = `Olá, ${(student.name || 'Aluno').split(' ')[0]} `;
         const sideEl = document.getElementById('side-student-name');
         if (sideEl) sideEl.innerText = (student.name || 'Aluno').split(' ')[0];
-        renderStudentBaseCalories(student);
     }
 }
 
@@ -17051,6 +18012,7 @@ function goToTrainerCreate() {
 }
 
 async function connectTrainer() {
+    setTrainerEvaluationMode(false);
     const activeUser = await getSupabaseSessionUser();
     if (!activeUser || !isEmailConfirmed(activeUser)) {
         alert('Faça login com e-mail e senha antes de acessar o painel do treinador.');
@@ -17144,55 +18106,75 @@ async function createConsultoria() {
 }
 
 // TRAINER DASHBOARD LOGIC (Runs on trainer.html)
-async function initTrainerDashboard() {
+async function initTrainerDashboard(options = {}) {
+    if (options?.force) {
+        trainerDashboardInitPromise = null;
+    }
     if (trainerDashboardInitPromise) {
         return trainerDashboardInitPromise;
     }
     const dashboardScreen = document.getElementById('trainer-dashboard-screen');
     const dashboardAlreadyActive = !!dashboardScreen?.classList.contains('active');
-    if (dashboardAlreadyActive && (Date.now() - trainerDashboardLastInitAt) < 280) {
+    if (!options?.force && dashboardAlreadyActive && (Date.now() - trainerDashboardLastInitAt) < 280) {
         return;
     }
 
     trainerDashboardInitPromise = (async () => {
         migrateStoredStudentsDietSchema();
 
-        const sessionUser = await getSupabaseSessionUser();
-        if (!sessionUser) {
-            hideAllScreens();
-            const trainerLoginScreen = document.getElementById('trainer-login-screen');
-            if (trainerLoginScreen) trainerLoginScreen.classList.add('active');
-            return;
+        const evaluationMode = isTrainerEvaluationModeActive();
+        let sessionUser = null;
+        let profile = null;
+        let trainerNameResolved = EVALUATION_TRAINER_NAME;
+        let trainerCodeResolved = EVALUATION_TRAINER_CODE;
+        let trainerIdentity = null;
+
+        if (evaluationMode) {
+            const demoIdentity = ensureEvaluationDemoData();
+            trainerIdentity = await setCurrentTrainerIdentity(demoIdentity || buildEvaluationTrainerIdentity(), {
+                code: EVALUATION_TRAINER_CODE,
+                name: EVALUATION_TRAINER_NAME,
+                services: 'ambos'
+            });
+        } else {
+            sessionUser = await getSupabaseSessionUser();
+            if (!sessionUser) {
+                hideAllScreens();
+                const trainerLoginScreen = document.getElementById('trainer-login-screen');
+                if (trainerLoginScreen) trainerLoginScreen.classList.add('active');
+                syncEvaluationShortcutVisibility();
+                return;
+            }
+
+            profile = await getProfileByUserId(sessionUser.id);
+            const sessionRoles = normalizeAppRoles(profile?.roles || sessionUser?.user_metadata?.roles, profile?.role || sessionUser?.user_metadata?.role);
+            if (!sessionRoles.includes('trainer')) {
+                alert('Acesso restrito ao treinador.');
+                window.location.href = 'index.html';
+                return;
+            }
+
+            trainerNameResolved = sanitizeUserInput(profile?.name || sessionUser?.user_metadata?.name || memoryGetItem('trainerName') || 'Treinador', { maxLen: 90 }) || 'Treinador';
+            trainerCodeResolved = sanitizeCodeInput(profile?.trainer_code || memoryGetItem('currentTrainerCode') || '', 5);
+            if (!trainerCodeResolved) {
+                trainerCodeResolved = await generateUniqueTrainerCode();
+                const updateRoles = normalizeAppRoles(profile?.roles, profile?.role || 'trainer');
+                if (!updateRoles.includes('trainer')) updateRoles.unshift('trainer');
+                await window.supabase
+                    .from('profiles')
+                    .update({ trainer_code: trainerCodeResolved, role: 'trainer', roles: updateRoles })
+                    .eq('id', sessionUser.id);
+            }
+            const resolvedIdentity = await resolveCurrentTrainerIdentity({
+                sessionUser,
+                trainerCode: trainerCodeResolved,
+                fallbackName: trainerNameResolved
+            });
+            trainerIdentity = await setCurrentTrainerIdentity(resolvedIdentity, {
+                code: trainerCodeResolved,
+                name: trainerNameResolved
+            });
         }
-
-    const profile = await getProfileByUserId(sessionUser.id);
-    const sessionRoles = normalizeAppRoles(profile?.roles || sessionUser?.user_metadata?.roles, profile?.role || sessionUser?.user_metadata?.role);
-    if (!sessionRoles.includes('trainer')) {
-        alert('Acesso restrito ao treinador.');
-        window.location.href = 'index.html';
-        return;
-    }
-
-    const trainerNameResolved = sanitizeUserInput(profile?.name || sessionUser?.user_metadata?.name || memoryGetItem('trainerName') || 'Treinador', { maxLen: 90 }) || 'Treinador';
-    let trainerCodeResolved = sanitizeCodeInput(profile?.trainer_code || memoryGetItem('currentTrainerCode') || '', 5);
-    if (!trainerCodeResolved) {
-        trainerCodeResolved = await generateUniqueTrainerCode();
-        const updateRoles = normalizeAppRoles(profile?.roles, profile?.role || 'trainer');
-        if (!updateRoles.includes('trainer')) updateRoles.unshift('trainer');
-        await window.supabase
-            .from('profiles')
-            .update({ trainer_code: trainerCodeResolved, role: 'trainer', roles: updateRoles })
-            .eq('id', sessionUser.id);
-    }
-    const resolvedIdentity = await resolveCurrentTrainerIdentity({
-        sessionUser,
-        trainerCode: trainerCodeResolved,
-        fallbackName: trainerNameResolved
-    });
-    const trainerIdentity = await setCurrentTrainerIdentity(resolvedIdentity, {
-        code: trainerCodeResolved,
-        name: trainerNameResolved
-    });
     const trainerCode = sanitizeCodeInput(trainerIdentity?.code || trainerCodeResolved || '', 5) || '00000';
     const refreshTrainerFromRemote = async ({ showPendingFeedback = false } = {}) => {
         if (!trainerCode || trainerCode === '00000') {
@@ -17224,11 +18206,11 @@ async function initTrainerDashboard() {
 
     pullAppStateIfNewer();
     startSyncPolling();
-    if (trainerCode && trainerCode !== '00000') {
+    if (!evaluationMode && trainerCode && trainerCode !== '00000') {
         void refreshTrainerFromRemote();
         startSupabaseRealtimeSync(trainerCode);
     }
-    if (isSupabaseReady()) {
+    if (!evaluationMode && isSupabaseReady()) {
         startSupabaseFoodsRealtimeSync();
         scheduleFoodsCatalogSync(30);
     }
@@ -17915,6 +18897,275 @@ function renderBillingHistory(history) {
     }).join('');
 }
 
+function renderTrainerAnamnesisTab(student = {}) {
+    const container = document.getElementById('trainer-anamnesis-content');
+    if (!container) return;
+    const anamnesis = getStudentAnamnesisSource(student || {});
+    if (!anamnesis || typeof anamnesis !== 'object') {
+        container.innerHTML = `
+            <div class="empty-state-card active" style="margin-top:0;border:none;">
+                <i class="ph-fill ph-clipboard-text" style="color:var(--text-muted)"></i>
+                <div class="empty-info">
+                    <h3>Anamnese não encontrada</h3>
+                    <p>O aluno ainda não finalizou o questionário completo.</p>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    const boolMap = { sim: 'Sim', nao: 'Não' };
+    const condicoesMap = {
+        diabetes: 'Diabetes',
+        hipertensao: 'Hipertensão',
+        sopro: 'Sopro cardíaco',
+        asma: 'Asma',
+        artrite: 'Artrite',
+        hernia: 'Hérnia de disco'
+    };
+    const restricoesMap = {
+        lactose: 'Lactose',
+        gluten: 'Glúten',
+        amendoim: 'Amendoim',
+        frutos_mar: 'Frutos do mar',
+        ovo: 'Ovo',
+        soja: 'Soja'
+    };
+    const diasMap = {
+        seg: 'Segunda',
+        ter: 'Terça',
+        qua: 'Quarta',
+        qui: 'Quinta',
+        sex: 'Sexta',
+        sab: 'Sábado',
+        dom: 'Domingo'
+    };
+    const fumoMap = { nao: 'Não fuma', ocasional: 'Ocasional', diario: 'Diário' };
+    const alcoolMap = { nao: 'Não bebe', fds: 'Fim de semana', diario: 'Diário' };
+    const trabalhoMap = { sentado: 'Sentado', em_pe: 'Em pé', movimento: 'Em movimento' };
+    const refeicoesMap = { '2': '2 refeições', '3': '3 refeições', '4': '4 refeições', '5': '5 refeições', '6': '6 refeições' };
+    const duracaoMap = { '30': '30 minutos', '45': '45 minutos', '60': '60 minutos', '75': '75 minutos', '90': '90 minutos' };
+
+    const toText = (value, fallback = 'Não informado') => {
+        const safe = sanitizeUserInput(value || '', { allowNewlines: true, maxLen: 320 }).trim();
+        return safe || fallback;
+    };
+    const mapValue = (value, dictionary = {}, fallback = 'Não informado') => {
+        const raw = sanitizeUserInput(value || '', { maxLen: 120 }).trim().toLowerCase();
+        if (!raw) return fallback;
+        return dictionary[raw] || toText(raw, fallback);
+    };
+    const listValue = (value, dictionary = {}, fallback = 'Não informado') => {
+        const items = Array.isArray(value) ? value : [];
+        if (!items.length) return fallback;
+        const normalized = items
+            .map((entry) => mapValue(entry, dictionary, ''))
+            .filter(Boolean);
+        return normalized.length ? normalized.join(', ') : fallback;
+    };
+    const yesNo = (value, fallback = 'Não informado') => mapValue(value, boolMap, fallback);
+    const formatValueHtml = (value = '') => escHtml(String(value || '')).replace(/\n/g, '<br>');
+
+    const saude = anamnesis.saude || {};
+    const nutricao = anamnesis.nutricao || {};
+    const rotina = anamnesis.rotina || {};
+    const treino = anamnesis.treino || {};
+    const metas = anamnesis.metas || {};
+
+    const sections = [
+        {
+            title: 'Saúde',
+            rows: [
+                { label: 'Dor em articulações', value: yesNo(saude.dor) },
+                { label: 'Quais dores', value: toText(saude.dor_desc, saude.dor === 'sim' ? 'Não informado' : 'Sem dor relatada') },
+                { label: 'Condições médicas', value: listValue(saude.condicoes, condicoesMap, 'Nenhuma condição marcada') },
+                { label: 'Uso de medicação contínua', value: yesNo(saude.med) },
+                { label: 'Quais medicamentos', value: toText(saude.med_desc, saude.med === 'sim' ? 'Não informado' : 'Não usa') },
+                { label: 'Já fez cirurgia', value: yesNo(saude.cirurgia) },
+                { label: 'Detalhes da cirurgia', value: toText(saude.cirurgia_desc, saude.cirurgia === 'sim' ? 'Não informado' : 'Nenhuma cirurgia informada') }
+            ]
+        },
+        {
+            title: 'Nutrição',
+            rows: [
+                { label: 'Restrições alimentares', value: listValue(nutricao.restricoes, restricoesMap, 'Nenhuma restrição marcada') },
+                { label: 'Alimentos que evita', value: toText(nutricao.nao_come) },
+                { label: 'Intestino regular', value: yesNo(nutricao.intestino) },
+                { label: 'Refeições por dia', value: mapValue(nutricao.refeicoes, refeicoesMap) }
+            ]
+        },
+        {
+            title: 'Rotina',
+            rows: [
+                { label: 'Horas de sono', value: rotina.sono ? `${toText(rotina.sono)} h` : 'Não informado' },
+                { label: 'Acorda descansado', value: yesNo(rotina.descansado) },
+                { label: 'Nível de estresse', value: rotina.estresse ? `${toText(rotina.estresse)}/10` : 'Não informado' },
+                { label: 'Tabagismo', value: mapValue(rotina.fumo, fumoMap) },
+                { label: 'Consumo de álcool', value: mapValue(rotina.alcool, alcoolMap) },
+                { label: 'Estilo de trabalho', value: mapValue(rotina.trabalho, trabalhoMap) }
+            ]
+        },
+        {
+            title: 'Treino',
+            rows: [
+                { label: 'Tempo de prática', value: toText(treino.tempo_pratica) },
+                { label: 'Exercícios que gosta', value: toText(treino.exercicios_ama) },
+                { label: 'Exercícios que não gosta', value: toText(treino.exercicios_detesta) },
+                { label: 'Dias disponíveis', value: listValue(treino.dias, diasMap) },
+                { label: 'Duração da sessão', value: mapValue(treino.duracao, duracaoMap) }
+            ]
+        },
+        {
+            title: 'Metas',
+            rows: [
+                { label: 'O que mais incomoda', value: toText(metas.incomoda) },
+                { label: 'Objetivo em 3 meses', value: toText(metas.objetivo_3_meses) },
+                { label: 'Experiência com consultoria', value: toText(metas.consultoria_antes) }
+            ]
+        }
+    ];
+
+    container.innerHTML = `
+        <div class="trainer-anamnesis-grid">
+            ${sections.map((section) => `
+                <article class="trainer-anamnesis-section">
+                    <header class="trainer-anamnesis-section-head">
+                        <h4>${escHtml(section.title)}</h4>
+                    </header>
+                    <div class="trainer-anamnesis-rows">
+                        ${(section.rows || []).map((row) => `
+                            <div class="trainer-anamnesis-row">
+                                <span class="trainer-anamnesis-row-label">${escHtml(row.label || '')}</span>
+                                <strong class="trainer-anamnesis-row-value">${formatValueHtml(row.value || 'Não informado')}</strong>
+                            </div>
+                        `).join('')}
+                    </div>
+                </article>
+            `).join('')}
+        </div>
+    `;
+}
+
+function getTrainerPaymentRequestStatusClass(status = '') {
+    const normalized = normalizePaymentRequestStatus(status);
+    if (normalized === 'aprovado') return 'approved';
+    if (normalized === 'recusado') return 'rejected';
+    return 'pending';
+}
+
+function renderStudentPaymentRequestsForTrainer(student = {}) {
+    const container = document.getElementById('student-payment-requests-list');
+    if (!container) return;
+    const requests = normalizeStudentPaymentRequests(student?.paymentRequests || student?.payment_requests || []);
+    if (!requests.length) {
+        container.innerHTML = '<div class="settings-payment-request-empty">Nenhuma solicitação enviada pelo aluno até agora.</div>';
+        return;
+    }
+
+    container.innerHTML = requests.map((request) => {
+        const statusClass = getTrainerPaymentRequestStatusClass(request.status);
+        const requestIdEncoded = encodeURIComponent(String(request.id || ''));
+        const requestedAt = formatStudentDateLabel(request.requestedAt);
+        const reviewedAt = request.reviewedAt ? formatStudentDateLabel(request.reviewedAt) : '--';
+        const amountLabel = request.amount ? formatStudentCurrencyBRL(request.amount) : 'Não informado';
+        return `
+            <div class="settings-payment-request-row state-${statusClass}">
+                <div class="settings-payment-request-head">
+                    <strong>${escHtml(formatStudentCompetenceLabel(request.competence || '') || '--')}</strong>
+                    <span class="settings-payment-request-status ${statusClass}">${escHtml(getPaymentRequestStatusLabel(request.status))}</span>
+                </div>
+                <div class="settings-payment-request-meta">
+                    <span>Valor: ${escHtml(amountLabel)}</span>
+                    <span>Solicitado em: ${escHtml(requestedAt)}</span>
+                    <span>Revisado em: ${escHtml(reviewedAt)}</span>
+                </div>
+                ${request.reviewNote ? `<p class="settings-payment-request-note">${escHtml(request.reviewNote)}</p>` : ''}
+                ${request.status === 'aguardando_confirmacao' ? `
+                    <div class="settings-payment-request-actions">
+                        <button class="btn-secondary btn-sm settings-local-btn" type="button" onclick="reviewStudentPaymentRequest('${requestIdEncoded}','aprovado')">
+                            <i class="ph-bold ph-check-circle"></i> Confirmar
+                        </button>
+                        <button class="btn-secondary btn-sm settings-local-btn danger" type="button" onclick="reviewStudentPaymentRequest('${requestIdEncoded}','recusado')">
+                            <i class="ph-bold ph-x-circle"></i> Recusar
+                        </button>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+function reviewStudentPaymentRequest(requestIdEncoded = '', decision = 'aprovado') {
+    const requestId = decodeURIComponent(String(requestIdEncoded || '').trim());
+    if (!requestId) return;
+    const targetDecision = String(decision || '').toLowerCase() === 'recusado' ? 'recusado' : 'aprovado';
+    const selection = resolveCurrentTrainerStudentSelection();
+    if (selection.idx < 0 || !selection.student) return;
+
+    const students = selection.students;
+    const student = { ...(students[selection.idx] || {}) };
+    const requests = normalizeStudentPaymentRequests(student.paymentRequests || student.payment_requests || []);
+    const requestIdx = requests.findIndex((request) => String(request?.id || '') === requestId);
+    if (requestIdx < 0) {
+        setStudentBillingInlineFeedback('Solicitação não encontrada para revisão.', 'error');
+        return;
+    }
+    if (requests[requestIdx].status !== 'aguardando_confirmacao') {
+        setStudentBillingInlineFeedback('Essa solicitação já foi revisada.', 'info');
+        return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const note = targetDecision === 'aprovado'
+        ? 'Pagamento confirmado pelo treinador.'
+        : 'Solicitação recusada pelo treinador.';
+    requests[requestIdx] = normalizeStudentPaymentRequest({
+        ...requests[requestIdx],
+        status: targetDecision,
+        reviewedAt: nowIso,
+        reviewNote: note
+    });
+
+    student.paymentRequests = requests;
+    student.payment_requests = requests;
+
+    if (targetDecision === 'aprovado') {
+        const request = requests[requestIdx];
+        const history = Array.isArray(student.billingHistory) ? [...student.billingHistory] : [];
+        const competence = sanitizeUserInput(request.competence || '', { maxLen: 7 });
+        if (competence) {
+            const historyEntry = normalizeBillingHistoryItem({
+                competence,
+                status: 'pago',
+                paidAt: nowIso,
+                updatedAt: nowIso
+            });
+            const historyIdx = history.findIndex((item) => String(item?.competence || '') === competence);
+            if (historyIdx >= 0) history[historyIdx] = { ...history[historyIdx], ...historyEntry };
+            else history.push(historyEntry);
+        }
+        student.billingHistory = history;
+        student.billingCurrentStatus = 'pago';
+        student.billingCurrentPaidAt = nowIso.slice(0, 10);
+        if (!sanitizePixAmountText(student.billingMonthlyAmount || '') && request.amount) {
+            student.billingMonthlyAmount = sanitizePixAmountText(request.amount);
+        }
+    }
+
+    students[selection.idx] = student;
+    currentStudentIdx = selection.idx;
+    currentTrainerStudentId = String(student.id || currentTrainerStudentId || '');
+    saveStudentData(students, { studentId: String(student.id || '') });
+    loadStudentBillingConfigTab(student, { preserveDirty: true });
+    setStudentBillingInlineFeedback(
+        targetDecision === 'aprovado'
+            ? 'Solicitação confirmada e financeiro atualizado.'
+            : 'Solicitação recusada.',
+        targetDecision === 'aprovado' ? 'success' : 'info'
+    );
+    updateTrainerStats(document.getElementById('alunos-search')?.value || document.getElementById('global-search')?.value || '');
+}
+
 function refreshBillingSummaryUI() {
     refreshStudentBillingSummaryUI();
 }
@@ -18043,7 +19294,7 @@ function applyStudentBillingHistoryFilters() {
     renderBillingHistory(billing.billingHistory);
 }
 
-function loadStudentBillingConfigTab(student = {}) {
+function loadStudentBillingConfigTab(student = {}, options = {}) {
     let billing = getStudentBillingData(student);
     const hasStudentBilling = !!(billing.billingStartDate || billing.billingMonthlyAmount || billing.billingCurrentPaidAt || billing.billingNotes || (billing.billingHistory || []).length);
     if (!hasStudentBilling) {
@@ -18062,9 +19313,10 @@ function loadStudentBillingConfigTab(student = {}) {
     if (notes) notes.value = billing.billingNotes || '';
     populateStudentBillingYearFilter(billing.billingHistory);
     renderBillingHistory(billing.billingHistory);
+    renderStudentPaymentRequestsForTrainer(student);
     refreshStudentBillingSummaryUI();
     setStudentBillingInlineFeedback('');
-    clearStudentConfigDirty();
+    if (options?.preserveDirty !== true) clearStudentConfigDirty();
     initStudentConfigUXBindings();
 }
 
@@ -20219,6 +21471,412 @@ function escapeHTML(str) {
         .replace(/'/g, "&#039;");
 }
 
+function setTrainerProfileText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+}
+
+function parsePositiveNumber(value) {
+    const parsed = parseDecimalSafe(value);
+    return parsed > 0 ? parsed : null;
+}
+
+function formatProfileNumber(value, decimals = 0) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return '--';
+    const fixed = Number.isInteger(parsed) ? String(parsed) : parsed.toFixed(decimals);
+    return fixed.replace('.', ',');
+}
+
+function formatProfileDateSafe(value, fallback = '--') {
+    if (!value) return fallback;
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return fallback;
+    return formatDate(value).trim();
+}
+
+function getTrainerStudentStatusMeta(student = {}) {
+    if (student.pending === true) {
+        return { label: 'Pendente', className: 'warning' };
+    }
+    if (student.active === false) {
+        return { label: 'Inativo', className: 'inactive' };
+    }
+    return { label: 'Ativo', className: 'active' };
+}
+
+function getTrainerStudentGenderLabel(value) {
+    const normalized = normalizeText(value);
+    if (normalized === 'm' || normalized.startsWith('masc')) return 'Masculino';
+    if (normalized === 'f' || normalized.startsWith('fem')) return 'Feminino';
+    return 'Não informado';
+}
+
+function getTrainerStudentMetricHistory(student = {}) {
+    const history = Array.isArray(student.metricHistory) ? student.metricHistory.slice() : [];
+    const currentWeight = parsePositiveNumber(student.weight || student.currentWeight);
+    const currentHeight = parsePositiveNumber(student.height);
+    const currentBodyFat = parsePositiveNumber(student.bodyFat || student.currentBF);
+    if (currentWeight || currentHeight || currentBodyFat) {
+        const latest = history[history.length - 1] || {};
+        const latestDate = latest.date ? new Date(latest.date) : null;
+        const currentDate = new Date();
+        const hasFreshCurrent = latestDate && Number.isFinite(latestDate.getTime())
+            && latestDate.toISOString().slice(0, 10) === currentDate.toISOString().slice(0, 10);
+        if (!hasFreshCurrent) {
+            history.push({
+                date: student.updatedAt || student._localPlanUpdatedAt || student.joinedAt || currentDate.toISOString(),
+                weight: currentWeight,
+                height: currentHeight,
+                bodyFat: currentBodyFat
+            });
+        }
+    }
+    return history
+        .filter((entry) => entry && typeof entry === 'object')
+        .sort((a, b) => {
+            const aTime = new Date(a.date || 0).getTime();
+            const bTime = new Date(b.date || 0).getTime();
+            return (Number.isFinite(aTime) ? aTime : 0) - (Number.isFinite(bTime) ? bTime : 0);
+        });
+}
+
+function getTrainerStudentCurrentBodyFat(student = {}, history = null) {
+    const direct = parsePositiveNumber(student.bodyFat || student.currentBF);
+    if (direct) return direct;
+    const items = Array.isArray(history) ? history : getTrainerStudentMetricHistory(student);
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+        const value = parsePositiveNumber(items[i]?.bodyFat);
+        if (value) return value;
+    }
+    return null;
+}
+
+function getTrainerStudentActivityProfile(student = {}, anamnesis = null) {
+    const explicit = sanitizeUserInput(
+        student.activityLevel
+        || student.activity
+        || student.nivelAtividade
+        || student.activity_level
+        || student.prof_atividade
+        || anamnesis?.rotina?.atividade
+        || anamnesis?.rotina?.nivel_atividade
+        || '',
+        { maxLen: 120 }
+    );
+    if (explicit) {
+        const normalized = normalizeText(explicit);
+        let multiplier = null;
+        if (normalized.includes('sedent')) multiplier = 1.2;
+        else if (normalized.includes('leve')) multiplier = 1.375;
+        else if (normalized.includes('moder')) multiplier = 1.55;
+        else if (normalized.includes('alto') || normalized.includes('intenso')) multiplier = 1.725;
+        return { label: explicit, hint: 'Informado no perfil', multiplier };
+    }
+
+    const days = Array.isArray(anamnesis?.treino?.dias) ? anamnesis.treino.dias.filter(Boolean).length : 0;
+    if (days > 0) {
+        return {
+            label: `${days} dia${days === 1 ? '' : 's'}/semana`,
+            hint: 'Dias disponíveis na anamnese',
+            multiplier: null
+        };
+    }
+
+    const workStyle = normalizeText(anamnesis?.rotina?.trabalho || '');
+    const workMap = {
+        sentado: 'Trabalho sentado',
+        em_pe: 'Trabalho em pé',
+        movimento: 'Trabalho em movimento'
+    };
+    if (workStyle && workMap[workStyle]) {
+        return { label: workMap[workStyle], hint: 'Rotina de trabalho', multiplier: null };
+    }
+
+    return { label: 'Não informado', hint: 'Sem dado de atividade na anamnese', multiplier: null };
+}
+
+function getTrainerStudentLatestWorkouts(studentId) {
+    const safeId = String(studentId || '');
+    if (!safeId) return [];
+    return readStorageJSON('workoutHistory', [])
+        .filter((entry) => String(entry?.ID_Usuario || '') === safeId)
+        .sort((a, b) => {
+            const aTime = new Date(a?.Data_Treino || a?.date || 0).getTime();
+            const bTime = new Date(b?.Data_Treino || b?.date || 0).getTime();
+            return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+        });
+}
+
+function renderTrainerStudentHeader(student = {}) {
+    const safeName = sanitizeUserInput(student.name || student.id || 'Aluno', { maxLen: 90 }) || 'Aluno';
+    const status = getTrainerStudentStatusMeta(student);
+    const nameEl = document.getElementById('prof-id-name');
+    if (nameEl) {
+        nameEl.textContent = safeName;
+        const badge = document.createElement('span');
+        badge.className = `badge ${status.className === 'inactive' ? 'inactive' : status.className}`;
+        badge.textContent = status.label;
+        nameEl.append(document.createTextNode(' '), badge);
+    }
+
+    const goalEl = document.getElementById('prof-goal');
+    const safeGoal = sanitizeUserInput(student.goal || '', { maxLen: 120 }) || 'Sem objetivo definido';
+    if (goalEl) {
+        const normalizedGoal = normalizeText(safeGoal);
+        const icon = document.createElement('i');
+        icon.className = normalizedGoal.includes('perder') || normalizedGoal.includes('emagrec')
+            ? 'ph-fill ph-fire'
+            : 'ph-fill ph-barbell';
+        icon.style.color = normalizedGoal.includes('perder') || normalizedGoal.includes('emagrec')
+            ? '#ef4444'
+            : 'var(--primary-color)';
+        goalEl.replaceChildren(icon, document.createTextNode(` ${safeGoal}`));
+    }
+}
+
+function renderTrainerProfileBadges(student = {}, activity = {}, latestWorkoutDate = null) {
+    const container = document.getElementById('prof-overview-badges');
+    if (!container) return;
+    const status = getTrainerStudentStatusMeta(student);
+    const activityMeta = getStudentActivityMeta(student);
+    const badges = [
+        { label: status.label, className: status.className },
+        { label: activityMeta.statusText, className: activityMeta.badgeClass },
+        { label: activity.label || 'Atividade não informada', className: 'neutral' }
+    ];
+    if (student.assessmentPending || student.pendingEvaluation) {
+        badges.push({ label: 'Avaliação pendente', className: 'warning' });
+    }
+    if (latestWorkoutDate) {
+        badges.push({ label: `Último treino ${formatRelativeDays(Math.max(0, diffDays(latestWorkoutDate, new Date())))}`, className: 'neutral' });
+    }
+    container.innerHTML = badges.map((badge) => `
+        <span class="student-profile-badge ${escapeHTML(badge.className)}">${escapeHTML(badge.label)}</span>
+    `).join('');
+}
+
+function renderTrainerProfileProgress(student = {}, history = []) {
+    const list = document.getElementById('trainer-profile-progress-list');
+    if (!list) return;
+    const items = history.slice(-5).reverse();
+    if (!items.length) {
+        list.innerHTML = `
+            <div class="student-profile-empty">
+                <i class="ph-bold ph-chart-line-up"></i>
+                <p>Sem medidas registradas para acompanhar evolução.</p>
+            </div>
+        `;
+        return;
+    }
+    list.innerHTML = items.map((entry, index) => {
+        const originalIndex = history.length - 1 - index;
+        const prev = originalIndex > 0 ? history[originalIndex - 1] : null;
+        const weight = parsePositiveNumber(entry.weight);
+        const bodyFat = parsePositiveNumber(entry.bodyFat);
+        const height = parsePositiveNumber(entry.height);
+        const weightDelta = weight && prev?.weight ? getPercentDelta(weight, parseFloat(prev.weight)) : null;
+        const bodyFatDelta = bodyFat && prev?.bodyFat ? getPercentDelta(bodyFat, parseFloat(prev.bodyFat)) : null;
+        return `
+            <div class="trainer-profile-progress-row">
+                <div>
+                    <strong>${escapeHTML(formatProfileDateSafe(entry.date, 'Sem data'))}</strong>
+                    <span>${weight ? `${formatProfileNumber(weight, 1)} kg` : '-- kg'}${height ? ` · ${formatProfileNumber(height, 0)} cm` : ''}${bodyFat ? ` · ${formatProfileNumber(bodyFat, 1)}% gordura` : ''}</span>
+                </div>
+                <div class="trainer-profile-progress-deltas">
+                    ${weightDelta !== null ? `<span class="${parseFloat(weightDelta) > 0 ? 'up' : parseFloat(weightDelta) < 0 ? 'down' : ''}">${parseFloat(weightDelta) > 0 ? '+' : ''}${escapeHTML(weightDelta)}% peso</span>` : '<span>Primeiro registro</span>'}
+                    ${bodyFatDelta !== null ? `<span class="${parseFloat(bodyFatDelta) > 0 ? 'up' : parseFloat(bodyFatDelta) < 0 ? 'down' : ''}">${parseFloat(bodyFatDelta) > 0 ? '+' : ''}${escapeHTML(bodyFatDelta)}% gordura</span>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderTrainerProfileAdherence(student = {}, latestWorkouts = []) {
+    const grid = document.getElementById('trainer-profile-adherence-grid');
+    if (!grid) return;
+    const now = new Date();
+    const last30Start = new Date(now);
+    last30Start.setDate(last30Start.getDate() - 30);
+    const workouts30 = latestWorkouts.filter((entry) => {
+        const date = new Date(entry?.Data_Treino || entry?.date || 0);
+        return Number.isFinite(date.getTime()) && date >= last30Start;
+    }).length;
+    const planCount = Array.isArray(student.workoutBlocks) ? student.workoutBlocks.length : 0;
+    const routine = normalizeRoutineShape(student.routine);
+    const dueHabits = routine.habits.filter((habit) => isHabitDueToday(habit));
+    const checkins = getTodayCheckinsMap(routine);
+    const doneHabits = dueHabits.filter((habit) => checkins.has(String(habit.id || ''))).length;
+    let dietLabel = 'Sem dieta registrada';
+    if (typeof getDietDailyCompletion === 'function') {
+        try {
+            const completion = getDietDailyCompletion(student, getTodayDateKey());
+            dietLabel = completion.total > 0 ? `${completion.done}/${completion.total} itens hoje (${completion.percent}%)` : 'Sem check-ins de dieta hoje';
+        } catch (err) {
+            dietLabel = 'Dieta sem dados de aderência';
+        }
+    }
+    const billing = getStudentBillingSnapshot(student);
+
+    const items = [
+        { icon: 'ph-barbell', label: 'Treinos em 30 dias', value: String(workouts30), hint: planCount ? `${planCount} bloco${planCount === 1 ? '' : 's'} prescritos` : 'Sem plano de treino' },
+        { icon: 'ph-check-square', label: 'Hábitos de hoje', value: `${doneHabits}/${dueHabits.length}`, hint: dueHabits.length ? 'Check-ins da rotina' : 'Sem hábitos para hoje' },
+        { icon: 'ph-fork-knife', label: 'Dieta hoje', value: dietLabel, hint: 'Aderência do plano alimentar' },
+        { icon: 'ph-currency-dollar', label: 'Financeiro', value: billing.statusLabel, hint: billing.monthLabel }
+    ];
+
+    grid.innerHTML = items.map((item) => `
+        <article class="trainer-profile-adherence-card">
+            <i class="ph-bold ${escapeHTML(item.icon)}"></i>
+            <span>${escapeHTML(item.label)}</span>
+            <strong>${escapeHTML(item.value)}</strong>
+            <small>${escapeHTML(item.hint)}</small>
+        </article>
+    `).join('');
+}
+
+function renderTrainerProfileAlerts(student = {}, anamnesis = null) {
+    const list = document.getElementById('trainer-profile-alerts-list');
+    if (!list) return;
+    const alerts = [];
+    if (!anamnesis) {
+        alerts.push({ type: 'warning', text: 'Anamnese ainda não encontrada.' });
+    } else {
+        const saude = anamnesis.saude || {};
+        const rotina = anamnesis.rotina || {};
+        const nutricao = anamnesis.nutricao || {};
+        if (saude.dor === 'sim') alerts.push({ type: 'danger', text: `Dor/limitação: ${sanitizeUserInput(saude.dor_desc || 'detalhe não informado', { maxLen: 140 })}` });
+        if (saude.med === 'sim') alerts.push({ type: 'warning', text: `Medicação contínua: ${sanitizeUserInput(saude.med_desc || 'detalhe não informado', { maxLen: 140 })}` });
+        if (saude.cirurgia === 'sim') alerts.push({ type: 'warning', text: `Histórico de cirurgia: ${sanitizeUserInput(saude.cirurgia_desc || 'detalhe não informado', { maxLen: 140 })}` });
+        if (Array.isArray(saude.condicoes) && saude.condicoes.length) alerts.push({ type: 'danger', text: `Condições médicas: ${saude.condicoes.map((item) => sanitizeUserInput(item, { maxLen: 40 })).join(', ')}` });
+        if (Array.isArray(nutricao.restricoes) && nutricao.restricoes.length) alerts.push({ type: 'warning', text: `Restrições alimentares: ${nutricao.restricoes.map((item) => sanitizeUserInput(item, { maxLen: 40 })).join(', ')}` });
+        const stress = parseIntegerSafe(rotina.estresse);
+        if (stress >= 7) alerts.push({ type: 'warning', text: `Estresse alto: ${stress}/10.` });
+        const sleep = parseDecimalSafe(rotina.sono);
+        if (sleep > 0 && sleep < 6) alerts.push({ type: 'warning', text: `Sono baixo: ${formatProfileNumber(sleep, 1)}h por noite.` });
+    }
+    if (!studentHasWorkoutPlan(student)) alerts.push({ type: 'warning', text: 'Aluno ainda sem plano de treino estruturado.' });
+    if (!Array.isArray(student.mealBlocks) || student.mealBlocks.length === 0) alerts.push({ type: 'warning', text: 'Aluno ainda sem plano alimentar.' });
+    if (student.assessmentPending || student.pendingEvaluation) alerts.push({ type: 'info', text: 'Avaliação do treinador pendente.' });
+
+    if (!alerts.length) {
+        list.innerHTML = `
+            <div class="student-profile-empty success">
+                <i class="ph-bold ph-check-circle"></i>
+                <p>Nenhum alerta relevante no momento.</p>
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = alerts.slice(0, 8).map((alert) => `
+        <div class="trainer-profile-alert ${escapeHTML(alert.type)}">
+            <i class="ph-bold ${alert.type === 'danger' ? 'ph-warning-octagon' : alert.type === 'info' ? 'ph-info' : 'ph-warning-circle'}"></i>
+            <span>${escapeHTML(alert.text)}</span>
+        </div>
+    `).join('');
+}
+
+function renderTrainerProfileNotes(student = {}) {
+    const list = document.getElementById('trainer-profile-notes-list');
+    if (!list) return;
+    const notes = [];
+    const pushNote = (label, value) => {
+        const text = sanitizeUserInput(value || '', { allowNewlines: true, maxLen: 280 }).trim();
+        if (text) notes.push({ label, text });
+    };
+    pushNote('Treinador', student.trainerNotes || student.coachNotes || student.notes || student.privateNotes);
+    const progressLogs = Array.isArray(student.progressLogs) ? student.progressLogs : [];
+    const latestProgress = progressLogs[progressLogs.length - 1];
+    if (latestProgress?.notes) pushNote(`Evolução ${formatProfileDateSafe(latestProgress.date, '')}`.trim(), latestProgress.notes);
+    pushNote('Cardio', student.cardioPlan?.coachRecommendation);
+    pushNote('Água', student.waterPlan?.notes);
+    pushNote('Financeiro', student.billingNotes);
+
+    if (!notes.length) {
+        list.innerHTML = `
+            <div class="student-profile-empty">
+                <i class="ph-bold ph-note-pencil"></i>
+                <p>Sem observações rápidas registradas para este aluno.</p>
+            </div>
+        `;
+        return;
+    }
+
+    list.innerHTML = notes.slice(0, 5).map((note) => `
+        <article class="trainer-profile-note">
+            <span>${escapeHTML(note.label)}</span>
+            <p>${escapeHTML(note.text).replace(/\n/g, '<br>')}</p>
+        </article>
+    `).join('');
+}
+
+function renderTrainerStudentProfileOverview(student = {}) {
+    if (!student || typeof student !== 'object') return;
+    const safeName = sanitizeUserInput(student.name || student.id || 'Aluno', { maxLen: 90 }) || 'Aluno';
+    const safeGoal = sanitizeUserInput(student.goal || '', { maxLen: 120 }) || 'Objetivo não informado.';
+    const anamnesis = getStudentAnamnesisSource(student);
+    const history = getTrainerStudentMetricHistory(student);
+    const latestMetric = history[history.length - 1] || {};
+    const prevMetric = history.length > 1 ? history[history.length - 2] : null;
+    const weight = parsePositiveNumber(student.weight || latestMetric.weight);
+    const height = parsePositiveNumber(student.height || latestMetric.height);
+    const bodyFat = getTrainerStudentCurrentBodyFat(student, history);
+    const age = parseIntegerSafe(student.age);
+    const tmbCalc = calcTMBMifflin(weight, height, age, student.gender);
+    const activity = getTrainerStudentActivityProfile(student, anamnesis);
+    const dietKcal = parsePositiveNumber(student.dietMeta?.kcal);
+    const registeredKcal = parsePositiveNumber(student.dailyKcal || student.gastoDiario || student.dailyCalories);
+    const estimatedKcal = (!registeredKcal && !dietKcal && tmbCalc > 0 && activity.multiplier)
+        ? Math.round(tmbCalc * activity.multiplier)
+        : null;
+    const calorieTarget = registeredKcal || dietKcal || estimatedKcal;
+    const calorieHint = registeredKcal
+        ? 'Registrado no aluno'
+        : dietKcal
+            ? 'Meta do plano alimentar'
+            : estimatedKcal
+                ? 'Estimado pela atividade'
+                : 'Sem meta definida';
+    const imc = weight && height ? parseFloat(calcIMC(weight, height)) : null;
+    const weightDelta = weight && prevMetric?.weight ? getPercentDelta(weight, parseFloat(prevMetric.weight)) : null;
+    const latestWorkouts = getTrainerStudentLatestWorkouts(student.id);
+    const latestWorkout = latestWorkouts[0] || null;
+    const latestWorkoutDate = latestWorkout
+        ? new Date(latestWorkout.Data_Treino || latestWorkout.date || 0)
+        : getLastWorkoutDateForStudent(student);
+    const validLatestWorkoutDate = latestWorkoutDate && Number.isFinite(latestWorkoutDate.getTime()) ? latestWorkoutDate : null;
+
+    renderTrainerStudentHeader(student);
+    setTrainerProfileText('prof-overview-name', safeName);
+    setTrainerProfileText('prof-overview-goal', safeGoal);
+    setTrainerProfileText('prof-idade', age > 0 ? `${age} anos` : '--');
+    setTrainerProfileText('prof-idade-hint', student.joinedAt ? `Aluno desde ${formatProfileDateSafe(student.joinedAt)}` : 'Nascimento não informado');
+    setTrainerProfileText('prof-peso', weight ? `${formatProfileNumber(weight, 1)} kg` : '--');
+    setTrainerProfileText('prof-peso-delta', weightDelta !== null ? `${parseFloat(weightDelta) > 0 ? '+' : ''}${weightDelta}% desde a última medida` : 'Sem histórico');
+    setTrainerProfileText('prof-altura', height ? `${formatProfileNumber(height, 0)} cm` : '--');
+    setTrainerProfileText('prof-imc', imc ? `IMC ${formatProfileNumber(imc, 1)} · ${getIMCLabel(imc)}` : 'IMC não calculado');
+    setTrainerProfileText('prof-genero', getTrainerStudentGenderLabel(student.gender));
+    setTrainerProfileText('prof-bodyfat', bodyFat ? `${formatProfileNumber(bodyFat, 1)}% gordura corporal` : 'Gordura não informada');
+    setTrainerProfileText('prof-tmb', tmbCalc > 0 ? `${Math.round(tmbCalc)} kcal` : '--');
+    setTrainerProfileText('prof-gasto', calorieTarget ? `${Math.round(calorieTarget)} kcal` : '--');
+    setTrainerProfileText('prof-gasto-hint', calorieHint);
+    setTrainerProfileText('prof-atividade', activity.label);
+    setTrainerProfileText('prof-atividade-hint', activity.hint);
+    setTrainerProfileText('prof-ultimo-treino', validLatestWorkoutDate ? formatRelativeDays(Math.max(0, diffDays(validLatestWorkoutDate, new Date()))) : '--');
+    setTrainerProfileText(
+        'prof-ultimo-treino-hint',
+        latestWorkout
+            ? `${formatProfileDateSafe(latestWorkout.Data_Treino || latestWorkout.date)} · ${sanitizeUserInput(latestWorkout.Nome_Treino || latestWorkout.title || 'Treino', { maxLen: 90 }) || 'Treino'}`
+            : 'Sem registros'
+    );
+    renderTrainerProfileBadges(student, activity, validLatestWorkoutDate);
+    renderTrainerProfileProgress(student, history);
+    renderTrainerProfileAdherence(student, latestWorkouts);
+    renderTrainerProfileAlerts(student, anamnesis);
+    renderTrainerProfileNotes(student);
+}
+
 
 function openStudentProfile(studentIndex) {
     let students = readStorageJSON('trainerStudents', []);
@@ -20237,24 +21895,11 @@ function openStudentProfile(studentIndex) {
 
     // Calculate TMB (Mifflin-St Jeor)
     const tmbCalc = calcTMBMifflin(s.weight, s.height, s.age, s.gender);
-    const kcalCalc = tmbCalc > 0 ? Math.round(tmbCalc * 1.55) : 0;
-
-    // Header
-    document.getElementById('prof-id-name').innerHTML =
-        `${s.name || s.id} <span class="badge ${s.active ? '' : 'inactive'}">${s.active ? 'Ativo' : 'Inativo'}</span>`;
-    let gIcon = 'ph-barbell', gColor = 'var(--primary-color)';
-    const safeGoal = String(s.goal || 'Sem objetivo definido');
-    if (safeGoal.toLowerCase().includes('perder') || safeGoal.toLowerCase().includes('emagrec')) { gIcon = 'ph-fire'; gColor = '#ef4444'; }
-    document.getElementById('prof-goal').innerHTML = `<i class="ph-fill ${gIcon}" style="color:${gColor}"></i> ${safeGoal}`;
-
-    // Perfil tab stats
-    document.getElementById('prof-idade').innerText = `${s.age} anos`;
-    document.getElementById('prof-peso').innerText = `${s.weight} kg`;
-    document.getElementById('prof-altura').innerText = `${s.height} cm`;
-    document.getElementById('prof-genero').innerText = s.gender === 'M' ? 'Masculino' : (s.gender === 'F' ? 'Feminino' : 'N/A');
-    document.getElementById('prof-tmb').innerText = tmbCalc > 0 ? `${Math.round(tmbCalc)} kcal` : '--';
-    document.getElementById('prof-gasto').innerText = kcalCalc > 0 ? `${kcalCalc} kcal` : '--';
-    document.getElementById('prof-atividade').innerText = 'Moderatamente Ativo';
+    const activity = getTrainerStudentActivityProfile(s, getStudentAnamnesisSource(s));
+    const registeredKcal = parsePositiveNumber(s.dailyKcal || s.gastoDiario || s.dailyCalories);
+    const dietKcal = parsePositiveNumber(s.dietMeta?.kcal);
+    const kcalCalc = registeredKcal || dietKcal || (tmbCalc > 0 && activity.multiplier ? Math.round(tmbCalc * activity.multiplier) : 0);
+    renderTrainerStudentProfileOverview(s);
 
     // Diet meta
     const diet = s.dietMeta || {};
@@ -20272,15 +21917,16 @@ function openStudentProfile(studentIndex) {
     document.getElementById('trainer-dashboard-screen').classList.remove('active');
     document.getElementById('trainer-student-profile-screen').classList.add('active');
 
-    // Render workout and open Treino tab
+    // Render workout and open Perfil tab
     renderWorkoutBlocks();
     renderMeals();
     renderTrainerCardioPlanEditor();
     renderTrainerWaterPlanEditor();
     renderTrainerRoutineSettingsEditor();
+    renderTrainerAnamnesisTab(s);
     loadStudentBillingConfigTab(s);
     clearStudentConfigDirty();
-    switchProfileTab('treino');
+    switchProfileTab('perfil');
     renderTrainerWorkoutHistory(currentTrainerStudentId);
 }
 
@@ -20342,6 +21988,12 @@ function switchProfileTab(tabName) {
             trainerRoutinePlan = normalizeRoutineShape(student.routine);
             renderTrainerRoutineSettingsEditor();
         }
+    } else if (resolvedTab === 'perfil') {
+        const selection = resolveCurrentTrainerStudentSelection();
+        if (selection.student) renderTrainerStudentProfileOverview(selection.student);
+    } else if (resolvedTab === 'anamnese') {
+        const selection = resolveCurrentTrainerStudentSelection();
+        renderTrainerAnamnesisTab(selection.student || {});
     }
 }
 

@@ -38,6 +38,10 @@
                             </svg>
                             Minha Dieta
                         </a>
+                        <a href="#" class="nav-item" id="snav-checkin" onclick="switchStudentView('checkin')">
+                            <i class="ph-bold ph-clipboard-text" aria-hidden="true"></i>
+                            Check-in
+                        </a>
                         <a href="#" class="nav-item" id="snav-agua" onclick="switchStudentView('agua')">
                             <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                 <path d="M12 4c-3.3 4-5 6.6-5 9a5 5 0 0 0 10 0c0-2.4-1.7-5-5-9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
@@ -63,24 +67,12 @@
                 <!-- Main Content -->
                 <main class="main-content">
                     <div id="view-student-home" class="view-section">
-                        <div class="dashboard-header" data-motion="hero">
+                        <div class="dashboard-header student-routine-hero" data-motion="hero">
                             <div class="user-info">
                                 <h2 id="dash-student-name">Olá, Aluno</h2>
-                                <p class="subtitle" style="display: flex; flex-direction: column; gap: 0.2rem;">
+                                <p class="subtitle student-routine-trainer-line">
                                     <span>Treinador: <span id="dash-student-trainer"
                                             class="highlight-code">Carregando...</span></span>
-                                    <span style="display: flex; align-items: center; gap: 0.4rem;">
-                                        Cód:
-                                        <div class="code-copy-wrapper"
-                                            onclick="copyAccessCode('student-code-ref', 'btn-copy-student-code')"
-                                            title="Clique para copiar">
-                                            <span id="student-code-ref" class="highlight-code"
-                                                style="color:var(--primary-color);">....</span>
-                                            <button class="btn-copy-tiny" type="button" aria-label="Copiar código do aluno" id="btn-copy-student-code">
-                                                <i class="ph-bold ph-copy"></i>
-                                            </button>
-                                        </div>
-                                    </span>
                                 </p>
                             </div>
                             <div class="student-home-top-actions">
@@ -93,21 +85,21 @@
                             </div>
                         </div>
 
-                        <div class="dashboard-stats" data-motion="surface">
-                            <div class="stat-card" data-motion="card">
-                                <div class="stat-icon">
+                        <div class="student-status-grid" data-motion="surface" aria-label="Status do protocolo">
+                            <div class="student-status-card" data-motion="card">
+                                <div class="student-status-icon">
                                     <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                         <path d="M3 9v6M6 7v10M18 7v10M21 9v6M6 12h12" fill="none" stroke="currentColor"
                                             stroke-width="2" stroke-linecap="round"></path>
                                     </svg>
                                 </div>
-                                <div class="stat-info">
+                                <div class="student-status-info">
                                     <h3 id="status-treino" class="text-warning">Pendente</h3>
                                     <p>Treino</p>
                                 </div>
                             </div>
-                            <div class="stat-card" data-motion="card">
-                                <div class="stat-icon">
+                            <div class="student-status-card" data-motion="card">
+                                <div class="student-status-icon">
                                     <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                         <path
                                             d="M12 8c-2.8 0-5 2.2-5 5 0 4.2 3.1 7 5 7s5-2.8 5-7c0-2.8-2.2-5-5-5zm0 0c.8-2.1 2.2-3.3 4.2-3.7"
@@ -115,29 +107,18 @@
                                             stroke-linejoin="round"></path>
                                     </svg>
                                 </div>
-                                <div class="stat-info">
+                                <div class="student-status-info">
                                     <h3 id="status-dieta" class="text-warning">Pendente</h3>
                                     <p>Dieta</p>
-                                </div>
-                            </div>
-                            <div class="stat-card" data-motion="card">
-                                <div class="stat-icon">
-                                    <svg class="ui-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                        <path d="M13 2L5 13h5l-1 9 8-11h-5l1-9z" fill="currentColor"></path>
-                                    </svg>
-                                </div>
-                                <div class="stat-info">
-                                    <h3 id="status-gasto-base">--</h3>
-                                    <p id="status-gasto-base-hint">Meta Calórica Diária</p>
                                 </div>
                             </div>
                         </div>
 
                         <section id="student-home-v2" class="student-home-v2" data-motion="surface">
-                            <article class="home-v2-card next-workout-card" data-motion="home-card">
+                            <article class="home-v2-card next-workout-card home-v2-card-wide" data-motion="home-card">
                                 <div class="home-v2-card-head">
                                     <h3><i class="ph-bold ph-barbell"></i> Próximo treino</h3>
-                                    <button type="button" class="home-v2-link-btn" onclick="switchStudentView('treino')">Abrir treino</button>
+                                    <button type="button" class="home-v2-link-btn" data-student-routine-action="open-workout">Abrir treino</button>
                                 </div>
                                 <div id="student-next-workout-card-body"></div>
                             </article>
@@ -145,7 +126,7 @@
                             <article class="home-v2-card" data-motion="home-card">
                                 <div class="home-v2-card-head">
                                     <h3><i class="ph-bold ph-check-square"></i> Minha rotina</h3>
-                                    <button type="button" class="home-v2-link-btn" onclick="openRoutineHabitModal()">Adicionar hábito</button>
+                                    <button type="button" class="home-v2-link-btn" data-student-routine-action="add-habit">Adicionar hábito</button>
                                 </div>
                                 <div id="student-routine-list" class="student-routine-list"></div>
                             </article>
@@ -153,40 +134,27 @@
                             <article class="home-v2-card" data-motion="home-card">
                                 <div class="home-v2-card-head">
                                     <h3><i class="ph-bold ph-bell-ringing"></i> Lembretes de hoje</h3>
-                                    <button type="button" class="home-v2-link-btn" onclick="openRoutineReminderModal()">Novo lembrete</button>
+                                    <button type="button" class="home-v2-link-btn" data-student-routine-action="add-reminder">Novo lembrete</button>
                                 </div>
                                 <div id="student-reminders-list" class="student-reminders-list"></div>
                             </article>
 
-                            <article class="home-v2-card" data-motion="home-card">
+                            <article class="home-v2-card routine-base-card" data-motion="home-card">
+                                <div class="home-v2-card-head">
+                                    <h3><i class="ph-bold ph-repeat"></i> Rotina base</h3>
+                                    <span class="home-v2-soft-label">recorrentes</span>
+                                </div>
+                                <div id="student-routine-base-list" class="student-routine-base-list"></div>
+                            </article>
+
+                            <article class="home-v2-card student-cardio-card" data-motion="home-card">
                                 <div class="home-v2-card-head">
                                     <h3><i class="ph-bold ph-gauge"></i> Cardio da semana</h3>
-                                    <button type="button" class="home-v2-link-btn" onclick="switchStudentView('cardio')">Abrir cardio</button>
+                                    <button type="button" class="home-v2-link-btn" data-student-routine-action="open-cardio">Abrir cardio</button>
                                 </div>
                                 <div id="student-routine-cardio-summary" class="student-routine-cardio-summary"></div>
                             </article>
                         </section>
-
-                        <div class="student-goals" data-motion="surface">
-                            <h3 class="section-title">MINHAS METAS</h3>
-                            <div class="goals-grid">
-                                <div class="goal-card" data-motion="card">
-                                    <span class="goal-label">Objetivo</span>
-                                    <strong id="goal-main">--</strong>
-                                    <span id="goal-sub" class="goal-sub">Sem objetivo definido</span>
-                                </div>
-                                <div class="goal-card" data-motion="card">
-                                    <span class="goal-label">Peso Atual</span>
-                                    <strong id="goal-weight">--</strong>
-                                    <span id="goal-weight-delta" class="goal-sub">Sem histórico</span>
-                                </div>
-                                <div class="goal-card" data-motion="card">
-                                    <span class="goal-label">Meta Calórica</span>
-                                    <strong id="goal-kcal">--</strong>
-                                    <span id="goal-kcal-hint" class="goal-sub">meta diária</span>
-                                </div>
-                            </div>
-                        </div>
 
                         <div class="student-notes" data-motion="surface">
                             <h3 class="section-title">NOTAS DO TREINADOR</h3>
@@ -597,6 +565,27 @@
                         </div>
                         <div id="diet-day-actions-inline" class="diet-day-actions-inline"></div>
                         <div id="student-diet-content-main" class="protocol-content-list">
+                            <!-- Dynamic Content -->
+                        </div>
+                    </div>
+
+                    <!-- VIEW: CHECK-IN -->
+                    <div id="view-student-checkin" class="view-section" style="display: none;">
+                        <div class="dashboard-header student-checkin-hero" data-motion="hero">
+                            <div class="user-info">
+                                <h2>Check-in semanal</h2>
+                                <p id="student-checkin-subtitle" class="subtitle">Atualize peso, fotos e observações da semana.</p>
+                            </div>
+                            <div class="student-checkin-hero-actions">
+                                <button class="btn-secondary" type="button" onclick="openStudentEvolutionFromCheckin()">
+                                    <i class="ph-bold ph-chart-line-up"></i> Evolução
+                                </button>
+                                <button class="btn-primary" type="button" onclick="toggleStudentWeeklyCheckinStatus()">
+                                    <i class="ph-bold ph-check-circle"></i> Concluir
+                                </button>
+                            </div>
+                        </div>
+                        <div id="student-checkin-content-main" class="student-checkin-content">
                             <!-- Dynamic Content -->
                         </div>
                     </div>
@@ -1112,6 +1101,10 @@
                     <button type="button" class="student-mobile-nav-item" id="m-snav-dieta" onclick="switchStudentView('dieta')" aria-label="Abrir dieta">
                         <i class="ph-bold ph-bowl-food"></i>
                         <span>Dieta</span>
+                    </button>
+                    <button type="button" class="student-mobile-nav-item" id="m-snav-checkin" onclick="switchStudentView('checkin')" aria-label="Abrir check-in semanal">
+                        <i class="ph-bold ph-clipboard-text"></i>
+                        <span>Check-in</span>
                     </button>
                     <button type="button" class="student-mobile-nav-item" id="m-snav-agua" onclick="switchStudentView('agua')" aria-label="Abrir água">
                         <i class="ph-bold ph-drop"></i>
