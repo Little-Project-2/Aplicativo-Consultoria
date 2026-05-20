@@ -217,24 +217,88 @@ function memoryClear() {
 }
 
 const ADMIN_STUDENT_CODE = '12345';
-const ADMIN_STUDENT_NAME = 'Nicolas';
+const ADMIN_STUDENT_NAME = 'Aluno Teste';
 const SELF_TRAINING_STUDENT_CODE = '77777';
-const SELF_TRAINING_STUDENT_NAME = 'Diego';
+const SELF_TRAINING_STUDENT_NAME = 'Aluno Teste';
 const SELF_TRAINING_STUDENT_CODES = [SELF_TRAINING_STUDENT_CODE];
 const ENABLE_DEMO_ACCESS = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 const EVALUATION_TRAINER_CODE = '00001';
-const EVALUATION_TRAINER_NAME = 'Treinador Demo';
+const EVALUATION_TRAINER_NAME = 'Treinador Teste';
 const TRAINER_EVALUATION_MODE_KEY = 'trainer_evaluation_mode_v1';
+const TEST_ACCOUNT_SWITCH_MODE_KEY = 'test_account_switch_mode_v1';
+const TEST_ACCOUNT_SWITCH_CONTEXT_KEY = 'test_account_switch_context_v1';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TRAINER_SETTINGS_KEY = 'trainer_settings_v1';
 const PENDING_SIGNUP_CONTEXT_KEY = 'pending_signup_context_v1';
+const TRAINER_INVITE_STATE_KEY = 'pendingTrainerInvite';
+const TRAINER_INVITE_QUERY_KEYS = [
+    'invite',
+    'convite',
+    'trainer',
+    'trainerCode',
+    'trainer_code',
+    'code',
+    'trainerName',
+    'name',
+    'consultoria',
+    'avatar'
+];
 const AUTH_MIGRATION_DONE_KEY = 'migration_done_v1';
 const STUDENT_CONNECT_TUTORIAL_KEY = 'student_connect_tutorial_v1';
 let activeDashboardFilter = 'all';
 let activeEngagementRange = 7;
-let lastMainTrainerView = 'dashboard';
+let lastMainTrainerView = 'alunos';
 let trainerDrawerOpen = false;
 let trainerRouteLock = false;
+let pendingTrainerCode = '';
+let pendingTrainerCandidate = null;
+let pendingTrainerInviteContext = null;
+const TRAINER_UI_TEXT = {
+    views: {
+        dashboard: {
+            title: 'Painel',
+            subtitle: 'Visão rápida do engajamento e progresso dos alunos.',
+            primaryAction: 'Gerenciar alunos'
+        },
+        alunos: {
+            title: 'Alunos',
+            subtitle: 'Gestão operacional da sua base de alunos.',
+            primaryAction: 'Novo Aluno'
+        },
+        duvidas: {
+            title: 'Dúvidas dos Alunos',
+            subtitle: 'Central de mensagens para responder rapidamente.'
+        },
+        config: {
+            title: 'Configurações',
+            subtitle: 'Ajustes operacionais e preferências da consultoria.'
+        }
+    },
+    labels: {
+        navDashboard: 'Painel',
+        navAlunos: 'Alunos',
+        mobileDashboard: 'Painel',
+        mobileAlunos: 'Alunos',
+        sidebarSearch: 'Buscar'
+    },
+    placeholders: {
+        studentSearch: 'Buscar aluno ou treino...',
+        chatSearch: 'Buscar conversas...'
+    },
+    messages: {
+        discardConfigChanges: 'Você tem alterações não salvas no perfil. Deseja descartar e sair de Configurações?',
+        noActiveStudents: 'Nenhum aluno ativo ainda.',
+        noStudentsForFilter: 'Nenhum aluno corresponde à busca ou ao filtro.',
+        noStudentsToDisplay: 'Nenhum aluno para exibir.'
+    }
+};
+let trainerStudentListState = {
+    query: '',
+    filtro: 'all',
+    sort: 'prioridade',
+    page: 1,
+    pageSize: 12
+};
 const TRAINER_DASHBOARD_TUTORIAL_KEY = 'trainer_dashboard_tutorial_v1';
 let authStateListenerBound = false;
 let authRouteInFlight = null;
@@ -246,6 +310,9 @@ let trainerDashboardInitPromise = null;
 let trainerDashboardLastInitAt = 0;
 let trainerDashboardManualRefreshPromise = null;
 let trainerDashboardRefreshTimer = null;
+let trainerDashboardBootCycle = 0;
+let trainerDashboardRenderedCycle = 0;
+let trainerDashboardDeferredCycle = 0;
 let studentDashboardInitPromise = null;
 let studentDashboardLastInitAt = 0;
 let studentDashboardBootPromise = null;
@@ -288,6 +355,13 @@ let activeStudentPaymentRequestId = '';
 let activeStudentConfigSection = 'perfil';
 let studentQuestionnaireEditContext = null;
 let activeStudentPaymentModalState = null;
+const TRAINER_CONFIG_SECTION_IDS = ['trainer-hub-operation', 'trainer-config-access', 'trainer-profile-studio', 'trainer-config-branding', 'trainer-config-reset'];
+const FULL_TABS_RESET_MODE_KEY = 'trainer_full_tabs_reset_mode_v1';
+const FULL_TABS_RESET_BACKUP_KEY = 'purge_backup_v1_last';
+const FULL_TABS_RESET_REQUIRED_PHRASE = 'RESETAR TUDO';
+let fullTabsResetMode = memoryGetItem(FULL_TABS_RESET_MODE_KEY) === '1';
+let fullTabsResetInFlight = false;
+let fullTabsResetStep = 'idle';
 
 function getMigrationDoneKey(userId = '') {
     const safeId = String(userId || '').trim();
@@ -371,6 +445,8 @@ function clearAuthRuntimeContext() {
     memoryRemoveItem('currentTrainerCode');
     memoryRemoveItem('trainerCodeDefault');
     memoryRemoveItem('currentAnamnesis');
+    memoryRemoveItem(TEST_ACCOUNT_SWITCH_MODE_KEY);
+    memoryRemoveItem(TEST_ACCOUNT_SWITCH_CONTEXT_KEY);
     studentMediaState = {
         loading: false,
         items: [],
@@ -624,6 +700,7 @@ function openStudentDashboardSession(student) {
     const app = document.getElementById('app');
     if (app) app.classList.add('wide');
     studentDashboardScreen.classList.add('active');
+    syncTestAccountSwitcherUI();
     studentConnectTutorialShownInSession = false;
     void bootStudentDashboardSession('home');
     return true;
@@ -686,6 +763,10 @@ async function bootStudentDashboardSession(defaultView = 'home') {
 }
 
 function refreshTrainerProfilePanelFromStorage(studentsSnapshot = null) {
+    if (isFullTabsResetModeEnabled()) {
+        clearTrainerProfileTabsForReset();
+        return;
+    }
     const profileScreen = document.getElementById('trainer-student-profile-screen');
     if (!profileScreen || !profileScreen.classList.contains('active')) return;
     if (currentStudentIdx === null && !currentTrainerStudentId) return;
@@ -710,6 +791,10 @@ function refreshTrainerProfilePanelFromStorage(studentsSnapshot = null) {
 }
 
 function scheduleTrainerDashboardRefresh(options = {}) {
+    if (isFullTabsResetModeEnabled()) {
+        applyFullTabsResetUi();
+        return;
+    }
     const delayMs = Math.max(0, parseInt(options?.delayMs, 10) || 90);
     const refreshProfile = options?.refreshProfile !== false;
     if (trainerDashboardRefreshTimer) clearTimeout(trainerDashboardRefreshTimer);
@@ -722,6 +807,241 @@ function scheduleTrainerDashboardRefresh(options = {}) {
             refreshTrainerProfilePanelFromStorage(options?.students || null);
         }
     }, delayMs);
+}
+
+function scheduleTrainerDeferredTask(task, delayMs = 0) {
+    if (typeof task !== 'function') return;
+    const executeTask = () => {
+        setTimeout(() => {
+            try {
+                task();
+            } catch (error) {
+                console.warn('Falha ao executar tarefa pós-boot do treinador.', error);
+            }
+        }, Math.max(0, parseInt(delayMs, 10) || 0));
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => executeTask(), { timeout: 900 });
+        return;
+    }
+    setTimeout(executeTask, 48);
+}
+
+function setTrainerDashboardRuntimeFallback(visible = false, message = '') {
+    const fallback = document.getElementById('trainer-dashboard-runtime-fallback');
+    const fallbackMessage = document.getElementById('trainer-dashboard-runtime-fallback-msg');
+    if (!fallback) return;
+    fallback.style.display = visible ? '' : 'none';
+    if (fallbackMessage && visible) {
+        fallbackMessage.textContent = message || 'Houve uma falha durante a atualização. Tente novamente.';
+    }
+}
+
+async function retryTrainerDashboardInit() {
+    setTrainerDashboardRuntimeFallback(false);
+    await initTrainerDashboard({ force: true });
+}
+
+function runTrainerDashboardInitialRenderCycle(cycle = 0) {
+    if (!Number.isFinite(cycle) || cycle <= 0) return;
+    if (trainerDashboardRenderedCycle === cycle) return;
+    trainerDashboardRenderedCycle = cycle;
+    if (isFullTabsResetModeEnabled()) {
+        applyFullTabsResetUi();
+        initTrainerRoutes();
+        return;
+    }
+    updateTrainerStats();
+    initTrainerRoutes();
+}
+
+function initTrainerDashboardMobileGestures(refreshTrainerFromRemote) {
+    const mainContent = document.querySelector('.main-content');
+    if (!mainContent || mainContent.dataset.swipeInit === '1') return;
+
+    let startX = 0;
+    let startY = 0;
+    let isSwiping = false;
+    let isPulling = false;
+    let pullIndicator = null;
+
+    const createPullIndicator = () => {
+        if (pullIndicator) return;
+        pullIndicator = document.createElement('div');
+        pullIndicator.style.cssText = `
+            position: absolute;
+            top: -60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(163, 230, 53, 0.9);
+            color: #000;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 1000;
+            pointer-events: none;
+            backdrop-filter: blur(10px);
+        `;
+        pullIndicator.textContent = 'Puxe para atualizar';
+        mainContent.style.position = 'relative';
+        mainContent.appendChild(pullIndicator);
+    };
+
+    mainContent.addEventListener('touchstart', (e) => {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        isSwiping = true;
+
+        if (mainContent.scrollTop === 0) {
+            isPulling = true;
+            createPullIndicator();
+        }
+    }, { passive: true });
+
+    mainContent.addEventListener('touchmove', (e) => {
+        if (!isSwiping) return;
+        const deltaX = e.touches[0].clientX - startX;
+        const deltaY = e.touches[0].clientY - startY;
+
+        if (isPulling && deltaY > 0 && mainContent.scrollTop === 0) {
+            const pullDistance = Math.min(deltaY * 0.5, 80);
+            if (pullIndicator) {
+                pullIndicator.style.transform = `translateX(-50%) translateY(${pullDistance}px)`;
+                pullIndicator.style.opacity = Math.min(pullDistance / 40, 1);
+            }
+            e.preventDefault();
+            return;
+        }
+
+        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    mainContent.addEventListener('touchend', (e) => {
+        if (!isSwiping) return;
+        const endX = e.changedTouches[0].clientX;
+        const endY = e.changedTouches[0].clientY;
+        const deltaX = endX - startX;
+        const deltaY = endY - startY;
+
+        if (isPulling && deltaY > 60) {
+            if (navigator.vibrate) navigator.vibrate(50);
+            const indicatorEl = pullIndicator;
+            if (indicatorEl) {
+                indicatorEl.textContent = 'Atualizando...';
+                indicatorEl.style.background = 'rgba(163, 230, 53, 0.95)';
+            }
+            void (async () => {
+                const refreshed = typeof refreshTrainerFromRemote === 'function'
+                    ? await refreshTrainerFromRemote({ showPendingFeedback: true })
+                    : false;
+                if (!indicatorEl) return;
+                indicatorEl.textContent = refreshed ? 'Atualizado' : 'Falha ao atualizar';
+                indicatorEl.style.background = refreshed
+                    ? 'rgba(34, 197, 94, 0.9)'
+                    : 'rgba(239, 68, 68, 0.92)';
+                setTimeout(() => {
+                    indicatorEl.style.opacity = '0';
+                    setTimeout(() => {
+                        indicatorEl.remove();
+                        if (pullIndicator === indicatorEl) pullIndicator = null;
+                    }, 300);
+                }, refreshed ? 900 : 1400);
+            })();
+        } else if (pullIndicator) {
+            pullIndicator.style.transform = 'translateX(-50%) translateY(0)';
+            pullIndicator.style.opacity = '0';
+            const indicatorEl = pullIndicator;
+            setTimeout(() => {
+                indicatorEl?.remove();
+                if (pullIndicator === indicatorEl) pullIndicator = null;
+            }, 300);
+        }
+
+        const minSwipeDistance = 100;
+        const maxVerticalMovement = 50;
+        if (Math.abs(deltaX) > minSwipeDistance && Math.abs(deltaY) < maxVerticalMovement && !isPulling) {
+            const views = ['dashboard', 'alunos', 'duvidas', 'config'];
+            const currentView = views.find((viewKey) => document.getElementById(`view-${viewKey}`)?.style.display !== 'none') || 'dashboard';
+            const currentIndex = views.indexOf(currentView);
+            if (deltaX > 0) {
+                const prevIndex = currentIndex > 0 ? currentIndex - 1 : views.length - 1;
+                switchDashView(views[prevIndex]);
+            } else {
+                const nextIndex = currentIndex < views.length - 1 ? currentIndex + 1 : 0;
+                switchDashView(views[nextIndex]);
+            }
+            if (navigator.vibrate) navigator.vibrate(25);
+        }
+
+        isSwiping = false;
+        isPulling = false;
+    });
+
+    mainContent.dataset.swipeInit = '1';
+}
+
+function initTrainerDashboardSwipeHint() {
+    if (memoryGetItem('swipeHintShown')) return;
+    const hint = document.createElement('div');
+    hint.style.cssText = `
+        position: fixed;
+        bottom: 120px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 25px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        z-index: 2000;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        animation: slideUpFade 0.5s ease, fadeOut 0.5s ease 3s forwards;
+        pointer-events: none;
+    `;
+    hint.textContent = 'Deslize para navegar entre as telas';
+    document.body.appendChild(hint);
+    setTimeout(() => hint.remove(), 4000);
+    memorySetItem('swipeHintShown', 'true');
+}
+
+function runDeferredTrainerDashboardBootTasks({
+    evaluationMode = false,
+    trainerCode = '',
+    refreshTrainerFromRemote = null,
+    cycle = 0
+} = {}) {
+    if (!Number.isFinite(cycle) || cycle <= 0) return;
+    if (trainerDashboardDeferredCycle === cycle) return;
+    trainerDashboardDeferredCycle = cycle;
+    if (isFullTabsResetModeEnabled()) return;
+
+    scheduleTrainerDeferredTask(() => {
+        pullAppStateIfNewer();
+        startSyncPolling();
+
+        const safeCode = sanitizeCodeInput(trainerCode || '', 5);
+        if (!evaluationMode && safeCode && safeCode !== '00000') {
+            if (typeof refreshTrainerFromRemote === 'function') {
+                void refreshTrainerFromRemote();
+            }
+            startSupabaseRealtimeSync(safeCode);
+        }
+
+        if (!evaluationMode && isSupabaseReady()) {
+            startSupabaseFoodsRealtimeSync();
+            scheduleFoodsCatalogSync(30);
+        }
+
+        initTrainerDashboardMobileGestures(refreshTrainerFromRemote);
+        setTimeout(initTrainerDashboardSwipeHint, 1600);
+    });
 }
 
 function sanitizeUserInput(value, options = {}) {
@@ -864,7 +1184,7 @@ function getStudentActivityMeta(student) {
         return {
             badgeClass: 'warning',
             statusText: 'Sem treino',
-            lastWorkoutText: 'Ultimo treino: sem registros',
+            lastWorkoutText: 'Último treino: sem registros',
             days: null
         };
     }
@@ -873,7 +1193,7 @@ function getStudentActivityMeta(student) {
     return {
         badgeClass: alert ? 'alert' : 'active',
         statusText: alert ? 'Inativo/Alerta' : 'Ativo',
-        lastWorkoutText: `Ultimo treino: ${formatRelativeDays(days)}`,
+        lastWorkoutText: `Último treino: ${formatRelativeDays(days)}`,
         days
     };
 }
@@ -901,6 +1221,648 @@ function getPendingDuvidaStudentIds(notifications = [], students = []) {
     return pendingSet;
 }
 
+function normalizeTrainerStudentListSort(sortKey = '') {
+    const safe = String(sortKey || '').trim().toLowerCase();
+    if (['prioridade', 'recentes', 'nome'].includes(safe)) return safe;
+    return 'prioridade';
+}
+
+function setTrainerStudentListSort(sortKey = 'prioridade') {
+    const nextSort = normalizeTrainerStudentListSort(sortKey);
+    if (trainerStudentListState.sort === nextSort) return;
+    trainerStudentListState.sort = nextSort;
+    trainerStudentListState.page = 1;
+    updateTrainerStats();
+}
+
+function changeTrainerStudentPage(delta = 0) {
+    const step = parseIntegerSafe(delta) || 0;
+    if (!step) return;
+    const nextPage = Math.max(1, (parseIntegerSafe(trainerStudentListState.page) || 1) + step);
+    if (nextPage === trainerStudentListState.page) return;
+    trainerStudentListState.page = nextPage;
+    updateTrainerStats();
+}
+
+function getTrainerStudentPriorityScore(student = {}, pendingDuvidaSet = new Set()) {
+    let score = 0;
+    const billingStatus = getStudentBillingSnapshot(student).status;
+    if (billingStatus === 'atrasado') score += 1000;
+    else if (billingStatus === 'pendente') score += 700;
+    if (!studentHasWorkoutPlan(student)) score += 420;
+    if (pendingDuvidaSet.has(String(student?.id || ''))) score += 340;
+    if (student?.assessmentPending || student?.pendingEvaluation) score += 280;
+    const activity = getStudentActivityMeta(student);
+    if (activity.days === null) score += 140;
+    else score += Math.min(120, Math.max(0, activity.days * 4));
+    return score;
+}
+
+function sortTrainerStudentsByState(students = [], pendingDuvidaSet = new Set()) {
+    const safeStudents = Array.isArray(students) ? [...students] : [];
+    const sortMode = normalizeTrainerStudentListSort(trainerStudentListState.sort);
+    if (sortMode === 'nome') {
+        return safeStudents.sort((left, right) => String(left?.name || '').localeCompare(String(right?.name || ''), 'pt-BR'));
+    }
+    if (sortMode === 'recentes') {
+        return safeStudents.sort((left, right) => {
+            const leftDate = parseIsoTimestampMs(left?.updatedAt || left?.updated_at || left?.joinedAt || left?.createdAt || 0);
+            const rightDate = parseIsoTimestampMs(right?.updatedAt || right?.updated_at || right?.joinedAt || right?.createdAt || 0);
+            return rightDate - leftDate;
+        });
+    }
+    return safeStudents.sort((left, right) => {
+        const leftScore = getTrainerStudentPriorityScore(left, pendingDuvidaSet);
+        const rightScore = getTrainerStudentPriorityScore(right, pendingDuvidaSet);
+        if (leftScore !== rightScore) return rightScore - leftScore;
+        const leftDays = getStudentActivityMeta(left).days;
+        const rightDays = getStudentActivityMeta(right).days;
+        const leftStale = Number.isFinite(leftDays) ? leftDays : -1;
+        const rightStale = Number.isFinite(rightDays) ? rightDays : -1;
+        if (leftStale !== rightStale) return rightStale - leftStale;
+        return String(left?.name || '').localeCompare(String(right?.name || ''), 'pt-BR');
+    });
+}
+
+function applyTrainerDashboardStaticCopy() {
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el && value) el.textContent = value;
+    };
+    setText('trainer-sidebar-search-label', TRAINER_UI_TEXT.labels.sidebarSearch);
+    setText('trainer-nav-label-dashboard', TRAINER_UI_TEXT.labels.navDashboard);
+    setText('trainer-nav-label-alunos', TRAINER_UI_TEXT.labels.navAlunos);
+    const mobileDashboard = document.querySelector('#m-nav-dashboard span');
+    if (mobileDashboard) mobileDashboard.textContent = TRAINER_UI_TEXT.labels.mobileDashboard;
+    const mobileAlunos = document.querySelector('#m-nav-alunos span');
+    if (mobileAlunos) mobileAlunos.textContent = TRAINER_UI_TEXT.labels.mobileAlunos;
+}
+
+function isFullTabsResetModeEnabled() {
+    return !!fullTabsResetMode;
+}
+
+function uniqueStringList(values = []) {
+    const list = Array.isArray(values) ? values : [];
+    return Array.from(new Set(list.map((value) => String(value || '').trim()).filter(Boolean)));
+}
+
+function chunkArray(values = [], chunkSize = 120) {
+    const list = Array.isArray(values) ? values : [];
+    const chunks = [];
+    for (let i = 0; i < list.length; i += chunkSize) {
+        chunks.push(list.slice(i, i + chunkSize));
+    }
+    return chunks;
+}
+
+function readStorageAny(key, fallback = null) {
+    const raw = memoryGetItem(key);
+    if (raw === null || raw === undefined || raw === '') return fallback;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return raw;
+    }
+}
+
+function getLocalStorageKeysSafe() {
+    try {
+        if (!window?.localStorage) return [];
+        return Object.keys(window.localStorage);
+    } catch {
+        return [];
+    }
+}
+
+function getStudentIdFromChatStorageKey(storageKey = '') {
+    const key = String(storageKey || '');
+    const prefixes = ['student_chat_v1_', 'student_chat_beta_'];
+    const prefix = prefixes.find((candidate) => key.startsWith(candidate));
+    if (!prefix) return '';
+    return key.slice(prefix.length).trim();
+}
+
+function clearElementInnerHtmlByIds(ids = []) {
+    (Array.isArray(ids) ? ids : []).forEach((id) => {
+        const el = document.getElementById(String(id || ''));
+        if (el) el.innerHTML = '';
+    });
+}
+
+function clearTrainerProfileTabsForReset() {
+    document.querySelectorAll('#trainer-student-profile-screen .p-tab-content').forEach((tab) => {
+        tab.innerHTML = '';
+    });
+    const preview = document.getElementById('trainer-demo-student-preview');
+    if (preview) preview.innerHTML = '';
+}
+
+function clearStudentViewsForReset() {
+    const viewKeys = Array.isArray(window.STUDENT_VIEW_KEYS)
+        ? window.STUDENT_VIEW_KEYS
+        : ['home', 'treino', 'cardio', 'dieta', 'checkin', 'agua', 'chat', 'config', 'log-workout', 'workout-summary'];
+    viewKeys.forEach((viewKey) => {
+        const view = document.getElementById(`view-student-${viewKey}`);
+        if (view) view.innerHTML = '';
+    });
+}
+
+function applyFullTabsResetUi() {
+    const enabled = isFullTabsResetModeEnabled();
+    document.body.classList.toggle('full-tabs-reset-mode', enabled);
+    if (!enabled) return;
+    clearElementInnerHtmlByIds(['view-dashboard', 'view-alunos', 'view-duvidas', 'view-config']);
+    clearTrainerProfileTabsForReset();
+    clearStudentViewsForReset();
+}
+
+function setFullTabsResetMode(enabled = false) {
+    fullTabsResetMode = !!enabled;
+    if (fullTabsResetMode) memorySetItem(FULL_TABS_RESET_MODE_KEY, '1');
+    else memoryRemoveItem(FULL_TABS_RESET_MODE_KEY);
+    applyFullTabsResetUi();
+}
+
+function setFullTabsResetStep(step = 'idle') {
+    fullTabsResetStep = String(step || 'idle').trim() || 'idle';
+    const stepEl = document.getElementById('trainer-full-reset-step');
+    if (!stepEl) return;
+    const labels = {
+        idle: 'Aguardando confirmação',
+        backup: 'Executando backup completo',
+        purgeRemote: 'Executando purga remota',
+        purgeLocal: 'Executando purga local',
+        reload: 'Aplicando reset e recarregando',
+        done: 'Reset concluído',
+        error: 'Reset abortado'
+    };
+    stepEl.textContent = labels[fullTabsResetStep] || labels.idle;
+}
+
+function setFullTabsResetStatus(message = '', tone = 'info') {
+    const statusEl = document.getElementById('trainer-full-reset-status');
+    if (!statusEl) return;
+    statusEl.textContent = sanitizeUserInput(message || '', { allowNewlines: true, maxLen: 280 });
+    statusEl.classList.remove('info', 'success', 'error', 'warning');
+    statusEl.classList.add(tone || 'info');
+}
+
+function setFullTabsResetActionDisabled(disabled = false) {
+    const button = document.getElementById('trainer-full-reset-action-btn');
+    const input = document.getElementById('trainer-full-reset-confirm-input');
+    if (button) {
+        button.disabled = !!disabled;
+        button.classList.toggle('is-loading', !!disabled);
+    }
+    if (input) input.disabled = !!disabled;
+}
+
+function syncFullTabsResetPhraseInput() {
+    const button = document.getElementById('trainer-full-reset-action-btn');
+    const input = document.getElementById('trainer-full-reset-confirm-input');
+    if (!button || !input || fullTabsResetInFlight) return;
+    const value = sanitizeUserInput(input.value || '', { maxLen: 40 }).toUpperCase();
+    button.disabled = value !== FULL_TABS_RESET_REQUIRED_PHRASE;
+}
+
+function downloadJsonBackupFile(filename = 'backup.json', payload = {}) {
+    try {
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1200);
+        return true;
+    } catch (error) {
+        console.warn('Falha ao gerar download do backup.', error);
+        return false;
+    }
+}
+
+async function fetchSupabaseRowsByInChunks(table, column, values, selectColumns = '*') {
+    const safeTable = String(table || '').trim();
+    const safeColumn = String(column || '').trim();
+    const list = uniqueStringList(values);
+    if (!safeTable || !safeColumn || list.length === 0) return [];
+    const rows = [];
+    const chunks = chunkArray(list, 120);
+    for (const chunk of chunks) {
+        const { data, error } = await window.supabase
+            .from(safeTable)
+            .select(selectColumns)
+            .in(safeColumn, chunk);
+        if (error) {
+            throw new Error(`[backup:${safeTable}] ${error.message || error}`);
+        }
+        if (Array.isArray(data) && data.length) rows.push(...data);
+    }
+    return rows;
+}
+
+function mergeRowsByKey(rows = [], key = 'id') {
+    const map = new Map();
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+        const rowKey = String(row?.[key] || '').trim();
+        if (!rowKey || map.has(rowKey)) return;
+        map.set(rowKey, row);
+    });
+    return Array.from(map.values());
+}
+
+function mergeRowsBySignature(rows = [], signatureBuilder = null) {
+    const map = new Map();
+    const safeRows = Array.isArray(rows) ? rows : [];
+    safeRows.forEach((row, index) => {
+        const signature = typeof signatureBuilder === 'function'
+            ? String(signatureBuilder(row, index) || '').trim()
+            : '';
+        const fallbackSignature = signature || JSON.stringify(row || {});
+        if (!fallbackSignature || map.has(fallbackSignature)) return;
+        map.set(fallbackSignature, row);
+    });
+    return Array.from(map.values());
+}
+
+async function collectFullResetRemoteSnapshot(trainerCodes = []) {
+    const safeCodes = uniqueStringList(trainerCodes);
+    const appStudents = await fetchSupabaseRowsByInChunks(
+        SUPABASE_TABLES.students,
+        'trainer_code',
+        safeCodes,
+        '*'
+    );
+    const studentConnectionsByCode = await fetchSupabaseRowsByInChunks(
+        SUPABASE_TABLES.studentConnections,
+        'trainer_code',
+        safeCodes,
+        '*'
+    );
+    let targetStudentIds = uniqueStringList(appStudents.map((row) => row?.id || ''));
+    let targetStudentUserIds = uniqueStringList(
+        appStudents.map((row) => row?.data?.userId || row?.data?.user_id || '')
+    );
+    targetStudentUserIds = uniqueStringList([
+        ...targetStudentUserIds,
+        ...studentConnectionsByCode.map((row) => row?.student_user_id || '')
+    ]);
+
+    const studentProfilesByTrainer = await fetchSupabaseRowsByInChunks(
+        SUPABASE_TABLES.studentProfiles,
+        'trainer_code',
+        safeCodes,
+        '*'
+    );
+    targetStudentIds = uniqueStringList([
+        ...targetStudentIds,
+        ...studentProfilesByTrainer.map((row) => row?.student_local_id || '')
+    ]);
+    targetStudentUserIds = uniqueStringList([
+        ...targetStudentUserIds,
+        ...studentProfilesByTrainer.map((row) => row?.student_user_id || '')
+    ]);
+
+    const workoutSessions = mergeRowsByKey([
+        ...(await fetchSupabaseRowsByInChunks(SUPABASE_TABLES.workoutSessions, 'student_user_id', targetStudentUserIds, '*')),
+        ...(await fetchSupabaseRowsByInChunks(SUPABASE_TABLES.workoutSessions, 'student_local_id', targetStudentIds, '*'))
+    ], 'id');
+    const sessionIds = uniqueStringList(workoutSessions.map((row) => row?.id || ''));
+    const workoutSets = await fetchSupabaseRowsByInChunks(SUPABASE_TABLES.workoutSets, 'session_id', sessionIds, '*');
+
+    const dietLogs = mergeRowsBySignature([
+        ...(await fetchSupabaseRowsByInChunks(SUPABASE_TABLES.dietLogs, 'student_user_id', targetStudentUserIds, '*')),
+        ...(await fetchSupabaseRowsByInChunks(SUPABASE_TABLES.dietLogs, 'student_local_id', targetStudentIds, '*'))
+    ], (row) => `${row?.student_user_id || ''}-${row?.log_date || ''}-${row?.meal_idx || ''}-${row?.item_idx || ''}`);
+
+    const studentProfiles = mergeRowsBySignature([
+        ...studentProfilesByTrainer,
+        ...(await fetchSupabaseRowsByInChunks(SUPABASE_TABLES.studentProfiles, 'student_user_id', targetStudentUserIds, '*')),
+        ...(await fetchSupabaseRowsByInChunks(SUPABASE_TABLES.studentProfiles, 'student_local_id', targetStudentIds, '*'))
+    ], (row) => `${row?.student_user_id || ''}-${row?.student_local_id || ''}-${row?.trainer_code || ''}`);
+
+    const studentConnections = mergeRowsBySignature([
+        ...studentConnectionsByCode,
+        ...(await fetchSupabaseRowsByInChunks(SUPABASE_TABLES.studentConnections, 'student_user_id', targetStudentUserIds, '*'))
+    ], (row) => `${row?.student_user_id || ''}-${row?.trainer_code || ''}`);
+
+    const studentMedia = mergeRowsByKey([
+        ...(await fetchSupabaseRowsByInChunks(SUPABASE_TABLES.studentMedia, 'trainer_code', safeCodes, '*')),
+        ...(await fetchSupabaseRowsByInChunks(SUPABASE_TABLES.studentMedia, 'student_user_id', targetStudentUserIds, '*'))
+    ], 'id');
+
+    return {
+        tables: {
+            app_students: appStudents,
+            workout_sessions: workoutSessions,
+            workout_sets: workoutSets,
+            diet_logs: dietLogs,
+            student_media_gallery: studentMedia,
+            student_profiles: studentProfiles,
+            student_connections: studentConnections
+        },
+        targetStudentIds,
+        targetStudentUserIds,
+        sessionIds
+    };
+}
+
+function collectFullResetLocalSnapshot(targetStudentIds = [], trainerCodes = []) {
+    const safeIds = new Set(uniqueStringList(targetStudentIds));
+    const safeCodes = new Set(uniqueStringList(trainerCodes));
+    const allStudents = normalizeStudentsDietSchema(readStorageJSON('trainerStudents', []));
+    const scopedStudents = allStudents.filter((student) => {
+        const studentId = String(student?.id || '').trim();
+        const studentCode = getStudentTrainerCodeValue(student);
+        if (safeIds.size > 0 && safeIds.has(studentId)) return true;
+        if (safeCodes.size > 0 && safeCodes.has(studentCode)) return true;
+        return false;
+    });
+
+    const localStorageKeys = getLocalStorageKeysSafe();
+    const trainerSettingsEntries = {};
+    localStorageKeys
+        .filter((key) => key === TRAINER_SETTINGS_KEY || key.startsWith(`${TRAINER_SETTINGS_KEY}:`))
+        .forEach((key) => {
+            trainerSettingsEntries[key] = readStorageAny(key, null);
+        });
+
+    const chatEntries = {};
+    localStorageKeys
+        .filter((key) => key.startsWith('student_chat_v1_') || key.startsWith('student_chat_beta_'))
+        .forEach((key) => {
+            const studentId = getStudentIdFromChatStorageKey(key);
+            if (safeIds.size > 0 && studentId && !safeIds.has(studentId)) return;
+            chatEntries[key] = readStorageAny(key, []);
+        });
+
+    return {
+        trainerStudents: scopedStudents,
+        workoutHistory: readStorageJSON('workoutHistory', []).filter((entry) => {
+            const studentId = String(entry?.ID_Usuario || entry?.studentId || '').trim();
+            if (!studentId) return true;
+            return safeIds.size > 0 ? safeIds.has(studentId) : true;
+        }),
+        trainerNotifications: readStorageJSON('trainerNotifications', []).filter((entry) => {
+            const studentId = String(entry?.studentId || entry?.studentID || entry?.student || '').trim();
+            if (!studentId) return true;
+            return safeIds.size > 0 ? safeIds.has(studentId) : true;
+        }),
+        activeWorkoutBackup: readStorageAny('active_workout_backup', null),
+        completedSetsLog: readStorageJSON('completed_sets_log', []),
+        customExercises: readStorageJSON('customExercises', []),
+        trainerSettingsEntries,
+        chatEntries
+    };
+}
+
+async function deleteSupabaseRowsByInChunks(table, column, values) {
+    const safeTable = String(table || '').trim();
+    const safeColumn = String(column || '').trim();
+    const uniqueValues = uniqueStringList(values);
+    if (!safeTable || !safeColumn || uniqueValues.length === 0) {
+        return { ok: true, deletedKeys: 0, errors: [] };
+    }
+    const errors = [];
+    let deletedKeys = 0;
+    const chunks = chunkArray(uniqueValues, 120);
+    for (const chunk of chunks) {
+        const { error } = await window.supabase
+            .from(safeTable)
+            .delete()
+            .in(safeColumn, chunk);
+        if (error) {
+            errors.push(`[${safeTable}] ${error.message || error}`);
+            continue;
+        }
+        deletedKeys += chunk.length;
+    }
+    return { ok: errors.length === 0, deletedKeys, errors };
+}
+
+async function removeStudentMediaStoragePaths(mediaRows = []) {
+    if (!Array.isArray(mediaRows) || mediaRows.length === 0) return { ok: true, errors: [] };
+    if (!isSupabaseReady() || typeof window.supabase?.storage?.from !== 'function') {
+        return { ok: false, errors: ['Storage indisponível para remover arquivos de mídia.'] };
+    }
+    const paths = uniqueStringList(mediaRows.map((row) => row?.storage_path || ''));
+    if (!paths.length) return { ok: true, errors: [] };
+    const errors = [];
+    for (const chunk of chunkArray(paths, 90)) {
+        const { error } = await window.supabase.storage
+            .from(STUDENT_MEDIA_BUCKET)
+            .remove(chunk);
+        if (error) errors.push(`[storage:${STUDENT_MEDIA_BUCKET}] ${error.message || error}`);
+    }
+    return { ok: errors.length === 0, errors };
+}
+
+async function purgeSupabaseDataForFullReset(snapshot = {}, trainerCodes = []) {
+    const safeCodes = uniqueStringList(trainerCodes);
+    const safeSnapshot = snapshot?.tables && typeof snapshot.tables === 'object' ? snapshot.tables : {};
+    const targetStudentIds = uniqueStringList(snapshot?.targetStudentIds || []);
+    const targetStudentUserIds = uniqueStringList(snapshot?.targetStudentUserIds || []);
+    const sessionIds = uniqueStringList(snapshot?.sessionIds || []);
+    const errors = [];
+
+    const addErrors = (result) => {
+        if (!result || !Array.isArray(result.errors) || !result.errors.length) return;
+        errors.push(...result.errors);
+    };
+
+    addErrors(await deleteSupabaseRowsByInChunks(SUPABASE_TABLES.workoutSets, 'session_id', sessionIds));
+    addErrors(await deleteSupabaseRowsByInChunks(SUPABASE_TABLES.workoutSessions, 'id', sessionIds));
+    addErrors(await deleteSupabaseRowsByInChunks(SUPABASE_TABLES.dietLogs, 'student_user_id', targetStudentUserIds));
+    addErrors(await deleteSupabaseRowsByInChunks(SUPABASE_TABLES.dietLogs, 'student_local_id', targetStudentIds));
+    addErrors(await deleteSupabaseRowsByInChunks(SUPABASE_TABLES.studentMedia, 'id', uniqueStringList((safeSnapshot.student_media_gallery || []).map((row) => row?.id || ''))));
+    const storagePurge = await removeStudentMediaStoragePaths(safeSnapshot.student_media_gallery || []);
+    addErrors(storagePurge);
+    addErrors(await deleteSupabaseRowsByInChunks(SUPABASE_TABLES.studentProfiles, 'student_user_id', targetStudentUserIds));
+    addErrors(await deleteSupabaseRowsByInChunks(SUPABASE_TABLES.studentProfiles, 'student_local_id', targetStudentIds));
+    addErrors(await deleteSupabaseRowsByInChunks(SUPABASE_TABLES.studentConnections, 'student_user_id', targetStudentUserIds));
+    addErrors(await deleteSupabaseRowsByInChunks(SUPABASE_TABLES.studentConnections, 'trainer_code', safeCodes));
+    addErrors(await deleteSupabaseRowsByInChunks(SUPABASE_TABLES.students, 'id', targetStudentIds));
+    addErrors(await deleteSupabaseRowsByInChunks(SUPABASE_TABLES.students, 'trainer_code', safeCodes));
+
+    return {
+        ok: errors.length === 0,
+        errors
+    };
+}
+
+function purgeLocalDataForFullReset(targetStudentIds = [], trainerCodes = []) {
+    const safeIds = new Set(uniqueStringList(targetStudentIds));
+    const safeCodes = new Set(uniqueStringList(trainerCodes));
+    const students = normalizeStudentsDietSchema(readStorageJSON('trainerStudents', []));
+    const keepStudents = [];
+    let removedStudents = 0;
+
+    students.forEach((student) => {
+        const studentId = String(student?.id || '').trim();
+        const studentCode = getStudentTrainerCodeValue(student);
+        const matchesId = safeIds.size > 0 && safeIds.has(studentId);
+        const matchesCode = safeCodes.size > 0 && safeCodes.has(studentCode);
+        if (matchesId || matchesCode) {
+            removedStudents += 1;
+            return;
+        }
+        keepStudents.push(student);
+    });
+
+    const targetIds = safeIds.size > 0
+        ? safeIds
+        : new Set(students.filter((student) => safeCodes.has(getStudentTrainerCodeValue(student))).map((student) => String(student?.id || '').trim()).filter(Boolean));
+
+    memorySetItem('trainerStudents', JSON.stringify(keepStudents));
+    const workoutHistory = readStorageJSON('workoutHistory', []);
+    memorySetItem('workoutHistory', JSON.stringify((Array.isArray(workoutHistory) ? workoutHistory : []).filter((entry) => {
+        const studentId = String(entry?.ID_Usuario || entry?.studentId || '').trim();
+        if (!studentId) return true;
+        return !targetIds.has(studentId);
+    })));
+    const notifications = readStorageJSON('trainerNotifications', []);
+    memorySetItem('trainerNotifications', JSON.stringify((Array.isArray(notifications) ? notifications : []).filter((entry) => {
+        const studentId = String(entry?.studentId || entry?.studentID || entry?.student || '').trim();
+        if (!studentId) return true;
+        return !targetIds.has(studentId);
+    })));
+
+    const localKeys = getLocalStorageKeysSafe();
+    localKeys
+        .filter((key) => key.startsWith('student_chat_v1_') || key.startsWith('student_chat_beta_'))
+        .forEach((key) => {
+            const studentId = getStudentIdFromChatStorageKey(key);
+            if (!studentId || targetIds.has(studentId)) memoryRemoveItem(key);
+        });
+
+    targetIds.forEach((studentId) => {
+        memoryRemoveItem(`student_chat_v1_${studentId}`);
+        memoryRemoveItem(`student_chat_beta_${studentId}`);
+    });
+
+    memoryRemoveItem('active_workout_backup');
+    memoryRemoveItem('completed_sets_log');
+    memoryRemoveItem('currentStudentId');
+    memoryRemoveItem('studentName');
+    currentStudentIdx = null;
+    currentTrainerStudentId = null;
+    workoutBlocks = [];
+    mealBlocks = [];
+    trainerCardioPlan = normalizeCardioPlanShape({});
+    trainerWaterPlan = normalizeWaterPlanShape({});
+    trainerRoutinePlan = normalizeRoutineShape({});
+    trainerDeftState = null;
+    trainerDeftUiState.openDayEditor = '';
+    trainerDeftUiState.dayEditorDraft = null;
+    trainerDeftUiState.foodPicker.open = false;
+    trainerDeftUiState.copyWizard.open = false;
+    trainerDeftUiState.periodEditor.open = false;
+    trainerDeftUiState.periodEditor.periodId = '';
+    trainerDeftUiState.periodEditor.draft = null;
+    resetTrainerWorkoutUiRuntimeState();
+    clearStudentConfigDirty();
+    applyFullTabsResetUi();
+    updateTrainerStats();
+    return { removedStudents };
+}
+
+async function runFullTabsResetAndPurge() {
+    if (fullTabsResetInFlight) return;
+    const confirmInput = document.getElementById('trainer-full-reset-confirm-input');
+    const typedValue = sanitizeUserInput(confirmInput?.value || '', { maxLen: 40 }).toUpperCase();
+    if (typedValue !== FULL_TABS_RESET_REQUIRED_PHRASE) {
+        setFullTabsResetStatus(`Confirmação inválida. Digite exatamente "${FULL_TABS_RESET_REQUIRED_PHRASE}".`, 'warning');
+        return;
+    }
+
+    if (!confirm('Este processo fará backup e removerá TODOS os alunos e dados relacionados. Deseja continuar?')) {
+        setFullTabsResetStatus('Reset cancelado pelo usuário.', 'info');
+        return;
+    }
+
+    if (!isSupabaseReady()) {
+        setFullTabsResetStatus('Supabase indisponível. Não foi possível iniciar o reset completo.', 'error');
+        return;
+    }
+
+    fullTabsResetInFlight = true;
+    setFullTabsResetActionDisabled(true);
+    setFullTabsResetStep('backup');
+    setFullTabsResetStatus('Iniciando backup completo local e remoto...', 'info');
+
+    try {
+        const sessionUser = await getSupabaseSessionUser();
+        const actorUserId = String(sessionUser?.id || '').trim();
+        if (!actorUserId) {
+            throw new Error('Você precisa estar autenticado como treinador para executar o reset.');
+        }
+
+        const ownedCodes = await getOwnedTrainerCodesForUser(actorUserId, { force: true });
+        const currentCode = getCurrentTrainerScopeCode();
+        if (currentCode) ownedCodes.add(currentCode);
+        const trainerCodes = uniqueStringList(Array.from(ownedCodes.values ? ownedCodes.values() : ownedCodes));
+        if (!trainerCodes.length) {
+            throw new Error('Nenhum trainer_code encontrado para este usuário.');
+        }
+
+        const remoteSnapshot = await collectFullResetRemoteSnapshot(trainerCodes);
+        const localSnapshot = collectFullResetLocalSnapshot(remoteSnapshot.targetStudentIds, trainerCodes);
+        const backupPayload = {
+            version: 'purge_backup_v1',
+            meta: {
+                createdAt: new Date().toISOString(),
+                actorUserId,
+                trainerCodes,
+                mode: 'full-tabs-reset'
+            },
+            targetStudentIds: remoteSnapshot.targetStudentIds,
+            targetStudentUserIds: remoteSnapshot.targetStudentUserIds,
+            localSnapshot,
+            remoteSnapshot: remoteSnapshot.tables
+        };
+        memorySetItem(FULL_TABS_RESET_BACKUP_KEY, JSON.stringify(backupPayload));
+        const backupFileName = `backup-reset-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        downloadJsonBackupFile(backupFileName, backupPayload);
+        setFullTabsResetStatus('Backup concluído com sucesso. Iniciando purga remota...', 'success');
+
+        setFullTabsResetStep('purgeRemote');
+        const remotePurge = await purgeSupabaseDataForFullReset(remoteSnapshot, trainerCodes);
+
+        setFullTabsResetStep('purgeLocal');
+        const localPurge = purgeLocalDataForFullReset(remoteSnapshot.targetStudentIds, trainerCodes);
+
+        setFullTabsResetStep('reload');
+        setFullTabsResetMode(true);
+
+        if (remotePurge.ok) {
+            setFullTabsResetStep('done');
+            setFullTabsResetStatus(`Reset concluído. ${localPurge.removedStudents} aluno(s) removido(s) localmente e purge remoto aplicado.`, 'success');
+        } else {
+            setFullTabsResetStep('done');
+            setFullTabsResetStatus(`Reset parcial. Purga local concluída, mas houve falhas remotas: ${remotePurge.errors.join(' | ')}`, 'warning');
+        }
+
+        setTimeout(() => {
+            window.location.reload();
+        }, 900);
+    } catch (error) {
+        const message = getAuthErrorMessage(error, 'generic') || error?.message || 'Falha durante o reset total.';
+        setFullTabsResetStep('error');
+        setFullTabsResetStatus(message, 'error');
+    } finally {
+        fullTabsResetInFlight = false;
+        setFullTabsResetActionDisabled(false);
+    }
+}
+
+if (typeof window !== 'undefined') {
+    window.runFullTabsResetAndPurge = runFullTabsResetAndPurge;
+    window.syncFullTabsResetPhraseInput = syncFullTabsResetPhraseInput;
+}
+
 function applyDashboardFilterList(students, filterKey, pendingDuvidaSet) {
     if (filterKey === 'sem-treino') {
         return students.filter((s) => !studentHasWorkoutPlan(s));
@@ -915,18 +1877,29 @@ function applyDashboardFilterList(students, filterKey, pendingDuvidaSet) {
 }
 
 function updateDashboardFilterUI(counts) {
-    const setCount = (id, value) => {
+    const setCount = (id, value, dataKey = '') => {
         const el = document.getElementById(id);
         if (el) el.textContent = value;
+        if (dataKey) {
+            document.querySelectorAll(`[data-filter-count="${dataKey}"]`).forEach((node) => {
+                node.textContent = value;
+            });
+        }
     };
-    setCount('filter-count-all', counts.all);
-    setCount('filter-count-sem-treino', counts.semTreino);
-    setCount('filter-count-avaliacoes', counts.avaliacoes);
-    setCount('filter-count-duvidas', counts.duvidas);
+    setCount('filter-count-all', counts.all, 'all');
+    setCount('filter-count-sem-treino', counts.semTreino, 'sem-treino');
+    setCount('filter-count-avaliacoes', counts.avaliacoes, 'avaliacoes');
+    setCount('filter-count-duvidas', counts.duvidas, 'duvidas');
 
+    const activeFilter = trainerStudentListState.filtro || activeDashboardFilter || 'all';
     document.querySelectorAll('.filter-chip').forEach((btn) => {
-        btn.classList.toggle('active', btn.dataset.filter === activeDashboardFilter);
+        btn.classList.toggle('active', btn.dataset.filter === activeFilter);
     });
+
+    const sortSelect = document.getElementById('alunos-sort');
+    if (sortSelect) {
+        sortSelect.value = normalizeTrainerStudentListSort(trainerStudentListState.sort);
+    }
 }
 
 function getTrainerDashboardTutorialStorageKey() {
@@ -1007,7 +1980,7 @@ function setEngagementRange(days, event) {
     });
     const subtitle = document.querySelector('.engagement-header .subtitle');
     if (subtitle) {
-        subtitle.textContent = `Treinos concluidos nos ultimos ${activeEngagementRange} dias`;
+        subtitle.textContent = `Treinos concluídos nos últimos ${activeEngagementRange} dias`;
     }
     renderEngagementChart();
 }
@@ -1362,7 +2335,7 @@ function ensureSelfTrainingStudent() {
         lastWorkoutAt: selfLastWorkout.toISOString(),
         assessmentPending: false,
         metricHistory: [baselineMetric],
-        progressLogs: [{ date: new Date().toISOString().slice(0, 10), weight: 82, notes: 'Perfil Diego auto-treino.' }],
+        progressLogs: [{ date: new Date().toISOString().slice(0, 10), weight: 82, notes: 'Perfil Aluno Teste auto-treino.' }],
         personalRecords: {}
     };
     selfStudent.tmbBase = Math.round(calcTMBMifflin(selfStudent.weight, selfStudent.height, selfStudent.age, selfStudent.gender));
@@ -1433,7 +2406,7 @@ function ensureAdminStudent() {
         lastWorkoutAt: adminLastWorkout.toISOString(),
         assessmentPending: true,
         metricHistory: [baselineMetric],
-        progressLogs: [{ date: new Date().toISOString().slice(0, 10), weight: 78, notes: 'Perfil demo Beta inicial.' }],
+        progressLogs: [{ date: new Date().toISOString().slice(0, 10), weight: 78, notes: 'Perfil Aluno Teste inicial.' }],
         personalRecords: {}
     };
     demoStudent.tmbBase = Math.round(calcTMBMifflin(demoStudent.weight, demoStudent.height, demoStudent.age, demoStudent.gender));
@@ -1474,12 +2447,12 @@ function buildEvaluationTrainerIdentity() {
         code: EVALUATION_TRAINER_CODE,
         name: EVALUATION_TRAINER_NAME,
         displayName: EVALUATION_TRAINER_NAME,
-        consultoriaName: 'Consultoria Demo',
+        consultoriaName: 'Consultoria Teste',
         services: 'ambos',
         headline: 'Painel local para avaliar fluxos de treino, dieta e alunos.',
-        bio: 'Perfil de avaliação local. Use para testar o dashboard sem login real.',
+        bio: 'Perfil de teste local. Use para testar o dashboard sem login real.',
         specialties: ['Hipertrofia', 'Emagrecimento', 'Nutrição'],
-        handle: 'demo.consultoria',
+        handle: 'teste.consultoria',
         themePreset: TRAINER_THEME_PRESETS[0],
         onboardingComplete: true
     };
@@ -1487,10 +2460,10 @@ function buildEvaluationTrainerIdentity() {
 
 function ensureEvaluationDemoData() {
     if (!ENABLE_DEMO_ACCESS) return null;
+    removeLegacyEvaluationStudents();
     ensureAdminStudent();
-    ensureSelfTrainingStudent();
     const trainerIdentity = cacheTrainerLocal(buildEvaluationTrainerIdentity());
-    memorySetItem('trainerName', 'Demo');
+    memorySetItem('trainerName', 'Teste');
     memorySetItem('currentTrainerCode', EVALUATION_TRAINER_CODE);
     memorySetItem('trainerCodeDefault', EVALUATION_TRAINER_CODE);
     return trainerIdentity || buildEvaluationTrainerIdentity();
@@ -1507,6 +2480,107 @@ function setTrainerEvaluationMode(enabled = false) {
 
 function isTrainerEvaluationModeActive() {
     return ENABLE_DEMO_ACCESS && memoryGetItem(TRAINER_EVALUATION_MODE_KEY) === '1';
+}
+
+function getCurrentRuntimeRoles() {
+    const candidates = [];
+    try {
+        const parsed = JSON.parse(memoryGetItem('currentUserRoles') || '[]');
+        if (Array.isArray(parsed)) candidates.push(...parsed);
+    } catch {
+        // Ignore malformed local role cache.
+    }
+    const legacy = memoryGetItem('currentUserRole') || '';
+    if (legacy) candidates.push(legacy);
+    const normalized = [];
+    candidates.forEach((entry) => {
+        const raw = String(entry || '').trim().toLowerCase();
+        const role = normalizeAppRole(raw) || (['admin', 'dev', 'tester', 'beta'].includes(raw) ? raw : '');
+        if (role && !normalized.includes(role)) normalized.push(role);
+    });
+    return normalized;
+}
+
+function isEvaluationTrainerRuntimeContext() {
+    const code = sanitizeCodeInput(
+        memoryGetItem('currentTrainerCode') || memoryGetItem('trainerCodeDefault') || '',
+        5
+    );
+    return isTrainerEvaluationModeActive() && code === EVALUATION_TRAINER_CODE;
+}
+
+function canUseTestAccountSwitcherFromTrainer() {
+    const dashboard = document.getElementById('trainer-dashboard-screen');
+    if (!ENABLE_DEMO_ACCESS || !isEvaluationTrainerRuntimeContext() || !dashboard?.classList.contains('active')) {
+        return false;
+    }
+    const roles = getCurrentRuntimeRoles();
+    return roles.length === 0 || roles.includes('trainer') || roles.includes('admin') || roles.includes('dev') || roles.includes('tester') || roles.includes('beta');
+}
+
+function getTestAccountSwitchContext() {
+    try {
+        const context = JSON.parse(memoryGetItem(TEST_ACCOUNT_SWITCH_CONTEXT_KEY) || 'null');
+        if (!context || typeof context !== 'object') return null;
+        return context;
+    } catch {
+        return null;
+    }
+}
+
+function isTestStudentSwitchActive() {
+    const context = getTestAccountSwitchContext();
+    return ENABLE_DEMO_ACCESS
+        && isTrainerEvaluationModeActive()
+        && memoryGetItem(TEST_ACCOUNT_SWITCH_MODE_KEY) === 'student-test'
+        && String(memoryGetItem('currentStudentId') || '') === String(ADMIN_STUDENT_CODE)
+        && context?.trainerCode === EVALUATION_TRAINER_CODE
+        && context?.source === 'trainer-evaluation';
+}
+
+function setRuntimeRoleForTestSwitch(role = 'trainer') {
+    const normalizedRole = normalizeAppRole(role) || 'trainer';
+    memorySetItem('currentUserRoles', JSON.stringify([normalizedRole]));
+    memorySetItem('currentUserRole', normalizedRole);
+}
+
+function saveTrainerTestSwitchContext() {
+    const context = {
+        source: 'trainer-evaluation',
+        trainerCode: EVALUATION_TRAINER_CODE,
+        trainerName: memoryGetItem('trainerName') || EVALUATION_TRAINER_NAME,
+        currentTrainerCode: memoryGetItem('currentTrainerCode') || EVALUATION_TRAINER_CODE,
+        trainerCodeDefault: memoryGetItem('trainerCodeDefault') || EVALUATION_TRAINER_CODE,
+        roles: getCurrentRuntimeRoles(),
+        createdAt: new Date().toISOString(),
+        returnUrl: 'trainer.html#/alunos'
+    };
+    memorySetItem(TEST_ACCOUNT_SWITCH_CONTEXT_KEY, JSON.stringify(context));
+    return context;
+}
+
+function clearTestAccountSwitchContext() {
+    memoryRemoveItem(TEST_ACCOUNT_SWITCH_MODE_KEY);
+    memoryRemoveItem(TEST_ACCOUNT_SWITCH_CONTEXT_KEY);
+}
+
+function syncTestAccountSwitcherUI(root = document) {
+    const scope = root && root.querySelectorAll ? root : document;
+    const showTrainerSwitcher = canUseTestAccountSwitcherFromTrainer();
+    scope.querySelectorAll('[data-test-account-switcher="trainer"]').forEach((el) => {
+        el.style.display = showTrainerSwitcher ? '' : 'none';
+        el.setAttribute('aria-hidden', showTrainerSwitcher ? 'false' : 'true');
+    });
+
+    const studentSwitchActive = isTestStudentSwitchActive();
+    const studentDashboard = document.getElementById('student-dashboard-screen');
+    if (studentDashboard) {
+        studentDashboard.classList.toggle('test-student-switch-active', studentSwitchActive);
+    }
+    scope.querySelectorAll('[data-test-account-switcher="student"]').forEach((el) => {
+        el.style.display = studentSwitchActive ? '' : 'none';
+        el.setAttribute('aria-hidden', studentSwitchActive ? 'false' : 'true');
+    });
 }
 
 function getEvaluationSandboxStudentIds() {
@@ -1531,6 +2605,25 @@ function isEvaluationSandboxRecord(record = {}) {
         5
     );
     return trainerCode === EVALUATION_TRAINER_CODE;
+}
+
+function removeLegacyEvaluationStudents() {
+    if (!ENABLE_DEMO_ACCESS) return;
+    const students = readStorageJSON('trainerStudents', []);
+    if (!Array.isArray(students) || students.length === 0) return;
+    const cleaned = students.filter((student) => {
+        const id = String(student?.id || '').trim();
+        if (id === String(ADMIN_STUDENT_CODE)) return true;
+        if (id === String(SELF_TRAINING_STUDENT_CODE)) return false;
+        return !isEvaluationSandboxRecord(student);
+    });
+    if (cleaned.length !== students.length) {
+        saveStudentData(cleaned, {
+            skipSupabaseSync: true,
+            stampDataUpdatedAt: false,
+            syncMode: 'local-only'
+        });
+    }
 }
 
 function filterEvaluationSandboxRecords(records) {
@@ -1596,8 +2689,9 @@ function resetEvaluationSandbox() {
         scheduleTrainerDashboardRefresh({ delayMs: 0, refreshProfile: true });
     }
     scheduleStudentDashboardRefresh({ delayMs: 0, refreshLegacyViews: true });
+    renderTrainerDemoStudentPreview();
 
-    return { ok: true, message: 'Sandbox restaurado com Nicolas, Diego e Treinador Demo.' };
+    return { ok: true, message: 'Sandbox restaurado com Aluno Teste e Treinador Teste.' };
 }
 
 function syncEvaluationShortcutVisibility(root = document) {
@@ -1641,10 +2735,74 @@ async function openStudentEvaluationDashboard() {
 
     const opened = openStudentDashboardSession(demoStudent);
     if (!opened) {
-        const message = 'Não foi possível abrir o dashboard do aluno demo.';
+        const message = 'Não foi possível abrir o dashboard do Aluno Teste.';
         const hasInline = setAuthInlineFeedback('login-inline-feedback', message, 'error');
         if (!hasInline) alert(message);
     }
+}
+
+async function enterAsTestStudentFromTrainer() {
+    if (!canUseTestAccountSwitcherFromTrainer()) {
+        const message = 'Troca de conta teste disponível apenas no Treinador Teste autorizado.';
+        if (typeof showTrainerRuntimeMessage === 'function') showTrainerRuntimeMessage(message, 'warning');
+        else alert(message);
+        return;
+    }
+
+    setTrainerEvaluationMode(true);
+    ensureEvaluationDemoData();
+    saveTrainerTestSwitchContext();
+    await ensureStudentEvaluationScreens();
+
+    const students = readStorageJSON('trainerStudents', []);
+    const demoStudent = students.find((s) => String(s?.id || '') === String(ADMIN_STUDENT_CODE));
+    if (!demoStudent || getStudentTrainerCodeValue(demoStudent) !== EVALUATION_TRAINER_CODE) {
+        clearTestAccountSwitchContext();
+        showEvaluationAccessUnavailable();
+        return;
+    }
+
+    memorySetItem(TEST_ACCOUNT_SWITCH_MODE_KEY, 'student-test');
+    setRuntimeRoleForTestSwitch('student');
+    memorySetItem('currentUserId', `sandbox-student-${ADMIN_STUDENT_CODE}`);
+    memorySetItem('currentUserName', ADMIN_STUDENT_NAME);
+    const opened = openStudentDashboardSession({
+        ...demoStudent,
+        id: ADMIN_STUDENT_CODE,
+        name: ADMIN_STUDENT_NAME,
+        trainerCode: EVALUATION_TRAINER_CODE,
+        active: true,
+        pending: false
+    });
+    if (!opened) {
+        clearTestAccountSwitchContext();
+        setRuntimeRoleForTestSwitch('trainer');
+        showEvaluationAccessUnavailable();
+        return;
+    }
+    syncTestAccountSwitcherUI();
+}
+
+async function returnToTrainerFromTestStudent() {
+    if (!isTestStudentSwitchActive()) {
+        const message = 'Retorno ao treinador disponível apenas no modo aluno teste.';
+        const hasInline = setAuthInlineFeedback('login-inline-feedback', message, 'warning');
+        if (!hasInline) alert(message);
+        return;
+    }
+    const context = getTestAccountSwitchContext() || {};
+    clearTestAccountSwitchContext();
+    memoryRemoveItem('currentStudentId');
+    memoryRemoveItem('connectedTrainerCode');
+    memoryRemoveItem('studentName');
+    memorySetItem('trainerName', context.trainerName || EVALUATION_TRAINER_NAME);
+    memorySetItem('currentTrainerCode', context.currentTrainerCode || EVALUATION_TRAINER_CODE);
+    memorySetItem('trainerCodeDefault', context.trainerCodeDefault || EVALUATION_TRAINER_CODE);
+    setRuntimeRoleForTestSwitch('trainer');
+    setTrainerEvaluationMode(true);
+    ensureEvaluationDemoData();
+    await openTrainerEvaluationDashboard();
+    syncTestAccountSwitcherUI();
 }
 
 async function openTrainerEvaluationDashboard() {
@@ -1658,7 +2816,7 @@ async function openTrainerEvaluationDashboard() {
     ensureEvaluationDemoData();
 
     if (!isTrainerDashboardContext() || !document.getElementById('trainer-dashboard-screen')) {
-        window.location.href = 'trainer.html';
+        window.location.href = 'trainer.html#/alunos';
         return;
     }
 
@@ -1666,9 +2824,11 @@ async function openTrainerEvaluationDashboard() {
     hideAllScreens();
     const app = document.getElementById('app');
     if (app) app.classList.add('wide');
+    setRuntimeRoleForTestSwitch('trainer');
     const dashboard = document.getElementById('trainer-dashboard-screen');
     if (dashboard) dashboard.classList.add('active');
     await initTrainerDashboard({ force: true });
+    syncTestAccountSwitcherUI();
     showTrainerRuntimeMessage('Modo avaliação do treinador ativo.', 'success');
 }
 
@@ -2027,10 +3187,63 @@ const CARDIO_PLAN_DAYS = [
     { key: 'dom', label: 'Domingo' }
 ];
 
+const CARDIO_PLAN_DAYS_DOM_FIRST = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+const CARDIO_ZONE_KEYS = ['z1', 'z2', 'z3'];
+const CARDIO_INTENSITY_OPTIONS = [
+    { key: 'low', label: 'Baixa', legacyLabel: 'Baixa', shortLabel: 'Baixa' },
+    { key: 'medium', label: 'Média', legacyLabel: 'Média', shortLabel: 'Média' },
+    { key: 'high', label: 'Alta', legacyLabel: 'Alta', shortLabel: 'Alta' }
+];
+
+function normalizeCardioZoneKey(value, fallback = 'z2') {
+    const safeValue = String(value || '').trim().toLowerCase();
+    if (CARDIO_ZONE_KEYS.includes(safeValue)) return safeValue;
+    const safeFallback = String(fallback || '').trim().toLowerCase();
+    return CARDIO_ZONE_KEYS.includes(safeFallback) ? safeFallback : 'z2';
+}
+
+function normalizeCardioIntensityKey(value, fallback = 'medium') {
+    const safeValue = String(value || '').trim().toLowerCase();
+    if (CARDIO_INTENSITY_OPTIONS.some((item) => item.key === safeValue)) return safeValue;
+    const safeFallback = String(fallback || '').trim().toLowerCase();
+    if (CARDIO_INTENSITY_OPTIONS.some((item) => item.key === safeFallback)) return safeFallback;
+    return 'medium';
+}
+
+function getCardioIntensityMeta(intensityKey = 'medium') {
+    const safeKey = normalizeCardioIntensityKey(intensityKey, 'medium');
+    return CARDIO_INTENSITY_OPTIONS.find((item) => item.key === safeKey) || CARDIO_INTENSITY_OPTIONS[1];
+}
+
+function inferCardioIntensityKeyFromLegacy(intensityValue = '') {
+    const raw = sanitizeUserInput(intensityValue || '', { maxLen: 40 });
+    const normalized = normalizeText(raw || '');
+    if (!normalized) return 'medium';
+    if (/(alta|high|vigor|forte|intens|hiit|sprint|pico)/.test(normalized)) return 'high';
+    if (/(baixa|low|leve|suave|recupera|liss)/.test(normalized)) return 'low';
+    return 'medium';
+}
+
+function getCardioDayByKey(dayKey = '') {
+    const safeDayKey = String(dayKey || '').trim().toLowerCase();
+    return CARDIO_PLAN_DAYS.find((day) => day.key === safeDayKey) || null;
+}
+
+function getCardioDaysDomFirst(daysLike = []) {
+    const byKey = new Map((Array.isArray(daysLike) ? daysLike : []).map((entry) => [
+        String(entry?.dayKey || '').toLowerCase(),
+        entry
+    ]));
+    return CARDIO_PLAN_DAYS_DOM_FIRST.map((key) => byKey.get(key)).filter(Boolean);
+}
+
 function getDefaultCardioPlan() {
     return {
         weeklyGoalMin: 120,
         baseZoneKey: 'z2',
+        hrMaxMode: 'auto',
+        hrMaxFormula: 'tanaka',
+        hrMaxManual: '',
         coachRecommendation: '',
         days: CARDIO_PLAN_DAYS.map((day) => ({
             dayKey: day.key,
@@ -2038,30 +3251,64 @@ function getDefaultCardioPlan() {
             type: '',
             durationMin: '',
             intensity: '',
+            intensityKey: 'medium',
+            zoneKey: 'z2',
             notes: ''
         }))
     };
 }
 
-function normalizeCardioDaysShape(daysLike = []) {
+function normalizeCardioDaysShape(daysLike = [], fallbackZoneKey = 'z2') {
     const mapByDay = new Map();
+    const safeFallbackZone = normalizeCardioZoneKey(fallbackZoneKey, 'z2');
     (Array.isArray(daysLike) ? daysLike : []).forEach((entry) => {
         const rawKey = sanitizeUserInput(entry?.dayKey || '', { maxLen: 8 }).toLowerCase();
         if (!rawKey) return;
+        const dayType = sanitizeUserInput(entry?.type || '', { maxLen: 80 });
+        const dayDuration = sanitizeUserInput(entry?.durationMin || '', { maxLen: 6 });
+        const legacyIntensity = sanitizeUserInput(entry?.intensity || '', { maxLen: 40 });
+        const dayNotes = sanitizeUserInput(entry?.notes || '', { allowNewlines: true, maxLen: 280 });
+        const intensityKey = normalizeCardioIntensityKey(
+            entry?.intensityKey,
+            inferCardioIntensityKeyFromLegacy(legacyIntensity)
+        );
+        const intensityMeta = getCardioIntensityMeta(intensityKey);
+        const hasDayPrescription = [dayType, dayDuration, legacyIntensity, dayNotes].some(Boolean);
         mapByDay.set(rawKey, {
             dayKey: rawKey,
             dayLabel: sanitizeUserInput(entry?.dayLabel || '', { maxLen: 20 }),
-            type: sanitizeUserInput(entry?.type || '', { maxLen: 80 }),
-            durationMin: sanitizeUserInput(entry?.durationMin || '', { maxLen: 6 }),
-            intensity: sanitizeUserInput(entry?.intensity || '', { maxLen: 40 }),
-            notes: sanitizeUserInput(entry?.notes || '', { allowNewlines: true, maxLen: 280 })
+            type: dayType,
+            durationMin: dayDuration,
+            intensity: hasDayPrescription ? (legacyIntensity || intensityMeta.legacyLabel) : '',
+            intensityKey,
+            zoneKey: normalizeCardioZoneKey(entry?.zoneKey, safeFallbackZone),
+            notes: dayNotes
         });
     });
     return CARDIO_PLAN_DAYS.map((day) => {
         const found = mapByDay.get(day.key);
-        return found
-            ? { ...found, dayLabel: found.dayLabel || day.label }
-            : { dayKey: day.key, dayLabel: day.label, type: '', durationMin: '', intensity: '', notes: '' };
+        if (found) {
+            const resolvedIntensityKey = normalizeCardioIntensityKey(found.intensityKey, inferCardioIntensityKeyFromLegacy(found.intensity));
+            const intensityMeta = getCardioIntensityMeta(resolvedIntensityKey);
+            const hasDayPrescription = [found.type, found.durationMin, found.intensity, found.notes].some(Boolean);
+            return {
+                ...found,
+                dayLabel: found.dayLabel || day.label,
+                intensityKey: resolvedIntensityKey,
+                intensity: hasDayPrescription ? (found.intensity || intensityMeta.legacyLabel) : '',
+                zoneKey: normalizeCardioZoneKey(found.zoneKey, safeFallbackZone)
+            };
+        }
+        return {
+            dayKey: day.key,
+            dayLabel: day.label,
+            type: '',
+            durationMin: '',
+            intensity: '',
+            intensityKey: 'medium',
+            zoneKey: safeFallbackZone,
+            notes: ''
+        };
     });
 }
 
@@ -2070,15 +3317,24 @@ function normalizeCardioPlanShape(cardioPlanLike = []) {
     const legacyDays = Array.isArray(cardioPlanLike) ? cardioPlanLike : [];
     const daysSource = Array.isArray(raw.days) ? raw.days : legacyDays;
     const weeklyGoalParsed = parseIntegerSafe(raw.weeklyGoalMin);
-    const baseZoneRaw = String(raw.baseZoneKey || '').trim().toLowerCase();
-    const baseZoneKey = ['z1', 'z2', 'z3'].includes(baseZoneRaw) ? baseZoneRaw : 'z2';
+    const baseZoneKey = normalizeCardioZoneKey(raw.baseZoneKey, 'z2');
+    const hrMaxModeRaw = String(raw.hrMaxMode || '').trim().toLowerCase();
+    const hrMaxMode = hrMaxModeRaw === 'manual' ? 'manual' : 'auto';
+    const hrMaxFormula = 'tanaka';
+    const hrMaxManualParsed = parseIntegerSafe(raw.hrMaxManual);
+    const hrMaxManual = hrMaxMode === 'manual' && Number.isFinite(hrMaxManualParsed)
+        ? Math.min(240, Math.max(90, hrMaxManualParsed))
+        : '';
     return {
         weeklyGoalMin: Number.isFinite(weeklyGoalParsed)
             ? Math.min(600, Math.max(30, weeklyGoalParsed))
             : 120,
         baseZoneKey,
+        hrMaxMode,
+        hrMaxFormula,
+        hrMaxManual,
         coachRecommendation: sanitizeUserInput(raw.coachRecommendation || '', { maxLen: 220 }),
-        days: normalizeCardioDaysShape(daysSource)
+        days: normalizeCardioDaysShape(daysSource, baseZoneKey)
     };
 }
 
@@ -4148,6 +5404,10 @@ async function syncStudentsFromSupabase(trainerCode) {
     if (!isSupabaseReady() || !trainerCode) return;
     const scopedTrainerCode = sanitizeCodeInput(trainerCode, 5);
     if (!scopedTrainerCode) return;
+    if (isTrainerEvaluationModeActive() && scopedTrainerCode === EVALUATION_TRAINER_CODE) {
+        setStudentSyncState('synced', 'Sandbox local');
+        return;
+    }
     if (navigator.onLine === false) {
         setStudentSyncState('offline', 'Sem conexão');
         return;
@@ -5250,13 +6510,13 @@ async function ensureScreenElement(screenId, pagePath) {
 async function bootLegacyApp() {
     if (window.__CONSULTORIA_LEGACY_BOOTED__) return;
     window.__CONSULTORIA_LEGACY_BOOTED__ = true;
+    bootstrapPendingTrainerInviteContextFromLocation();
     applyMobileDashboardMode(true);
     await loadSPAComponents();
     setupClientSideFormProtection();
     migrateStoredStudentsDietSchema({ syncRemote: false });
     if (ENABLE_DEMO_ACCESS) {
         ensureAdminStudent();
-        ensureSelfTrainingStudent();
     }
     applyTrainerBranding();
     upgradeSidebarNavIcons();
@@ -5540,8 +6800,133 @@ function showTrainerRuntimeMessage(message = '', type = 'info') {
     window.__trainerRuntimeToastTimer = setTimeout(() => toast.classList.remove('show'), 2800);
 }
 
+function getCurrentTrainerInviteCode() {
+    return sanitizeCodeInput(
+        memoryGetItem('currentTrainerCode') || currentTrainerIdentity?.code || memoryGetItem('trainerCodeDefault') || '',
+        5
+    ) || '00000';
+}
+
+function getTrainerAccessUrl() {
+    try {
+        return new URL('./', window.location.href).href.split('#')[0];
+    } catch {
+        return window.location.origin || '';
+    }
+}
+
+function getTrainerAccessPayload() {
+    const settings = loadTrainerSettings();
+    let liveState = null;
+    try {
+        if (document.getElementById('trainer-display-name')) {
+            liveState = collectTrainerProfileStudioState();
+        }
+    } catch {
+        liveState = null;
+    }
+    const displayName = sanitizeUserInput(
+        liveState?.displayName || settings.displayName || currentTrainerIdentity?.displayName || currentTrainerIdentity?.name || memoryGetItem('trainerName') || 'Treinador',
+        { maxLen: 90 }
+    ) || 'Treinador';
+    const consultoriaName = sanitizeUserInput(
+        liveState?.consultoriaName || settings.consultoriaName || currentTrainerIdentity?.consultoriaName || `Consultoria de ${displayName.split(' ')[0] || 'Treinador'}`,
+        { maxLen: 120 }
+    ) || `Consultoria de ${displayName.split(' ')[0] || 'Treinador'}`;
+    const code = getCurrentTrainerInviteCode();
+    const avatar = sanitizeStrictUrl(
+        liveState?.profilePhoto
+        || settings.profilePhoto
+        || currentTrainerIdentity?.avatarRef
+        || currentTrainerIdentity?.avatarUrl
+        || '',
+        { maxLen: 600, allowStorage: true }
+    );
+    const link = buildTrainerInviteLink({
+        code,
+        displayName,
+        consultoriaName,
+        avatar
+    });
+    const message = `Olá! Aqui está o convite da ${consultoriaName}: ${link}\n\nAbra o link, entre como aluno e toque em "Entrar na consultoria".\n\nSe precisar, use o código: ${code}.`;
+    return { code, link, message, consultoriaName, displayName, avatar };
+}
+
+function setTrainerAccessCopyStatus(message = '', type = 'info') {
+    const status = document.getElementById('trainer-access-copy-status');
+    if (!status) return;
+    status.textContent = message || '';
+    status.classList.remove('success', 'error', 'info');
+    if (message) status.classList.add(type || 'info');
+}
+
+function copyTrainerText(text, successMessage = 'Copiado com sucesso.') {
+    const value = String(text || '').trim();
+    if (!value) return;
+    const onSuccess = () => {
+        setTrainerAccessCopyStatus(successMessage, 'success');
+        showTrainerRuntimeMessage(successMessage, 'success');
+    };
+    const fallbackCopy = () => {
+        const temp = document.createElement('textarea');
+        temp.value = value;
+        temp.setAttribute('readonly', '');
+        temp.style.position = 'fixed';
+        temp.style.opacity = '0';
+        document.body.appendChild(temp);
+        temp.select();
+        try {
+            document.execCommand('copy');
+            onSuccess();
+        } catch {
+            setTrainerAccessCopyStatus('Não foi possível copiar automaticamente.', 'error');
+            showTrainerRuntimeMessage('Não foi possível copiar automaticamente.', 'error');
+        } finally {
+            document.body.removeChild(temp);
+        }
+    };
+    if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(value).then(onSuccess).catch(fallbackCopy);
+    } else {
+        fallbackCopy();
+    }
+}
+
+function copyTrainerAccessLink() {
+    const payload = getTrainerAccessPayload();
+    copyTrainerText(payload.link, 'Link de acesso copiado.');
+}
+
+function openTrainerAccessWhatsApp() {
+    const payload = getTrainerAccessPayload();
+    window.open(`https://wa.me/?text=${encodeURIComponent(payload.message)}`, '_blank');
+    setTrainerAccessCopyStatus('Texto pronto aberto no WhatsApp.', 'success');
+}
+
+function openTrainerAddStudentShortcut() {
+    const panel = document.querySelector('.trainer-access-card');
+    setActiveTrainerConfigNavTarget('trainer-config-access');
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const payload = getTrainerAccessPayload();
+    copyTrainerText(payload.message, 'Texto de convite copiado.');
+    showTrainerRuntimeMessage('Envie o texto ao aluno. As solicitações aparecem em Alunos.', 'info');
+}
+
+function focusTrainerPreview() {
+    const preview = document.getElementById('trainer-profile-preview-card');
+    if (!preview) return;
+    setActiveTrainerConfigNavTarget('trainer-profile-studio');
+    preview.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    preview.classList.add('is-highlighted');
+    clearTimeout(window.__trainerPreviewHighlightTimer);
+    window.__trainerPreviewHighlightTimer = setTimeout(() => {
+        preview.classList.remove('is-highlighted');
+    }, 1400);
+}
+
 async function logoutTrainerFromMenu() {
     stopSupabaseRealtimeSync();
+    setTrainerEvaluationMode(false);
     clearAuthRuntimeContext();
     currentTrainerIdentity = null;
     memoryRemoveItem('trainerName');
@@ -5577,24 +6962,24 @@ function viewTrainerStats() {
 }
 
 function shareTrainerCode() {
-    const trainerCode = memoryGetItem('currentTrainerCode') || '00001';
-    const message = `Meu código de consultoria: ${trainerCode}\n\nJunte-se ao meu programa de treino e nutrição!`;
+    const payload = getTrainerAccessPayload();
     if (navigator.share) {
         navigator.share({
-            title: 'Código de Consultoria',
-            text: message
+            title: 'Acesso à consultoria',
+            text: payload.message
         }).catch(() => null);
     } else if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(trainerCode)
-            .then(() => showTrainerRuntimeMessage('Código copiado para a área de transferência.', 'success'))
-            .catch(() => showTrainerRuntimeMessage(`Código: ${trainerCode}`, 'info'));
+        navigator.clipboard.writeText(payload.message)
+            .then(() => showTrainerRuntimeMessage('Texto de acesso copiado.', 'success'))
+            .catch(() => showTrainerRuntimeMessage(`Código: ${payload.code}`, 'info'));
     } else {
-        showTrainerRuntimeMessage(`Código: ${trainerCode}`, 'info');
+        showTrainerRuntimeMessage(`Código: ${payload.code}`, 'info');
     }
     closeTrainerProfileMenu();
 }
 
 async function goToGlobalLogin() {
+    const inviteContext = bootstrapPendingTrainerInviteContextFromLocation();
     const reactAuth = window.__CONSULTORIA_REACT_AUTH__;
     if (reactAuth?.showLogin && !document.getElementById('global-login-screen')) {
         if (reactAuth.isHomeVisible?.()) return;
@@ -5617,7 +7002,10 @@ async function goToGlobalLogin() {
     }
     syncEvaluationShortcutVisibility(loginScreen);
     bindLoginRoleIntentButtons();
-    if (!normalizeLoginRoleIntent(memoryGetItem(LOGIN_ROLE_INTENT_KEY))) {
+    if (inviteContext?.code) {
+        loginRoleIntentRuntime = 'student';
+        memorySetItem(LOGIN_ROLE_INTENT_KEY, 'student');
+    } else if (!normalizeLoginRoleIntent(memoryGetItem(LOGIN_ROLE_INTENT_KEY))) {
         const defaultRoleIntent = getDefaultLoginRoleIntent();
         loginRoleIntentRuntime = defaultRoleIntent;
         memorySetItem(LOGIN_ROLE_INTENT_KEY, defaultRoleIntent);
@@ -5625,6 +7013,14 @@ async function goToGlobalLogin() {
     updateLoginRoleIntentUI();
     setLoginRecoveryMode(isSupabaseRecoveryFlowActive());
     activateScreen('global-login-screen', { animate: true });
+    if (inviteContext?.code) {
+        const trainerLabel = inviteContext.consultoria || inviteContext.name || 'consultoria';
+        setAuthInlineFeedback(
+            'login-inline-feedback',
+            `Convite detectado para ${trainerLabel}. Entre como aluno para continuar.`,
+            'info'
+        );
+    }
 }
 
 async function goToProfileCreate() {
@@ -5720,6 +7116,33 @@ function isTrainerDashboardContext() {
         || !!document.getElementById('trainer-dashboard-screen');
 }
 
+async function preserveTrainerEvaluationDashboardFromAuthRedirect() {
+    if (!isTrainerDashboardContext() || !isTrainerEvaluationModeActive()) return false;
+    const dashboardScreen = document.getElementById('trainer-dashboard-screen');
+    if (!dashboardScreen) return false;
+
+    window.__CONSULTORIA_REACT_AUTH__?.hide?.();
+    ensureEvaluationDemoData();
+
+    if (!dashboardScreen.classList.contains('active')) {
+        hideAllScreens();
+        const app = document.getElementById('app');
+        if (app) app.classList.add('wide');
+        dashboardScreen.classList.add('active');
+        if (typeof initTrainerDashboard === 'function') {
+            await initTrainerDashboard({ force: true });
+        }
+    } else {
+        const app = document.getElementById('app');
+        if (app) {
+            app.classList.remove('auth-mode');
+            app.classList.add('wide');
+        }
+    }
+
+    return true;
+}
+
 async function routeAuthenticatedSessionUser(user, { force = false } = {}) {
     const userId = String(user?.id || '');
     if (!userId) return;
@@ -5766,6 +7189,7 @@ async function handleSupabaseAuthStateEvent(event, session) {
     const normalizedEvent = String(event || '').toUpperCase();
     const now = Date.now();
     authLastEventAt = now;
+    bootstrapPendingTrainerInviteContextFromLocation();
 
     if (normalizedEvent === 'PASSWORD_RECOVERY') {
         await goToGlobalLogin();
@@ -5781,6 +7205,9 @@ async function handleSupabaseAuthStateEvent(event, session) {
     if (normalizedEvent === 'SIGNED_OUT') {
         const keepInLoginFlow = suppressSignedOutRedirectToHome;
         suppressSignedOutRedirectToHome = false;
+        if (!keepInLoginFlow && await preserveTrainerEvaluationDashboardFromAuthRedirect()) {
+            return;
+        }
         const hasRuntimeUser = !!String(memoryGetItem('currentUserId') || '').trim();
         if (!keepInLoginFlow && hasRuntimeUser && (now - authJustSignedInAt) < 1800) {
             return;
@@ -5789,6 +7216,10 @@ async function handleSupabaseAuthStateEvent(event, session) {
         if (keepInLoginFlow) {
             await goToGlobalLogin();
             return;
+        }
+        if (hasPendingTrainerInviteContext()) {
+            const openedInvite = await showStudentInviteLandingScreen();
+            if (openedInvite) return;
         }
         goToHome();
         return;
@@ -5808,8 +7239,15 @@ async function handleSupabaseAuthStateEvent(event, session) {
     if (normalizedEvent === 'INITIAL_SESSION') {
         const sessionUser = session?.user || await getSupabaseSessionUser();
         if (!sessionUser) {
+            if (await preserveTrainerEvaluationDashboardFromAuthRedirect()) {
+                return;
+            }
             authLastProcessedUserId = '';
             clearAuthRuntimeContext();
+            if (hasPendingTrainerInviteContext()) {
+                const openedInvite = await showStudentInviteLandingScreen({ forceRefresh: true });
+                if (openedInvite) return;
+            }
             const hasHome = !!document.getElementById('home-screen');
             if (hasHome) {
                 goToHome();
@@ -5917,6 +7355,195 @@ function hasAppRole(rolesLike, role) {
 
 const LOGIN_ROLE_INTENT_KEY = 'loginRoleIntent';
 let loginRoleIntentRuntime = '';
+
+function parseBooleanLike(value) {
+    const safe = String(value || '').trim().toLowerCase();
+    return safe === '1' || safe === 'true' || safe === 'yes' || safe === 'sim';
+}
+
+function readHashQueryParams() {
+    const hash = String(window.location.hash || '');
+    const queryIndex = hash.indexOf('?');
+    if (queryIndex < 0) return new URLSearchParams();
+    return new URLSearchParams(hash.slice(queryIndex + 1));
+}
+
+function readInviteParamFromCollections(keys = []) {
+    const searchParams = new URLSearchParams(String(window.location.search || '').replace(/^\?/, ''));
+    const hashParams = readHashQueryParams();
+    for (const rawKey of keys) {
+        const key = String(rawKey || '').trim();
+        if (!key) continue;
+        const direct = searchParams.get(key);
+        if (direct !== null && String(direct).trim()) return direct;
+        const hashValue = hashParams.get(key);
+        if (hashValue !== null && String(hashValue).trim()) return hashValue;
+    }
+    return '';
+}
+
+function parseTrainerInviteFromLocation() {
+    const inviteFlagRaw = readInviteParamFromCollections(['invite', 'convite']);
+    const codeRaw = readInviteParamFromCollections(['trainer', 'trainerCode', 'trainer_code', 'code']);
+    const safeCode = sanitizeCodeInput(codeRaw, 5);
+    const inviteFlag = parseBooleanLike(inviteFlagRaw);
+    if (!safeCode && !inviteFlag) return null;
+
+    const displayName = sanitizeUserInput(
+        readInviteParamFromCollections(['trainerName', 'name']),
+        { maxLen: 90 }
+    ) || 'Treinador';
+    const consultoria = sanitizeUserInput(
+        readInviteParamFromCollections(['consultoria']),
+        { maxLen: 120 }
+    ) || `Consultoria de ${displayName.split(' ')[0] || 'Treinador'}`;
+    const avatar = sanitizeStrictUrl(readInviteParamFromCollections(['avatar']), {
+        maxLen: 600,
+        allowStorage: true
+    });
+
+    if (!safeCode) return null;
+    return {
+        code: safeCode,
+        name: displayName,
+        consultoria,
+        avatar: avatar || '',
+        fromInviteLink: true,
+        autoApprove: true,
+        capturedAt: new Date().toISOString()
+    };
+}
+
+function loadStoredTrainerInviteContext() {
+    if (pendingTrainerInviteContext && typeof pendingTrainerInviteContext === 'object') {
+        return pendingTrainerInviteContext;
+    }
+    const raw = memoryGetItem(TRAINER_INVITE_STATE_KEY);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return null;
+        const code = sanitizeCodeInput(parsed.code || '', 5);
+        if (!code) return null;
+        pendingTrainerInviteContext = {
+            code,
+            name: sanitizeUserInput(parsed.name || parsed.displayName || '', { maxLen: 90 }) || 'Treinador',
+            consultoria: sanitizeUserInput(parsed.consultoria || parsed.consultoriaName || '', { maxLen: 120 }) || 'Consultoria',
+            avatar: sanitizeStrictUrl(parsed.avatar || '', { maxLen: 600, allowStorage: true }) || '',
+            fromInviteLink: !!parsed.fromInviteLink,
+            autoApprove: parsed.autoApprove !== false,
+            capturedAt: sanitizeUserInput(parsed.capturedAt || '', { maxLen: 40 }) || new Date().toISOString()
+        };
+        return pendingTrainerInviteContext;
+    } catch (err) {
+        memoryRemoveItem(TRAINER_INVITE_STATE_KEY);
+        return null;
+    }
+}
+
+function setPendingTrainerInviteContext(invite) {
+    const safeCode = sanitizeCodeInput(invite?.code || '', 5);
+    if (!safeCode) {
+        pendingTrainerInviteContext = null;
+        memoryRemoveItem(TRAINER_INVITE_STATE_KEY);
+        return null;
+    }
+    const safeInvite = {
+        code: safeCode,
+        name: sanitizeUserInput(invite?.name || '', { maxLen: 90 }) || 'Treinador',
+        consultoria: sanitizeUserInput(invite?.consultoria || '', { maxLen: 120 }) || 'Consultoria',
+        avatar: sanitizeStrictUrl(invite?.avatar || '', { maxLen: 600, allowStorage: true }) || '',
+        fromInviteLink: !!invite?.fromInviteLink,
+        autoApprove: invite?.autoApprove !== false,
+        capturedAt: sanitizeUserInput(invite?.capturedAt || '', { maxLen: 40 }) || new Date().toISOString()
+    };
+    pendingTrainerInviteContext = safeInvite;
+    memorySetItem(TRAINER_INVITE_STATE_KEY, JSON.stringify(safeInvite));
+    return safeInvite;
+}
+
+function clearPendingTrainerInviteContext() {
+    pendingTrainerInviteContext = null;
+    memoryRemoveItem(TRAINER_INVITE_STATE_KEY);
+}
+
+function bootstrapPendingTrainerInviteContextFromLocation() {
+    const parsed = parseTrainerInviteFromLocation();
+    if (!parsed || !parsed.code) return loadStoredTrainerInviteContext();
+    const normalized = setPendingTrainerInviteContext(parsed);
+    if (normalized?.code) {
+        pendingTrainerCode = normalized.code;
+        pendingTrainerCandidate = buildTrainerCandidateFromRecord(normalized.code, normalized);
+    }
+    return normalized;
+}
+
+function getPendingTrainerInviteContext() {
+    const fromLocation = parseTrainerInviteFromLocation();
+    if (fromLocation?.code) {
+        return setPendingTrainerInviteContext(fromLocation);
+    }
+    return loadStoredTrainerInviteContext();
+}
+
+function hasPendingTrainerInviteContext() {
+    const invite = getPendingTrainerInviteContext();
+    return !!sanitizeCodeInput(invite?.code || '', 5);
+}
+
+function isPendingInviteCodeMatch(code) {
+    const safeCode = sanitizeCodeInput(code, 5);
+    if (!safeCode) return false;
+    const invite = getPendingTrainerInviteContext();
+    const inviteCode = sanitizeCodeInput(invite?.code || '', 5);
+    return !!inviteCode && inviteCode === safeCode;
+}
+
+function shouldAutoApproveTrainerConnection(code) {
+    if (!isPendingInviteCodeMatch(code)) return false;
+    const invite = getPendingTrainerInviteContext();
+    return !!invite?.autoApprove;
+}
+
+function buildTrainerInviteLink(payload = {}) {
+    const code = sanitizeCodeInput(payload.code || '', 5);
+    if (!code) return getTrainerAccessUrl();
+    try {
+        const url = new URL(getTrainerAccessUrl(), window.location.href);
+        url.searchParams.set('invite', '1');
+        url.searchParams.set('trainer', code);
+        const safeName = sanitizeUserInput(payload.displayName || payload.name || '', { maxLen: 90 });
+        if (safeName) url.searchParams.set('trainerName', safeName);
+        const safeConsultoria = sanitizeUserInput(payload.consultoriaName || payload.consultoria || '', { maxLen: 120 });
+        if (safeConsultoria) url.searchParams.set('consultoria', safeConsultoria);
+        const safeAvatar = sanitizeStrictUrl(payload.avatar || '', { maxLen: 600, allowStorage: true });
+        if (safeAvatar) url.searchParams.set('avatar', safeAvatar);
+        return url.toString();
+    } catch {
+        return getTrainerAccessUrl();
+    }
+}
+
+function removeTrainerInviteParamsFromCurrentUrl() {
+    try {
+        const url = new URL(window.location.href);
+        TRAINER_INVITE_QUERY_KEYS.forEach((key) => {
+            url.searchParams.delete(key);
+        });
+        const hash = String(url.hash || '');
+        const queryIndex = hash.indexOf('?');
+        if (queryIndex >= 0) {
+            const hashPath = hash.slice(0, queryIndex);
+            const hashParams = new URLSearchParams(hash.slice(queryIndex + 1));
+            TRAINER_INVITE_QUERY_KEYS.forEach((key) => hashParams.delete(key));
+            const nextHashQuery = hashParams.toString();
+            url.hash = `${hashPath}${nextHashQuery ? `?${nextHashQuery}` : ''}`;
+        }
+        window.history.replaceState({}, document.title, url.toString());
+    } catch (err) {
+        // noop
+    }
+}
 
 function normalizeLoginRoleIntent(role) {
     const normalized = normalizeAppRole(role);
@@ -6680,13 +8307,10 @@ async function showProfileSetupScreen(profile, roles, user = null) {
     if (nameInput) nameInput.focus();
 }
 
-function showTrainerConnectScreen() {
-    activateScreen('student-screen', { animate: true });
+let studentConnectionViewMode = 'connect';
 
-    const title = document.getElementById('student-connect-title');
-    const subtitle = document.getElementById('student-connect-subtitle');
-    const trainerCodeInput = document.getElementById('trainer-code');
-    const currentCode = sanitizeCodeInput(
+function getCurrentTrainerConnectCode() {
+    return sanitizeCodeInput(
         pendingTrainerCandidate?.code
         || pendingTrainerCode
         || memoryGetItem('connectedTrainerCode')
@@ -6694,13 +8318,51 @@ function showTrainerConnectScreen() {
         || '',
         5
     );
-    if (title) title.textContent = 'Conectar com Treinador';
-    if (subtitle) {
-        subtitle.textContent = currentCode
-            ? `Código atual: ${currentCode}. Informe outro código para reconectar sua conta.`
-            : 'Adicione o código do treinador para concluir seu acesso como aluno.';
+}
+
+function showTrainerConnectScreen(options = {}) {
+    activateScreen('student-screen', { animate: true });
+
+    const requestedMode = String(options?.mode || '').toLowerCase();
+    const currentCode = sanitizeCodeInput(options?.code || getCurrentTrainerConnectCode(), 5);
+    const needsManualCode = requestedMode === 'code' || !!currentCode;
+    studentConnectionViewMode = needsManualCode ? 'connect' : 'invite_required';
+
+    const title = document.getElementById('student-connect-title');
+    const subtitle = document.getElementById('student-connect-subtitle');
+    const helper = document.getElementById('student-connect-helper');
+    const emptyState = document.getElementById('student-connect-empty-state');
+    const formWrap = document.getElementById('student-connect-form-wrap');
+    const trainerCodeInput = document.getElementById('trainer-code');
+
+    if (needsManualCode) {
+        if (title) title.textContent = 'Conectar com treinador';
+        if (subtitle) {
+            subtitle.textContent = currentCode
+                ? `Código atual: ${currentCode}. Informe outro código para trocar de consultoria.`
+                : 'Digite o código do treinador para conectar sua conta de aluno.';
+        }
+        if (helper) helper.textContent = 'Se ainda não tiver código, peça o link de convite ao seu treinador.';
+        if (emptyState) emptyState.style.display = 'none';
+        if (formWrap) formWrap.style.display = '';
+    } else {
+        if (title) title.textContent = 'Área do aluno';
+        if (subtitle) subtitle.textContent = 'Para usar como aluno, você precisa de um convite do seu treinador.';
+        if (helper) helper.textContent = 'Peça o link da consultoria ao seu treinador e depois toque em "Tenho um convite".';
+        if (emptyState) emptyState.style.display = '';
+        if (formWrap) formWrap.style.display = 'none';
     }
-    if (trainerCodeInput) trainerCodeInput.value = currentCode || '';
+
+    if (trainerCodeInput) {
+        trainerCodeInput.value = currentCode || '';
+        trainerCodeInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+}
+
+function openStudentInviteCodeEntry() {
+    showTrainerConnectScreen({ mode: 'code' });
+    const trainerCodeInput = document.getElementById('trainer-code');
+    if (trainerCodeInput) trainerCodeInput.focus();
 }
 
 function buildTrainerCandidateFromRecord(code, trainerRecord = {}) {
@@ -6735,27 +8397,98 @@ function buildTrainerCandidateFromRecord(code, trainerRecord = {}) {
     };
 }
 
-function renderTrainerConnectionConfirmation(candidate = null) {
+async function resolvePendingTrainerCandidateFromInvite(options = {}) {
+    const inviteContext = getPendingTrainerInviteContext();
+    const inviteCode = sanitizeCodeInput(inviteContext?.code || '', 5);
+    if (!inviteCode) return null;
+
+    let trainerRecord = null;
+    const localTrainers = readStorageJSON('allTrainers', []);
+    const localTrainer = localTrainers.find((entry) =>
+        sanitizeCodeInput(
+            entry?.code || entry?.trainerCode || entry?.trainer_code || '',
+            5
+        ) === inviteCode
+    );
+    if (localTrainer) trainerRecord = localTrainer;
+
+    const shouldRefreshRemote = options?.forceRefresh || !trainerRecord;
+    if (!trainerRecord && ENABLE_DEMO_ACCESS && inviteCode === '00001') {
+        trainerRecord = {
+            name: 'Administrador Teste',
+            consultoria_name: 'Admin Consultoria'
+        };
+    }
+    if (shouldRefreshRemote && isSupabaseReady()) {
+        const remote = await getTrainerByCodeRemote(inviteCode);
+        if (remote) trainerRecord = remote;
+    }
+
+    const candidate = buildTrainerCandidateFromRecord(inviteCode, {
+        ...inviteContext,
+        ...(trainerRecord || {})
+    });
+    pendingTrainerCode = candidate.code;
+    pendingTrainerCandidate = candidate;
+    setPendingTrainerInviteContext({
+        ...inviteContext,
+        ...candidate,
+        autoApprove: true,
+        fromInviteLink: true
+    });
+    return candidate;
+}
+
+async function showStudentInviteLandingScreen(options = {}) {
+    const candidate = await resolvePendingTrainerCandidateFromInvite(options);
+    if (!candidate?.code) return false;
+    const confirmScreen = await ensureScreenElement('student-confirm-screen', 'pages/student-confirm.html');
+    if (!confirmScreen) return false;
+    renderTrainerConnectionConfirmation(candidate, { mode: 'invite' });
+    return true;
+}
+
+function renderTrainerConnectionConfirmation(candidate = null, options = {}) {
     const safeCandidate = candidate && typeof candidate === 'object' ? candidate : pendingTrainerCandidate;
     if (!safeCandidate) {
-        showTrainerConnectScreen();
+        showTrainerConnectScreen({ mode: 'invite_required' });
         return;
     }
 
+    const viewMode = String(options?.mode || '').toLowerCase() === 'invite' ? 'invite' : 'connect';
+    studentConnectionViewMode = viewMode;
     pendingTrainerCandidate = safeCandidate;
     pendingTrainerCode = sanitizeCodeInput(safeCandidate.code || pendingTrainerCode, 5);
     activateScreen('student-confirm-screen', { animate: true });
 
     const questionEl = document.getElementById('confirm-trainer-question');
+    const helperEl = document.getElementById('confirm-trainer-helper');
     const trainerNameEl = document.getElementById('confirm-trainer-name');
     const consultoriaEl = document.getElementById('confirm-consultoria-name');
     const codeEl = document.getElementById('confirm-trainer-code');
     const avatarEl = document.getElementById('confirm-trainer-avatar');
+    const confirmButton = document.getElementById('confirm-connection-btn');
+    const backButton = document.getElementById('confirm-back-btn');
 
-    if (questionEl) questionEl.textContent = 'Esse é seu treinador?';
+    if (questionEl) {
+        questionEl.textContent = viewMode === 'invite'
+            ? 'Convite para entrar na consultoria'
+            : 'Esse é seu treinador?';
+    }
+    if (helperEl) {
+        helperEl.textContent = viewMode === 'invite'
+            ? 'Ao continuar, sua conta de aluno será vinculada automaticamente a este treinador.'
+            : 'Confirme o perfil abaixo antes de conectar sua conta.';
+    }
     if (trainerNameEl) trainerNameEl.textContent = safeCandidate.name || 'Treinador';
     if (consultoriaEl) consultoriaEl.textContent = safeCandidate.consultoria || 'Consultoria';
     if (codeEl) codeEl.textContent = `Código: ${safeCandidate.code || '-----'}`;
+    if (confirmButton) {
+        confirmButton.textContent = viewMode === 'invite' ? 'Entrar na consultoria' : 'Sim, é meu treinador';
+    }
+    if (backButton) {
+        backButton.textContent = viewMode === 'invite' ? 'Tenho outro convite' : 'Não, voltar';
+    }
 
     if (avatarEl) {
         const initials = String(safeCandidate.name || 'T')
@@ -6787,11 +8520,19 @@ function renderTrainerConnectionConfirmation(candidate = null) {
 }
 
 function rejectTrainerConnectionCandidate() {
+    if (studentConnectionViewMode === 'invite') {
+        clearPendingTrainerInviteContext();
+        pendingTrainerCode = '';
+        pendingTrainerCandidate = null;
+        removeTrainerInviteParamsFromCurrentUrl();
+        showTrainerConnectScreen({ mode: 'invite_required' });
+        return;
+    }
     const codeInput = document.getElementById('trainer-code');
     if (codeInput && pendingTrainerCandidate?.code) {
         codeInput.value = pendingTrainerCandidate.code;
     }
-    showTrainerConnectScreen();
+    showTrainerConnectScreen({ mode: 'code' });
 }
 
 function openStudentQuestionnaireScreen(displayName = '', options = {}) {
@@ -6887,7 +8628,39 @@ async function openStudentConnectFromDashboard() {
     });
     const navHome = document.getElementById('snav-home');
     if (navHome) navHome.classList.add('active');
-    showTrainerConnectScreen();
+    showTrainerConnectScreen({ mode: 'code' });
+}
+
+async function tryCompleteInviteConnectionForStudent(user, profile, onboardingStep = '') {
+    const inviteCandidate = await resolvePendingTrainerCandidateFromInvite();
+    if (!inviteCandidate?.code) return false;
+
+    const connectedCode = sanitizeCodeInput(profile?.connected_trainer_code || '', 5);
+    const inviteCode = sanitizeCodeInput(inviteCandidate.code || '', 5);
+    if (connectedCode && connectedCode === inviteCode) {
+        clearPendingTrainerInviteContext();
+        removeTrainerInviteParamsFromCurrentUrl();
+        return false;
+    }
+
+    pendingTrainerCode = inviteCode;
+    pendingTrainerCandidate = inviteCandidate;
+
+    if (onboardingStep === 'trainer_connect') {
+        try {
+            await finalizeStudentOnboardingConnection();
+            clearPendingTrainerInviteContext();
+            removeTrainerInviteParamsFromCurrentUrl();
+            return true;
+        } catch (err) {
+            console.error('Falha ao concluir conexao por convite.', err);
+            renderTrainerConnectionConfirmation(inviteCandidate, { mode: 'invite' });
+            return true;
+        }
+    }
+
+    renderTrainerConnectionConfirmation(inviteCandidate, { mode: 'invite' });
+    return true;
 }
 
 async function routeByOnboarding(user, profile, roles, options = {}) {
@@ -6902,6 +8675,11 @@ async function routeByOnboarding(user, profile, roles, options = {}) {
     cacheAuthenticatedContext(user, profile, normalizedRoles, onboardingStep);
 
     if (onboardingStep === 'profile_setup') {
+        const inviteContext = getPendingTrainerInviteContext();
+        if (inviteContext?.code) {
+            pendingTrainerCode = sanitizeCodeInput(inviteContext.code, 5);
+            pendingTrainerCandidate = buildTrainerCandidateFromRecord(pendingTrainerCode, inviteContext);
+        }
         const shouldContinueStudentQuestionnaire = !hasTrainer && hasStudent && !!profile?.profile_complete && !profile?.anamnesis;
         if ((profile?.onboarding_step || '') !== 'profile_setup') {
             await upsertOwnProfile({ id: user.id, onboarding_step: 'profile_setup' });
@@ -6919,9 +8697,11 @@ async function routeByOnboarding(user, profile, roles, options = {}) {
         if (onboardingStep === 'trainer_connect' && (profile?.onboarding_step || '') !== 'trainer_connect') {
             await upsertOwnProfile({ id: user.id, onboarding_step: 'trainer_connect' });
         }
+        const handledInvite = await tryCompleteInviteConnectionForStudent(user, profile, onboardingStep);
+        if (handledInvite) return;
         const connectedCode = sanitizeCodeInput(profile?.connected_trainer_code || '', 5);
         if (await openStudentDashboardForUser(user.id, connectedCode)) return;
-        showTrainerConnectScreen();
+        showTrainerConnectScreen({ mode: 'invite_required' });
         return;
     }
 
@@ -6953,14 +8733,18 @@ async function routeByOnboarding(user, profile, roles, options = {}) {
         if ((profile?.onboarding_step || '') !== 'trainer_connect') {
             await upsertOwnProfile({ id: user.id, onboarding_step: 'trainer_connect' });
         }
-        showTrainerConnectScreen();
+        const handledInvite = await tryCompleteInviteConnectionForStudent(user, profile, onboardingStep);
+        if (handledInvite) return;
+        showTrainerConnectScreen({ mode: 'invite_required' });
         return;
     }
 
     if (hasStudent) {
+        const handledInvite = await tryCompleteInviteConnectionForStudent(user, profile, onboardingStep);
+        if (handledInvite) return;
         const connectedCode = sanitizeCodeInput(profile?.connected_trainer_code || '', 5);
         if (await openStudentDashboardForUser(user.id, connectedCode)) return;
-        showTrainerConnectScreen();
+        showTrainerConnectScreen({ mode: 'invite_required' });
         return;
     }
 }
@@ -8016,6 +9800,8 @@ if (typeof window !== 'undefined') {
         closeStudentQuestionnaireTestMode,
         openTrainerEvaluationDashboard,
         openStudentEvaluationDashboard,
+        enterAsTestStudentFromTrainer,
+        returnToTrainerFromTestStudent,
         resetEvaluationSandbox,
         completeProfileSetup,
         nextProfileSetupStep,
@@ -8027,6 +9813,8 @@ if (typeof window !== 'undefined') {
         connectStudent,
         confirmConnection,
         rejectTrainerConnectionCandidate,
+        openStudentInviteCodeEntry,
+        showTrainerConnectScreen,
         openTrainerArea,
         goToTrainerArea,
         goToTrainerCreate,
@@ -8271,6 +10059,11 @@ function hydrateStudentCardioMotionState({
 }
 
 function renderStudentViewContent(targetView) {
+    if (isFullTabsResetModeEnabled()) {
+        const viewEl = getStudentViewElement(targetView);
+        if (viewEl) viewEl.innerHTML = '';
+        return;
+    }
     if (targetView === 'home') renderStudentHomeMain();
     if (targetView === 'treino') {
         switchTreinoSubview('landing');
@@ -8449,12 +10242,15 @@ function getWorkoutFocusLabelFromTitle(title = '') {
 
 function hasCardioPlanDayData(entry = {}) {
     if (!entry || typeof entry !== 'object') return false;
-    return [
-        sanitizeUserInput(entry.type || '', { maxLen: 80 }),
-        sanitizeUserInput(entry.durationMin || '', { maxLen: 8 }),
-        sanitizeUserInput(entry.intensity || '', { maxLen: 40 }),
-        sanitizeUserInput(entry.notes || '', { maxLen: 120 })
-    ].some(Boolean);
+    const type = sanitizeUserInput(entry.type || '', { maxLen: 80 });
+    const durationMin = sanitizeUserInput(entry.durationMin || '', { maxLen: 8 });
+    const notes = sanitizeUserInput(entry.notes || '', { maxLen: 120 });
+    const legacyIntensity = sanitizeUserInput(entry.intensity || '', { maxLen: 40 });
+    const intensityKey = normalizeCardioIntensityKey(entry.intensityKey, inferCardioIntensityKeyFromLegacy(legacyIntensity));
+    const zoneKey = normalizeCardioZoneKey(entry.zoneKey, 'z2');
+    const hasIntensityPreset = legacyIntensity || intensityKey !== 'medium';
+    const hasZonePreset = zoneKey !== 'z2';
+    return [type, durationMin, notes].some(Boolean) || hasIntensityPreset || hasZonePreset;
 }
 
 function getStudentCardioCompletionForDate(student = {}, dateKey = '', dayKey = '') {
@@ -8491,6 +10287,8 @@ function buildStudentWorkoutWeekAgendaModel(student = {}, blocks = []) {
         const workoutTitle = blockIdx >= 0 ? getWorkoutBlockTitle(safeBlocks[blockIdx], blockIdx) : 'Treino livre';
         const cardioEntry = cardioByDay.get(day.key) || null;
         const hasCardio = hasCardioPlanDayData(cardioEntry);
+        const cardioIntensityMeta = getCardioIntensityMeta(cardioEntry?.intensityKey);
+        const cardioZoneMeta = getCardioZoneMeta(cardioEntry?.zoneKey || cardioPlan.baseZoneKey);
         return {
             dayKey: day.key,
             dayLabel: day.label,
@@ -8505,7 +10303,8 @@ function buildStudentWorkoutWeekAgendaModel(student = {}, blocks = []) {
             hasCardio,
             cardioType: sanitizeUserInput(cardioEntry?.type || '', { maxLen: 80 }),
             cardioDuration: sanitizeUserInput(cardioEntry?.durationMin || '', { maxLen: 8 }),
-            cardioIntensity: sanitizeUserInput(cardioEntry?.intensity || '', { maxLen: 40 }),
+            cardioIntensity: cardioIntensityMeta.shortLabel,
+            cardioZone: cardioZoneMeta.key.toUpperCase(),
             cardioDone: completionMapToday.get(day.key) === true
         };
     });
@@ -8541,7 +10340,7 @@ function renderStudentWorkoutWeekAgenda(student = null, blocks = []) {
                     ? (day.workoutTitle || 'Treino do dia')
                     : (day.blockIdx >= 0 ? day.workoutTitle : 'Sem bloco definido');
                 const meta = day.hasCardio
-                    ? `${day.cardioDuration || '--'} min • ${day.cardioIntensity || 'zona livre'}`
+                    ? `${day.cardioDuration || '--'} min • ${day.cardioIntensity || 'Média'} • ${day.cardioZone || 'Z2'}`
                     : (day.blockIdx >= 0 ? 'Treino programado' : 'Treino livre');
                 return `
                     <button type="button" class="${classes}" onclick="selectStudentTreinoAgendaDay('${day.dayKey}')">
@@ -8754,26 +10553,27 @@ function addStudentExerciseToBlock(blockIdx) {
         if (series === null) return;
         const reps = promptStudentField('Reps (ex: 8-12):', '10-12', { maxLen: 12 });
         if (reps === null) return;
-        const carga = promptStudentField('Carga (opcional):', '', { maxLen: 12 });
-        if (carga === null) return;
         const descanso = promptStudentField('Descanso (opcional):', '60s', { maxLen: 12 });
         if (descanso === null) return;
         const observacao = promptStudentField('Observação (opcional):', '', { maxLen: 160 });
         if (observacao === null) return;
 
         const note = observacao || '';
-        block.exercises = Array.isArray(block.exercises) ? block.exercises : [];
-        block.exercises.push({
+        const exercise = {
             nome,
             series: series || '3',
             reps: reps || '',
-            carga: carga || '',
+            carga: '',
             descanso: descanso || '',
             observacao: note,
             obs: note,
             substitutes: [],
             supersetWithNext: false
-        });
+        };
+        exercise.setTemplates = createSetTemplatesFromLegacy(exercise);
+        syncExerciseLegacyFieldsFromTemplates(exercise);
+        block.exercises = Array.isArray(block.exercises) ? block.exercises : [];
+        block.exercises.push(exercise);
         didAdd = true;
     });
 
@@ -8798,8 +10598,6 @@ function editStudentExerciseInBlock(blockIdx, exIdx) {
         if (series === null) return;
         const reps = promptStudentField('Reps (ex: 8-12):', ex.reps || '', { maxLen: 12 });
         if (reps === null) return;
-        const carga = promptStudentField('Carga (opcional):', ex.carga || '', { maxLen: 12 });
-        if (carga === null) return;
         const descanso = promptStudentField('Descanso (opcional):', ex.descanso || '', { maxLen: 12 });
         if (descanso === null) return;
         const observacao = promptStudentField('Observação (opcional):', ex.observacao || ex.obs || '', { maxLen: 160 });
@@ -8809,10 +10607,12 @@ function editStudentExerciseInBlock(blockIdx, exIdx) {
         ex.nome = nome || ex.nome;
         ex.series = series || ex.series;
         ex.reps = reps || ex.reps;
-        ex.carga = carga || ex.carga;
+        ex.carga = '';
         ex.descanso = descanso || ex.descanso;
         ex.observacao = note;
         ex.obs = note;
+        ex.setTemplates = createSetTemplatesFromLegacy(ex);
+        syncExerciseLegacyFieldsFromTemplates(ex);
         didEdit = true;
     });
 
@@ -8912,7 +10712,7 @@ function renderStudentWorkoutMain(options = {}) {
     const block = blocks[currentWorkoutTab];
     const exercises = Array.isArray(block.exercises) ? block.exercises : [];
     const muscleGroups = getMuscleGroups(exercises);
-    const totalSets = exercises.reduce((acc, ex) => acc + Number(ex.series || 0), 0);
+    const totalSets = exercises.reduce((acc, ex) => acc + getExerciseSetTemplates(ex).length, 0);
     const estDuration = Math.max(25, Math.round(totalSets * 2.2));
     const blockTitle = getWorkoutBlockTitle(block, currentWorkoutTab);
     const lastPerformed = getLatestPerformanceDate(student.id, blockTitle);
@@ -8929,7 +10729,8 @@ function renderStudentWorkoutMain(options = {}) {
                                 <div class="exercise-order-badge">${idx + 1}</div>
                                 <div class="ex-name-box">
                                     <span>${escHtml(ex.nome)}</span>
-                                    <div class="ex-sets-mini">${ex.series} series • ${ex.reps} reps ${ex.descanso ? `• ${escHtml(ex.descanso)} descanso` : ''}</div>
+                                    <div class="ex-sets-mini">${getExerciseSetTemplates(ex).length} séries prescritas</div>
+                                    ${renderStudentExercisePrescription(ex)}
                                     ${note ? `<p class="exercise-note"><i class="ph-bold ph-info"></i> ${escHtml(note)}</p>` : ''}
                                     ${substitutes.length ? `<div class="analysis-substitute-chips">${substitutes.map(s => `<span>${escHtml(s)}</span>`).join('')}</div>` : ''}
                                     ${ex.supersetWithNext ? `<p class="exercise-note"><i class="ph-bold ph-lightning"></i> Super serie com o proximo exercicio</p>` : ''}
@@ -13195,9 +14996,6 @@ function renderStudentDietMain() {
     if (actionsInline) actionsInline.innerHTML = '';
 }
 
-let pendingTrainerCode = '';
-let pendingTrainerCandidate = null;
-
 async function connectStudent() {
     const activeUser = await getSupabaseSessionUser();
     if (!activeUser) {
@@ -13256,8 +15054,19 @@ async function connectStudent() {
         }
     }
 
+    if (!isPendingInviteCodeMatch(code)) {
+        clearPendingTrainerInviteContext();
+    }
+
     pendingTrainerCode = code;
     pendingTrainerCandidate = buildTrainerCandidateFromRecord(code, trainerRecord || {});
+    if (isPendingInviteCodeMatch(code)) {
+        const invite = getPendingTrainerInviteContext();
+        setPendingTrainerInviteContext({
+            ...invite,
+            ...pendingTrainerCandidate
+        });
+    }
     const confirmScreen = await ensureScreenElement('student-confirm-screen', 'pages/student-confirm.html');
     if (!confirmScreen) {
         const hint = pendingTrainerCandidate?.name
@@ -13267,7 +15076,10 @@ async function connectStudent() {
         await confirmConnection();
         return;
     }
-    renderTrainerConnectionConfirmation(pendingTrainerCandidate);
+    renderTrainerConnectionConfirmation(
+        pendingTrainerCandidate,
+        { mode: isPendingInviteCodeMatch(code) ? 'invite' : 'connect' }
+    );
 }
 
 function getWeekdayPlanKey(date = new Date()) {
@@ -13277,9 +15089,9 @@ function getWeekdayPlanKey(date = new Date()) {
 }
 
 const CARDIO_ZONE_DEFS = [
-    { key: 'z1', title: 'Zona 1 — Leve', bpm: '50–70% FC máx', talk: 'Consigo conversar confortavelmente', accent: 'z1' },
-    { key: 'z2', title: 'Zona 2 — Moderada', bpm: '70–80% FC máx', talk: 'Consigo falar, mas com esforço', accent: 'z2' },
-    { key: 'z3', title: 'Zona 3 — Vigorosa', bpm: '80–100% FC máx', talk: 'Difícil falar — poucas palavras', accent: 'z3' }
+    { key: 'z1', title: 'Zona 1 — Leve', minPct: 50, maxPct: 70, talk: 'Consigo conversar confortavelmente', accent: 'z1' },
+    { key: 'z2', title: 'Zona 2 — Moderada', minPct: 70, maxPct: 80, talk: 'Consigo falar, mas com esforço', accent: 'z2' },
+    { key: 'z3', title: 'Zona 3 — Vigorosa', minPct: 80, maxPct: 100, talk: 'Difícil falar — poucas palavras', accent: 'z3' }
 ];
 
 let cardioTimerState = {
@@ -13348,7 +15160,47 @@ function formatCardioDuration(totalSec = 0) {
 }
 
 function getCardioZoneMeta(zoneKey) {
-    return CARDIO_ZONE_DEFS.find((zone) => zone.key === String(zoneKey || '').toLowerCase()) || CARDIO_ZONE_DEFS[1];
+    return CARDIO_ZONE_DEFS.find((zone) => zone.key === normalizeCardioZoneKey(zoneKey, 'z2')) || CARDIO_ZONE_DEFS[1];
+}
+
+function resolveCardioHrMaxContext(plan = {}, student = {}) {
+    const safePlan = normalizeCardioPlanShape(plan);
+    const age = Math.max(0, parseIntegerSafe(student?.age) || 0);
+    const tanakaValue = age > 0 ? Math.round(208 - (0.7 * age)) : null;
+    const manualParsed = parseIntegerSafe(safePlan.hrMaxManual);
+    const manualValue = Number.isFinite(manualParsed) ? Math.min(240, Math.max(90, manualParsed)) : null;
+    const mode = safePlan.hrMaxMode === 'manual' ? 'manual' : 'auto';
+    const effective = mode === 'manual'
+        ? (manualValue || tanakaValue)
+        : tanakaValue;
+    const sourceLabel = mode === 'manual'
+        ? (manualValue ? 'Manual' : 'Tanaka (idade ausente)')
+        : (tanakaValue ? 'Tanaka' : 'Tanaka (idade ausente)');
+    return {
+        age,
+        mode,
+        formula: 'tanaka',
+        tanakaValue,
+        manualValue,
+        effective: Number.isFinite(effective) ? Math.round(effective) : null,
+        sourceLabel
+    };
+}
+
+function formatCardioZoneBpmLabel(zoneLike = {}, effectiveHrMax = null) {
+    const minPct = Math.max(0, parseDecimalSafe(zoneLike?.minPct) || 0);
+    const maxPct = Math.max(minPct, parseDecimalSafe(zoneLike?.maxPct) || minPct);
+    const safeHrMax = Number.isFinite(parseDecimalSafe(effectiveHrMax)) ? parseDecimalSafe(effectiveHrMax) : null;
+    if (!safeHrMax) {
+        return `${minPct}%–${maxPct}% FC máx`;
+    }
+    const minBpm = Math.max(1, Math.round((safeHrMax * minPct) / 100));
+    const maxBpm = Math.max(minBpm, Math.round((safeHrMax * maxPct) / 100));
+    return `${minBpm}–${maxBpm} bpm (${minPct}%–${maxPct}%)`;
+}
+
+function getCardioIntensityBadgeLabel(intensityKey = 'medium') {
+    return getCardioIntensityMeta(intensityKey).label;
 }
 
 function resolveCardioRenderMode(mode = 'main') {
@@ -13375,7 +15227,12 @@ function getCardioZoneValueFromDom(mode = 'main') {
     const preferred = document.getElementById(ids.zoneSelect);
     const fallback = document.getElementById(getCardioDomIds('main').zoneSelect);
     const raw = String(preferred?.value || fallback?.value || '').toLowerCase();
-    return ['z1', 'z2', 'z3'].includes(raw) ? raw : 'z2';
+    if (CARDIO_ZONE_KEYS.includes(raw)) return raw;
+    const { student } = getStudentData();
+    const plan = normalizeCardioPlanShape(student?.cardioPlan || {});
+    const todayKey = getWeekdayPlanKey(new Date());
+    const todayPlan = (plan.days || []).find((entry) => entry?.dayKey === todayKey);
+    return normalizeCardioZoneKey(todayPlan?.zoneKey, plan.baseZoneKey);
 }
 
 function getCurrentCardioSessionElapsedSec() {
@@ -13558,6 +15415,11 @@ function buildStudentCardioViewModel(student = {}) {
     const todayKey = getWeekdayPlanKey(new Date());
     const completionMap = getStudentCardioCompletionMap(student);
     const todayPlan = plan.days.find((entry) => entry.dayKey === todayKey) || plan.days[0];
+    const todayIntensityKey = normalizeCardioIntensityKey(todayPlan?.intensityKey, inferCardioIntensityKeyFromLegacy(todayPlan?.intensity));
+    const todayIntensityMeta = getCardioIntensityMeta(todayIntensityKey);
+    const todayZoneKey = normalizeCardioZoneKey(todayPlan?.zoneKey, plan.baseZoneKey);
+    const todayZoneMeta = getCardioZoneMeta(todayZoneKey);
+    const hrContext = resolveCardioHrMaxContext(plan, student);
     const weekly = calculateStudentCardioWeeklyTotals(student);
     const weeklyGoal = Math.max(30, parseIntegerSafe(plan.weeklyGoalMin) || 120);
     const weeklyDoneMin = weekly.totalMinRounded;
@@ -13569,6 +15431,7 @@ function buildStudentCardioViewModel(student = {}) {
         .sort((a, b) => new Date(b.endedAt || b.startedAt || 0).getTime() - new Date(a.endedAt || a.startedAt || 0).getTime())
         .slice(0, 8);
     const zoneMeta = getCardioZoneMeta(plan.baseZoneKey);
+    const planDaysDomFirst = getCardioDaysDomFirst(plan.days);
     const timerStatusLabel = cardioTimerState.status === 'running'
         ? 'Cronômetro em andamento'
         : (cardioTimerState.status === 'paused' ? 'Cronômetro pausado' : 'Pronto para começar');
@@ -13584,6 +15447,11 @@ function buildStudentCardioViewModel(student = {}) {
         weeklyPercent,
         recentSessions,
         zoneMeta,
+        planDaysDomFirst,
+        todayZoneKey,
+        todayZoneMeta,
+        todayIntensityMeta,
+        hrContext,
         timerStatusLabel,
         elapsedDisplay
     };
@@ -13636,6 +15504,11 @@ function renderStudentCardioMain(options = {}) {
         weeklyPercent,
         recentSessions,
         zoneMeta,
+        planDaysDomFirst,
+        todayZoneKey,
+        todayZoneMeta,
+        todayIntensityMeta,
+        hrContext,
         timerStatusLabel,
         elapsedDisplay
     } = view;
@@ -13643,11 +15516,15 @@ function renderStudentCardioMain(options = {}) {
     const sectionHint = isIntegrated
         ? 'Marque seu cardio em tempo real ou registre manualmente.'
         : (plan.coachRecommendation || 'Mantenha consistência e ajuste ritmo conforme percepção de esforço.');
+    const hrMaxLabel = hrContext.effective ? `${hrContext.effective} bpm` : '--';
+    const todayZoneBpmLabel = formatCardioZoneBpmLabel(todayZoneMeta, hrContext.effective);
+    const planDaysForList = planDaysDomFirst.length ? planDaysDomFirst : plan.days;
     container.innerHTML = `
         <section class="student-cardio-premium ${isIntegrated ? 'student-cardio-integrated' : ''}">
             <div class="student-cardio-coach-card zone-${zoneMeta.accent}" data-motion="cardio-coach">
                 <h3>${sectionTitle}</h3>
                 <p><strong>${weeklyGoal} min/semana</strong> • ${zoneMeta.title}</p>
+                <p class="student-cardio-hrmax-line"><strong>FC máx:</strong> ${hrMaxLabel} • ${escHtml(hrContext.sourceLabel)}</p>
                 <p class="subtitle">${escHtml(sectionHint)}</p>
             </div>
 
@@ -13670,10 +15547,15 @@ function renderStudentCardioMain(options = {}) {
                 <div class="student-cardio-timer-display" id="${ids.timerDisplay}">${elapsedDisplay}</div>
                 <p class="subtitle">${timerStatusLabel}</p>
                 <p class="subtitle">Hoje: ${escHtml(todayPlan.dayLabel || 'Dia')} • ${escHtml(todayPlan.type || 'Cardio livre')} • ${escHtml(todayPlan.durationMin || '--')} min</p>
+                <p class="student-cardio-today-preset">
+                    <span class="chip-intensity chip-${todayIntensityMeta.key}">${todayIntensityMeta.label}</span>
+                    <span class="chip-zone zone-${todayZoneMeta.accent}">${todayZoneMeta.title}</span>
+                    <small>${todayZoneBpmLabel}</small>
+                </p>
                 <div class="student-cardio-zone-select-row">
                     <label>Zona da sessão</label>
                     <select id="${ids.zoneSelect}" class="q-input">
-                        ${CARDIO_ZONE_DEFS.map((zone) => `<option value="${zone.key}" ${zone.key === plan.baseZoneKey ? 'selected' : ''}>${zone.title}</option>`).join('')}
+                        ${CARDIO_ZONE_DEFS.map((zone) => `<option value="${zone.key}" ${zone.key === todayZoneKey ? 'selected' : ''}>${zone.title}</option>`).join('')}
                     </select>
                 </div>
                 <div class="student-cardio-timer-actions">
@@ -13693,9 +15575,9 @@ function renderStudentCardioMain(options = {}) {
                 <p class="subtitle">Talk Test: durante o cardio, teste falar uma frase para validar sua zona.</p>
                 <div class="student-cardio-zones-grid">
                     ${CARDIO_ZONE_DEFS.map((zone) => `
-                        <article class="student-cardio-zone-card zone-${zone.accent} ${zone.key === plan.baseZoneKey ? 'is-base' : ''}">
+                        <article class="student-cardio-zone-card zone-${zone.accent} ${zone.key === todayZoneKey ? 'is-base' : ''}">
                             <h4>${zone.title}</h4>
-                            <p>${zone.bpm}</p>
+                            <p>${formatCardioZoneBpmLabel(zone, hrContext.effective)}</p>
                             <small>${zone.talk}</small>
                         </article>
                     `).join('')}
@@ -13718,9 +15600,11 @@ function renderStudentCardioMain(options = {}) {
 
             ${isIntegrated ? '' : `
                 <div class="student-cardio-list" data-motion="cardio-days">
-                    ${plan.days.map((entry) => {
+                    ${planDaysForList.map((entry) => {
                         const isToday = entry.dayKey === todayKey;
                         const done = completionMap.get(entry.dayKey) === true;
+                        const intensityMeta = getCardioIntensityMeta(entry.intensityKey);
+                        const zoneMetaByDay = getCardioZoneMeta(entry.zoneKey || plan.baseZoneKey);
                         return `
                             <div class="student-cardio-item ${done ? 'is-done' : ''} ${isToday ? 'is-today' : ''}">
                                 <div class="student-cardio-item-head">
@@ -13731,7 +15615,12 @@ function renderStudentCardioMain(options = {}) {
                                 </div>
                                 <p><strong>Tipo:</strong> ${escHtml(entry.type || 'Não definido')}</p>
                                 <p><strong>Duração:</strong> ${escHtml(entry.durationMin || '--')} min</p>
-                                <p><strong>Intensidade:</strong> ${escHtml(entry.intensity || '--')}</p>
+                                <p>
+                                    <strong>Prescrição:</strong>
+                                    <span class="chip-intensity chip-${intensityMeta.key}">${intensityMeta.label}</span>
+                                    <span class="chip-zone zone-${zoneMetaByDay.accent}">${zoneMetaByDay.title}</span>
+                                </p>
+                                <p><strong>Faixa:</strong> ${formatCardioZoneBpmLabel(zoneMetaByDay, hrContext.effective)}</p>
                                 ${entry.notes ? `<p><strong>Obs:</strong> ${escHtml(entry.notes)}</p>` : ''}
                             </div>
                         `;
@@ -14148,6 +16037,15 @@ function renderStudentWaterMain() {
 async function confirmConnection() {
     const activeUser = await getSupabaseSessionUser();
     if (!activeUser) {
+        const invite = getPendingTrainerInviteContext();
+        if (invite?.code) {
+            setLoginRoleIntent('student', { silent: true });
+            setAuthInlineFeedback(
+                'login-inline-feedback',
+                'Entre na sua conta de aluno para concluir o convite da consultoria.',
+                'info'
+            );
+        }
         goToGlobalLogin();
         return;
     }
@@ -14157,10 +16055,11 @@ async function confirmConnection() {
     );
     if (!effectivePendingCode) {
         alert('Código do treinador inválido. Tente novamente.');
-        showTrainerConnectScreen();
+        showTrainerConnectScreen({ mode: 'code' });
         return;
     }
     pendingTrainerCode = effectivePendingCode;
+    const autoApprove = shouldAutoApproveTrainerConnection(effectivePendingCode);
 
     const onboardingDraft = memoryGetItem('onboardingQuestionnaireDraft');
     const onboardingPending = memoryGetItem('onboardingPendingQuestionnaire') === '1';
@@ -14180,8 +16079,11 @@ async function confirmConnection() {
         if (sIdx >= 0) {
             students[sIdx].trainerCode = effectivePendingCode;
             students[sIdx].trainer_code = effectivePendingCode;
-            students[sIdx].pending = true;
-            students[sIdx].active = false;
+            students[sIdx].pending = !autoApprove;
+            students[sIdx].active = !!autoApprove;
+            if (autoApprove) {
+                students[sIdx].acceptedAt = students[sIdx].acceptedAt || new Date().toISOString();
+            }
             saveStudentData(students, { studentId: String(students[sIdx]?.id || currentStudentId || '') });
         }
         await upsertOwnProfile({
@@ -14189,10 +16091,19 @@ async function confirmConnection() {
             connected_trainer_code: effectivePendingCode,
             onboarding_step: 'done'
         });
-        await syncStudentConnectionEntity(activeUser.id, effectivePendingCode, 'pending');
+        await syncStudentConnectionEntity(activeUser.id, effectivePendingCode, autoApprove ? 'approved' : 'pending');
         memorySetItem('connectedTrainerCode', effectivePendingCode);
+        if (autoApprove) {
+            clearPendingTrainerInviteContext();
+            removeTrainerInviteParamsFromCurrentUrl();
+        }
         pendingTrainerCandidate = null;
-        showDietRuntimeMessage('Conexão atualizada. Aguardando aprovação do treinador.', 'success');
+        showDietRuntimeMessage(
+            autoApprove
+                ? 'Conexão concluída com sucesso.'
+                : 'Conexão atualizada. Aguardando aprovação do treinador.',
+            'success'
+        );
         await openStudentDashboardForUser(activeUser.id, effectivePendingCode);
         return;
     }
@@ -14407,8 +16318,12 @@ async function submitQuestionnaire() {
             });
         }
         alert('Anamnese salva. Agora conecte o código do treinador para concluir.');
-        showTrainerConnectScreen();
+        showTrainerConnectScreen({ mode: 'invite_required' });
         return;
+    }
+
+    if ((!pendingTrainerCode || pendingTrainerCode.length !== 5) && getPendingTrainerInviteContext()?.code) {
+        pendingTrainerCode = sanitizeCodeInput(getPendingTrainerInviteContext()?.code || '', 5);
     }
 
     if (!pendingTrainerCode || pendingTrainerCode.length !== 5) {
@@ -14421,6 +16336,7 @@ async function submitQuestionnaire() {
     while (id === ADMIN_STUDENT_CODE || id === SELF_TRAINING_STUDENT_CODE || usedIds.has(id)) {
         id = Math.floor(10000 + Math.random() * 90000).toString();
     }
+    const autoApprove = shouldAutoApproveTrainerConnection(pendingTrainerCode);
     const newStudent = {
         id: id,
         userId: String((await getSupabaseSessionUser())?.id || ''),
@@ -14431,8 +16347,8 @@ async function submitQuestionnaire() {
         weight: weight,
         height: height,
         goal: goal,
-        active: false,
-        pending: true,
+        active: !!autoApprove,
+        pending: !autoApprove,
         trainerCode: pendingTrainerCode,
         trainer_code: pendingTrainerCode,
         joinedAt: new Date().toISOString(),
@@ -14447,6 +16363,9 @@ async function submitQuestionnaire() {
         personalRecords: {},
         questionnaire: questionnaire
     };
+    if (autoApprove) {
+        newStudent.acceptedAt = new Date().toISOString();
+    }
     newStudent.tmbBase = Math.round(calcTMBMifflin(newStudent.weight, newStudent.height, newStudent.age, newStudent.gender));
     const dietBase = createDietBaseFromStudent(newStudent);
     newStudent.mealBlocks = dietBase.mealBlocks;
@@ -14487,7 +16406,7 @@ async function submitQuestionnaire() {
             anamnesis: questionnairePayload
         });
         memorySetItem('currentAnamnesis', JSON.stringify(questionnairePayload));
-        await syncStudentConnectionEntity(activeUser.id, pendingTrainerCode, 'pending');
+        await syncStudentConnectionEntity(activeUser.id, pendingTrainerCode, autoApprove ? 'approved' : 'pending');
         memorySetItem('currentOnboardingStep', 'done');
         memoryRemoveItem('onboardingPendingQuestionnaire');
         memoryRemoveItem('onboardingQuestionnaireDraft');
@@ -14495,6 +16414,8 @@ async function submitQuestionnaire() {
 
     // Save current session info + remember-me token
     pendingTrainerCandidate = null;
+    clearPendingTrainerInviteContext();
+    removeTrainerInviteParamsFromCurrentUrl();
     openStudentDashboardSession(newStudent);
 }
 
@@ -14533,11 +16454,15 @@ async function finalizeStudentOnboardingConnection() {
         return;
     }
 
+    if ((!pendingTrainerCode || pendingTrainerCode.length !== 5) && getPendingTrainerInviteContext()?.code) {
+        pendingTrainerCode = sanitizeCodeInput(getPendingTrainerInviteContext()?.code || '', 5);
+    }
     const trainerCode = sanitizeCodeInput(pendingTrainerCode, 5);
     if (trainerCode.length !== 5) {
         alert('Código do treinador inválido.');
         return;
     }
+    const autoApprove = shouldAutoApproveTrainerConnection(trainerCode);
 
     let students = readStorageJSON('trainerStudents', []);
     let existingStudent = students.find((s) => String(s.userId || '') === String(activeUser.id));
@@ -14557,8 +16482,8 @@ async function finalizeStudentOnboardingConnection() {
         weight: String(draft.weight || '70'),
         height: String(draft.height || '175'),
         goal: sanitizeUserInput(draft.goal || 'Hipertrofia', { maxLen: 120 }),
-        active: false,
-        pending: true,
+        active: !!autoApprove,
+        pending: !autoApprove,
         trainerCode,
         trainer_code: trainerCode,
         joinedAt: existingStudent?.joinedAt || new Date().toISOString(),
@@ -14577,6 +16502,9 @@ async function finalizeStudentOnboardingConnection() {
         personalRecords: existingStudent?.personalRecords || {},
         questionnaire: draft.questionnaire || draft || {}
     };
+    if (autoApprove) {
+        newStudent.acceptedAt = existingStudent?.acceptedAt || new Date().toISOString();
+    }
     newStudent.tmbBase = Math.round(calcTMBMifflin(newStudent.weight, newStudent.height, newStudent.age, newStudent.gender));
     const dietBase = createDietBaseFromStudent(newStudent);
     newStudent.mealBlocks = Array.isArray(existingStudent?.mealBlocks) && existingStudent.mealBlocks.length > 0
@@ -14607,12 +16535,14 @@ async function finalizeStudentOnboardingConnection() {
         anamnesis: draft
     });
     memorySetItem('currentAnamnesis', JSON.stringify(draft));
-    await syncStudentConnectionEntity(activeUser.id, trainerCode, 'pending');
+    await syncStudentConnectionEntity(activeUser.id, trainerCode, autoApprove ? 'approved' : 'pending');
 
     memorySetItem('currentOnboardingStep', 'done');
     memoryRemoveItem('onboardingPendingQuestionnaire');
     memoryRemoveItem('onboardingQuestionnaireDraft');
     pendingTrainerCandidate = null;
+    clearPendingTrainerInviteContext();
+    removeTrainerInviteParamsFromCurrentUrl();
     openStudentDashboardSession(newStudent);
 }
 
@@ -14631,6 +16561,10 @@ async function initStudentDashboard(options = {}) {
     }
 
     studentDashboardInitPromise = (async () => {
+        if (isFullTabsResetModeEnabled()) {
+            applyFullTabsResetUi();
+            return true;
+        }
         migrateStoredStudentsDietSchema();
         pullAppStateIfNewer();
         startSyncPolling();
@@ -14650,6 +16584,7 @@ async function initStudentDashboard(options = {}) {
 
         const dashName = document.getElementById('dash-student-name');
         if (dashName) dashName.innerText = `Olá, ${studentName.split(' ')[0]} `;
+        syncTestAccountSwitcherUI();
         const dashTrainer = document.getElementById('dash-student-trainer');
         if (dashTrainer) {
             dashTrainer.innerText = getTrainerDisplayNameByCode(trainerCode)
@@ -14871,12 +16806,7 @@ function openStudentWorkout() {
                             <span class="ex-name">${escHtml(ex.nome)}</span>
                             ${note ? `<span class="ex-obs">${escHtml(note)}</span>` : ''}
                         </div>
-                        <div class="ex-stats">
-                            <div class="st-item"><span>Séries</span><strong>${ex.series}</strong></div>
-                            <div class="st-item"><span>Reps</span><strong>${ex.reps}</strong></div>
-                            <div class="st-item"><span>Carga</span><strong>${ex.carga}</strong></div>
-                            <div class="st-item"><span>Desc.</span><strong>${ex.descanso}</strong></div>
-                        </div>
+                        ${renderStudentExercisePrescription(ex)}
                     </div>
                 `;
     }).join('')}
@@ -18297,308 +20227,138 @@ async function initTrainerDashboard(options = {}) {
     }
 
     trainerDashboardInitPromise = (async () => {
-        migrateStoredStudentsDietSchema();
+        try {
+            setTrainerDashboardRuntimeFallback(false);
+            migrateStoredStudentsDietSchema();
 
-        const evaluationMode = isTrainerEvaluationModeActive();
-        let sessionUser = null;
-        let profile = null;
-        let trainerNameResolved = EVALUATION_TRAINER_NAME;
-        let trainerCodeResolved = EVALUATION_TRAINER_CODE;
-        let trainerIdentity = null;
+            const evaluationMode = isTrainerEvaluationModeActive();
+            let sessionUser = null;
+            let profile = null;
+            let trainerNameResolved = EVALUATION_TRAINER_NAME;
+            let trainerCodeResolved = EVALUATION_TRAINER_CODE;
+            let trainerIdentity = null;
 
-        if (evaluationMode) {
-            const demoIdentity = ensureEvaluationDemoData();
-            trainerIdentity = await setCurrentTrainerIdentity(demoIdentity || buildEvaluationTrainerIdentity(), {
-                code: EVALUATION_TRAINER_CODE,
-                name: EVALUATION_TRAINER_NAME,
-                services: 'ambos'
-            });
-        } else {
-            sessionUser = await getSupabaseSessionUser();
-            if (!sessionUser) {
+            if (evaluationMode) {
+                const demoIdentity = ensureEvaluationDemoData();
+                setRuntimeRoleForTestSwitch('trainer');
+                trainerIdentity = await setCurrentTrainerIdentity(demoIdentity || buildEvaluationTrainerIdentity(), {
+                    code: EVALUATION_TRAINER_CODE,
+                    name: EVALUATION_TRAINER_NAME,
+                    services: 'ambos'
+                });
+            } else {
+                sessionUser = await getSupabaseSessionUser();
+                if (!sessionUser) {
+                    hideAllScreens();
+                    const trainerLoginScreen = document.getElementById('trainer-login-screen');
+                    if (trainerLoginScreen) trainerLoginScreen.classList.add('active');
+                    syncEvaluationShortcutVisibility();
+                    return true;
+                }
+
+                profile = await getProfileByUserId(sessionUser.id);
+                const sessionRoles = normalizeAppRoles(profile?.roles || sessionUser?.user_metadata?.roles, profile?.role || sessionUser?.user_metadata?.role);
+                if (!sessionRoles.includes('trainer')) {
+                    alert('Acesso restrito ao treinador.');
+                    window.location.href = 'index.html';
+                    return true;
+                }
+
+                trainerNameResolved = sanitizeUserInput(profile?.name || sessionUser?.user_metadata?.name || memoryGetItem('trainerName') || 'Treinador', { maxLen: 90 }) || 'Treinador';
+                trainerCodeResolved = sanitizeCodeInput(profile?.trainer_code || memoryGetItem('currentTrainerCode') || '', 5);
+                if (!trainerCodeResolved) {
+                    trainerCodeResolved = await generateUniqueTrainerCode();
+                    const updateRoles = normalizeAppRoles(profile?.roles, profile?.role || 'trainer');
+                    if (!updateRoles.includes('trainer')) updateRoles.unshift('trainer');
+                    await window.supabase
+                        .from('profiles')
+                        .update({ trainer_code: trainerCodeResolved, role: 'trainer', roles: updateRoles })
+                        .eq('id', sessionUser.id);
+                }
+                const resolvedIdentity = await resolveCurrentTrainerIdentity({
+                    sessionUser,
+                    trainerCode: trainerCodeResolved,
+                    fallbackName: trainerNameResolved
+                });
+                trainerIdentity = await setCurrentTrainerIdentity(resolvedIdentity, {
+                    code: trainerCodeResolved,
+                    name: trainerNameResolved
+                });
+            }
+
+            const trainerCode = sanitizeCodeInput(trainerIdentity?.code || trainerCodeResolved || '', 5) || '00000';
+            const refreshTrainerFromRemote = async ({ showPendingFeedback = false } = {}) => {
+                if (!trainerCode || trainerCode === '00000') return true;
+                if (trainerDashboardManualRefreshPromise) {
+                    return trainerDashboardManualRefreshPromise;
+                }
+                trainerDashboardManualRefreshPromise = (async () => {
+                    if (showPendingFeedback) {
+                        setStudentSyncState('pending', 'Atualizando dados...');
+                    }
+                    await syncStudentsFromSupabase(trainerCode);
+                    return true;
+                })()
+                    .catch((error) => {
+                        console.warn('Falha ao atualizar dados do treinador.', error);
+                        if (showPendingFeedback) {
+                            setStudentSyncState('error', 'Falha ao atualizar dados');
+                        }
+                        return false;
+                    })
+                    .finally(() => {
+                        trainerDashboardManualRefreshPromise = null;
+                    });
+                return trainerDashboardManualRefreshPromise;
+            };
+
+            const dashboardScreen = document.getElementById('trainer-dashboard-screen');
+            if (dashboardScreen) {
                 hideAllScreens();
-                const trainerLoginScreen = document.getElementById('trainer-login-screen');
-                if (trainerLoginScreen) trainerLoginScreen.classList.add('active');
-                syncEvaluationShortcutVisibility();
-                return;
+                const app = document.getElementById('app');
+                if (app) app.classList.add('wide');
+                dashboardScreen.classList.add('active');
             }
 
-            profile = await getProfileByUserId(sessionUser.id);
-            const sessionRoles = normalizeAppRoles(profile?.roles || sessionUser?.user_metadata?.roles, profile?.role || sessionUser?.user_metadata?.role);
-            if (!sessionRoles.includes('trainer')) {
-                alert('Acesso restrito ao treinador.');
-                window.location.href = 'index.html';
-                return;
+            loadTrainerSettingsToUI();
+            applyTrainerDashboardStaticCopy();
+
+            const root = document.getElementById('trainer-dashboard-screen');
+            if (root && !root.dataset.menuInit) {
+                root.addEventListener('click', (evt) => {
+                    const menu = document.getElementById('trainer-profile-menu');
+                    const triggers = Array.from(document.querySelectorAll('.profile-menu-trigger'));
+                    if (!menu) return;
+                    const clickedInsideMenu = menu.contains(evt.target);
+                    const clickedTrigger = triggers.some((trigger) => trigger && trigger.contains(evt.target));
+                    if (!clickedInsideMenu && !clickedTrigger) closeTrainerProfileMenu();
+                });
+                document.addEventListener('keydown', (evt) => {
+                    if (evt.key === 'Escape') closeTrainerProfileMenu();
+                });
+                root.dataset.menuInit = '1';
             }
 
-            trainerNameResolved = sanitizeUserInput(profile?.name || sessionUser?.user_metadata?.name || memoryGetItem('trainerName') || 'Treinador', { maxLen: 90 }) || 'Treinador';
-            trainerCodeResolved = sanitizeCodeInput(profile?.trainer_code || memoryGetItem('currentTrainerCode') || '', 5);
-            if (!trainerCodeResolved) {
-                trainerCodeResolved = await generateUniqueTrainerCode();
-                const updateRoles = normalizeAppRoles(profile?.roles, profile?.role || 'trainer');
-                if (!updateRoles.includes('trainer')) updateRoles.unshift('trainer');
-                await window.supabase
-                    .from('profiles')
-                    .update({ trainer_code: trainerCodeResolved, role: 'trainer', roles: updateRoles })
-                    .eq('id', sessionUser.id);
+            const mobileProfileNavBtn = document.getElementById('m-nav-profile');
+            if (mobileProfileNavBtn) {
+                mobileProfileNavBtn.onclick = () => switchDashView('config', { focusProfileStudio: true });
             }
-            const resolvedIdentity = await resolveCurrentTrainerIdentity({
-                sessionUser,
-                trainerCode: trainerCodeResolved,
-                fallbackName: trainerNameResolved
+
+            const bootCycle = ++trainerDashboardBootCycle;
+            setTrainerDashboardRuntimeFallback(false);
+            runTrainerDashboardInitialRenderCycle(bootCycle);
+            runDeferredTrainerDashboardBootTasks({
+                evaluationMode,
+                trainerCode,
+                refreshTrainerFromRemote,
+                cycle: bootCycle
             });
-            trainerIdentity = await setCurrentTrainerIdentity(resolvedIdentity, {
-                code: trainerCodeResolved,
-                name: trainerNameResolved
-            });
-        }
-    const trainerCode = sanitizeCodeInput(trainerIdentity?.code || trainerCodeResolved || '', 5) || '00000';
-    const refreshTrainerFromRemote = async ({ showPendingFeedback = false } = {}) => {
-        if (!trainerCode || trainerCode === '00000') {
-            updateTrainerStats();
             return true;
+        } catch (error) {
+            console.error('Falha ao iniciar painel do treinador.', error);
+            setTrainerDashboardRuntimeFallback(true, 'Falha ao carregar o painel. Verifique sua conexão e tente novamente.');
+            return false;
         }
-        if (trainerDashboardManualRefreshPromise) {
-            return trainerDashboardManualRefreshPromise;
-        }
-        trainerDashboardManualRefreshPromise = (async () => {
-            if (showPendingFeedback) {
-                setStudentSyncState('pending', 'Atualizando dados...');
-            }
-            await syncStudentsFromSupabase(trainerCode);
-            return true;
-        })()
-            .catch((error) => {
-                console.warn('Falha ao atualizar dados do treinador.', error);
-                if (showPendingFeedback) {
-                    setStudentSyncState('error', 'Falha ao atualizar dados');
-                }
-                return false;
-            })
-            .finally(() => {
-                trainerDashboardManualRefreshPromise = null;
-            });
-        return trainerDashboardManualRefreshPromise;
-    };
-
-    pullAppStateIfNewer();
-    startSyncPolling();
-    if (!evaluationMode && trainerCode && trainerCode !== '00000') {
-        void refreshTrainerFromRemote();
-        startSupabaseRealtimeSync(trainerCode);
-    }
-    if (!evaluationMode && isSupabaseReady()) {
-        startSupabaseFoodsRealtimeSync();
-        scheduleFoodsCatalogSync(30);
-    }
-
-    const dashboardScreen = document.getElementById('trainer-dashboard-screen');
-    if (dashboardScreen) {
-        hideAllScreens();
-        const app = document.getElementById('app');
-        if (app) app.classList.add('wide');
-        dashboardScreen.classList.add('active');
-    }
-
-    loadTrainerSettingsToUI();
-
-    const root = document.getElementById('trainer-dashboard-screen');
-    if (root && !root.dataset.menuInit) {
-        root.addEventListener('click', (evt) => {
-            const menu = document.getElementById('trainer-profile-menu');
-            const triggers = Array.from(document.querySelectorAll('.profile-menu-trigger'));
-            if (!menu) return;
-            const clickedInsideMenu = menu.contains(evt.target);
-            const clickedTrigger = triggers.some((trigger) => trigger && trigger.contains(evt.target));
-            if (!clickedInsideMenu && !clickedTrigger) closeTrainerProfileMenu();
-        });
-        document.addEventListener('keydown', (evt) => {
-            if (evt.key === 'Escape') closeTrainerProfileMenu();
-        });
-        root.dataset.menuInit = '1';
-    }
-
-    const mobileProfileNavBtn = document.getElementById('m-nav-profile');
-    if (mobileProfileNavBtn) {
-        mobileProfileNavBtn.onclick = () => switchDashView('config', { focusProfileStudio: true });
-    }
-
-    // Add swipe gestures for mobile navigation
-    const mainContent = document.querySelector('.main-content');
-    if (mainContent && !mainContent.dataset.swipeInit) {
-        let startX = 0;
-        let startY = 0;
-        let isSwiping = false;
-        let isPulling = false;
-        let pullIndicator = null;
-
-        // Create pull-to-refresh indicator
-        const createPullIndicator = () => {
-            if (pullIndicator) return;
-            pullIndicator = document.createElement('div');
-            pullIndicator.style.cssText = `
-                position: absolute;
-                top: -60px;
-                left: 50%;
-                transform: translateX(-50%);
-                background: rgba(163, 230, 53, 0.9);
-                color: #000;
-                padding: 8px 16px;
-                border-radius: 20px;
-                font-size: 0.8rem;
-                font-weight: 600;
-                opacity: 0;
-                transition: opacity 0.3s ease;
-                z-index: 1000;
-                pointer-events: none;
-                backdrop-filter: blur(10px);
-            `;
-            pullIndicator.textContent = 'Puxe para atualizar';
-            mainContent.style.position = 'relative';
-            mainContent.appendChild(pullIndicator);
-        };
-
-        mainContent.addEventListener('touchstart', (e) => {
-            startX = e.touches[0].clientX;
-            startY = e.touches[0].clientY;
-            isSwiping = true;
-
-            // Check if at top of scroll for pull-to-refresh
-            if (mainContent.scrollTop === 0) {
-                isPulling = true;
-                createPullIndicator();
-            }
-        }, { passive: true });
-
-        mainContent.addEventListener('touchmove', (e) => {
-            if (!isSwiping) return;
-            const deltaX = e.touches[0].clientX - startX;
-            const deltaY = e.touches[0].clientY - startY;
-
-            // Handle pull-to-refresh
-            if (isPulling && deltaY > 0 && mainContent.scrollTop === 0) {
-                const pullDistance = Math.min(deltaY * 0.5, 80);
-                if (pullIndicator) {
-                    pullIndicator.style.transform = `translateX(-50%) translateY(${pullDistance}px)`;
-                    pullIndicator.style.opacity = Math.min(pullDistance / 40, 1);
-                }
-                e.preventDefault();
-                return;
-            }
-
-            // Only consider horizontal swipes
-            if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
-                e.preventDefault(); // Prevent scrolling
-            }
-        }, { passive: false });
-
-        mainContent.addEventListener('touchend', (e) => {
-            if (!isSwiping) return;
-            const endX = e.changedTouches[0].clientX;
-            const endY = e.changedTouches[0].clientY;
-            const deltaX = endX - startX;
-            const deltaY = endY - startY;
-
-            // Handle pull-to-refresh release
-            if (isPulling && deltaY > 60) {
-                if (navigator.vibrate) navigator.vibrate(50);
-                const indicatorEl = pullIndicator;
-                if (indicatorEl) {
-                    indicatorEl.textContent = 'Atualizando...';
-                    indicatorEl.style.background = 'rgba(163, 230, 53, 0.95)';
-                }
-                void (async () => {
-                    const refreshed = await refreshTrainerFromRemote({ showPendingFeedback: true });
-                    if (!indicatorEl) return;
-                    indicatorEl.textContent = refreshed ? 'Atualizado' : 'Falha ao atualizar';
-                    indicatorEl.style.background = refreshed
-                        ? 'rgba(34, 197, 94, 0.9)'
-                        : 'rgba(239, 68, 68, 0.92)';
-                    setTimeout(() => {
-                        indicatorEl.style.opacity = '0';
-                        setTimeout(() => {
-                            indicatorEl.remove();
-                            if (pullIndicator === indicatorEl) pullIndicator = null;
-                        }, 300);
-                    }, refreshed ? 900 : 1400);
-                })();
-            } else if (pullIndicator) {
-                // Reset indicator
-                pullIndicator.style.transform = 'translateX(-50%) translateY(0)';
-                pullIndicator.style.opacity = '0';
-                const indicatorEl = pullIndicator;
-                setTimeout(() => {
-                    indicatorEl?.remove();
-                    if (pullIndicator === indicatorEl) pullIndicator = null;
-                }, 300);
-            }
-
-            // Minimum swipe distance and angle
-            const minSwipeDistance = 100;
-            const maxVerticalMovement = 50;
-
-            if (Math.abs(deltaX) > minSwipeDistance && Math.abs(deltaY) < maxVerticalMovement && !isPulling) {
-                const views = ['dashboard', 'alunos', 'duvidas', 'config'];
-                const currentView = views.find(v => document.getElementById(`view-${v}`)?.style.display !== 'none') || 'dashboard';
-                const currentIndex = views.indexOf(currentView);
-
-                if (deltaX > 0) {
-                    // Swipe right - previous view
-                    const prevIndex = currentIndex > 0 ? currentIndex - 1 : views.length - 1;
-                    switchDashView(views[prevIndex]);
-                } else {
-                    // Swipe left - next view
-                    const nextIndex = currentIndex < views.length - 1 ? currentIndex + 1 : 0;
-                    switchDashView(views[nextIndex]);
-                }
-
-                // Trigger haptic feedback if available
-                if (navigator.vibrate) {
-                    navigator.vibrate(25);
-                }
-            }
-
-            isSwiping = false;
-            isPulling = false;
-        });
-
-        mainContent.dataset.swipeInit = '1';
-    }
-
-    // Add swipe hint for mobile users
-    const showSwipeHint = () => {
-        if (memoryGetItem('swipeHintShown')) return;
-
-        const hint = document.createElement('div');
-        hint.style.cssText = `
-            position: fixed;
-            bottom: 120px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 12px 20px;
-            border-radius: 25px;
-            font-size: 0.85rem;
-            font-weight: 500;
-            z-index: 2000;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            animation: slideUpFade 0.5s ease, fadeOut 0.5s ease 3s forwards;
-            pointer-events: none;
-        `;
-        hint.textContent = 'Deslize para navegar entre as telas';
-        document.body.appendChild(hint);
-
-        setTimeout(() => hint.remove(), 4000);
-        memorySetItem('swipeHintShown', 'true');
-    };
-
-    // Show hint after a short delay
-    setTimeout(showSwipeHint, 2000);
-
-        updateTrainerStats();
-        initTrainerRoutes();
     })()
         .finally(() => {
             trainerDashboardLastInitAt = Date.now();
@@ -18905,11 +20665,13 @@ function signalStudentPlanDirty() {
     trainerPlanEditRevision += 1;
     markStudentConfigDirty();
     queueStudentPlanLocalAutosave(520);
+    renderTrainerDemoStudentPreview();
 }
 
 function clearStudentConfigDirty() {
     studentConfigDirty = false;
     setSettingsSavebarState('clean');
+    renderTrainerDemoStudentPreview();
 }
 
 function setStudentBillingInlineFeedback(message, type = '') {
@@ -19508,6 +21270,115 @@ function setTrainerProfileStudioThemeSelection(value = TRAINER_THEME_PRESETS[0])
     if (selected) selected.checked = true;
 }
 
+function syncTrainerServicePresetUI(value = '') {
+    const normalized = normalizeTrainerServices(value || document.getElementById('trainer-services')?.value || 'treino');
+    document.querySelectorAll('#trainer-services-buttons [data-service]').forEach((button) => {
+        const isActive = button.getAttribute('data-service') === normalized;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function setTrainerServicePreset(value = 'treino') {
+    const normalized = normalizeTrainerServices(value);
+    const input = document.getElementById('trainer-services');
+    if (input) input.value = normalized;
+    syncTrainerServicePresetUI(normalized);
+    syncTrainerProfileStudioLiveUI();
+}
+
+function addTrainerSpecialtyPreset(tag = '') {
+    const value = sanitizeUserInput(tag, { maxLen: 40 });
+    if (!value) return;
+    if (trainerProfileDraftSpecialties.includes(value)) {
+        showTrainerRuntimeMessage(`${value} já está nas especialidades.`, 'info');
+        return;
+    }
+    trainerProfileDraftSpecialties = normalizeTrainerSpecialtiesList([...trainerProfileDraftSpecialties, value]);
+    renderTrainerSpecialties(trainerProfileDraftSpecialties);
+    syncTrainerProfileStudioLiveUI();
+}
+
+function setTrainerCtaPreset(label = '') {
+    const safeLabel = sanitizeUserInput(label, { maxLen: 80 });
+    const labelInput = document.getElementById('trainer-cta-label');
+    if (labelInput) labelInput.value = safeLabel;
+    const urlInput = document.getElementById('trainer-cta-url');
+    const whatsappValue = document.getElementById('trainer-whatsapp')?.value || '';
+    const phone = String(whatsappValue || '').replace(/\D/g, '');
+    if (urlInput && safeLabel.toLowerCase().includes('whatsapp') && phone.length >= 10 && !String(urlInput.value || '').trim()) {
+        urlInput.value = `https://wa.me/${phone}`;
+    }
+    syncTrainerProfileStudioLiveUI();
+}
+
+function calculateTrainerProfileCompleteness(stateLike = {}) {
+    const state = stateLike || {};
+    const socialLinks = normalizeTrainerSocialLinks(state.socialLinks || {});
+    const checks = [
+        !!sanitizeUserInput(state.displayName || '', { maxLen: 90 }),
+        !!sanitizeUserInput(state.consultoriaName || '', { maxLen: 120 }),
+        !!sanitizeUserInput(state.headline || '', { maxLen: 120 }),
+        !!sanitizeUserInput(state.bio || '', { allowNewlines: true, maxLen: 400 }),
+        !!normalizeTrainerHandle(state.handle || ''),
+        !!normalizeTrainerServices(state.services || ''),
+        normalizeTrainerSpecialtiesList(state.specialties || []).length > 0,
+        !!(socialLinks.instagram || socialLinks.whatsapp || socialLinks.website),
+        !!String(state.profilePhoto || '').trim(),
+        !!String(state.profileCover || '').trim()
+    ];
+    const filled = checks.filter(Boolean).length;
+    return Math.round((filled / checks.length) * 100);
+}
+
+function getTrainerHubStudentMetrics() {
+    const students = readStorageJSON('trainerStudents', []);
+    const code = getCurrentTrainerInviteCode();
+    const scoped = code && code !== '00000'
+        ? students.filter((student) => getStudentTrainerCodeValue(student) === code)
+        : students;
+    const active = scoped.filter((student) => student?.active && !student?.pending).length;
+    const pending = scoped.filter((student) => student?.pending).length;
+    return { total: scoped.length, active, pending };
+}
+
+function refreshTrainerHubUI(stateLike = null) {
+    if (!document.getElementById('trainer-hub-operation')) return;
+    const payload = getTrainerAccessPayload();
+    const state = stateLike || (() => {
+        try {
+            if (document.getElementById('trainer-display-name')) return collectTrainerProfileStudioState();
+        } catch {
+            // Fallback below when the form is not ready.
+        }
+        return buildTrainerProfileStudioDraftFromSources(loadTrainerSettings(), currentTrainerIdentity || {});
+    })();
+    const metrics = getTrainerHubStudentMetrics();
+    const completion = calculateTrainerProfileCompleteness(state);
+    const hubDisplayName = sanitizeUserInput(state.displayName || payload.displayName, { maxLen: 90 }) || payload.displayName;
+    const hubConsultoriaName = sanitizeUserInput(state.consultoriaName || payload.consultoriaName, { maxLen: 120 }) || payload.consultoriaName;
+
+    const setText = (id, text) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+    };
+    setText('trainer-hub-consultoria', hubConsultoriaName);
+    setText('trainer-hub-display-name', hubDisplayName);
+    setText('trainer-hub-code', payload.code);
+    setText('trainer-access-code', payload.code);
+    setText('trainer-hub-students', String(metrics.total));
+    setText('trainer-hub-active', String(metrics.active));
+    setText('trainer-hub-pending', String(metrics.pending));
+    setText('trainer-hub-progress-label', `${completion}%`);
+    setText('trainer-access-message', `Aluno entra pelo app e informa o código ${payload.code} para solicitar vínculo.`);
+
+    const accessLinkInput = document.getElementById('trainer-access-link');
+    if (accessLinkInput) accessLinkInput.value = payload.link;
+    const progress = document.getElementById('trainer-hub-progress');
+    if (progress) progress.style.width = `${completion}%`;
+    syncTrainerServicePresetUI(state.services);
+}
+
 function buildTrainerProfileStudioDraftFromSources(settings = loadTrainerSettings(), identity = currentTrainerIdentity || {}) {
     const displayName = sanitizeUserInput(settings.displayName || identity.displayName || identity.name || '', { maxLen: 90 })
         || sanitizeUserInput(identity.displayName || identity.name || memoryGetItem('trainerName') || 'Treinador', { maxLen: 90 })
@@ -19644,8 +21515,8 @@ function setTrainerProfileSavebarState(state = 'clean', customMessage = '') {
     if (!bar || !label || !btn) return;
 
     const map = {
-        clean: 'Sem alteracoes pendentes',
-        dirty: 'Alteracoes pendentes no perfil',
+        clean: 'Sem alterações pendentes',
+        dirty: 'Alterações pendentes no perfil',
         saving: 'Salvando perfil...',
         saved: 'Perfil salvo com sucesso',
         error: 'Salvo localmente. Falha no sync remoto.'
@@ -19700,6 +21571,122 @@ function focusTrainerProfileForm() {
         || document.getElementById('trainer-bio');
     if (anchor) anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
     if (focusField) setTimeout(() => focusField.focus(), 120);
+}
+
+function setActiveTrainerConfigNavTarget(sectionId = '') {
+    const safeId = String(sectionId || '').trim();
+    const navButtons = document.querySelectorAll('#view-config .trainer-config-nav-btn');
+    navButtons.forEach((button) => {
+        const isActive = String(button?.dataset?.target || '') === safeId;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function scrollTrainerConfigSection(sectionId = '') {
+    const safeId = String(sectionId || '').trim();
+    const target = document.getElementById(safeId);
+    if (!target) return;
+    setActiveTrainerConfigNavTarget(safeId);
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function ensureTrainerConfigSectionNav() {
+    const root = document.getElementById('view-config');
+    if (!root || root.dataset.sectionNavBound === '1') return;
+    root.dataset.sectionNavBound = '1';
+
+    const supportedIds = TRAINER_CONFIG_SECTION_IDS.filter((id) => !!document.getElementById(id));
+    if (!supportedIds.length || typeof window.IntersectionObserver !== 'function') return;
+
+    const observer = new IntersectionObserver((entries) => {
+        let bestEntry = null;
+        entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            if (!bestEntry || entry.intersectionRatio > bestEntry.intersectionRatio) {
+                bestEntry = entry;
+            }
+        });
+        if (bestEntry?.target?.id) {
+            setActiveTrainerConfigNavTarget(bestEntry.target.id);
+        }
+    }, { root: null, threshold: [0.2, 0.4, 0.65], rootMargin: '-15% 0px -45% 0px' });
+
+    supportedIds.forEach((id) => {
+        const section = document.getElementById(id);
+        if (section) observer.observe(section);
+    });
+}
+
+function setTrainerProfileInlineStatus(message = '', type = '') {
+    const status = document.getElementById('trainer-profile-inline-status');
+    if (!status) return;
+    const safeMessage = sanitizeUserInput(message || '', { maxLen: 240 });
+    status.textContent = safeMessage;
+    status.classList.remove('info', 'success', 'error');
+    if (type) status.classList.add(type);
+    status.style.display = safeMessage ? 'inline-flex' : 'none';
+}
+
+function clearTrainerProfileFieldValidation() {
+    ['trainer-cta-url', 'trainer-whatsapp', 'trainer-website'].forEach((fieldId) => {
+        const field = document.getElementById(fieldId);
+        if (field) field.classList.remove('field-invalid');
+    });
+}
+
+function applyTrainerProfileFieldValidation(issues = []) {
+    clearTrainerProfileFieldValidation();
+    (Array.isArray(issues) ? issues : []).forEach((issue) => {
+        const field = document.getElementById(issue?.field || '');
+        if (field) field.classList.add('field-invalid');
+    });
+}
+
+function validateTrainerProfileStudioState(state = {}, options = {}) {
+    const live = !!options.live;
+    const issues = [];
+
+    const websiteRaw = sanitizeUserInput(document.getElementById('trainer-website')?.value || '', { maxLen: 320 }).trim();
+    if (websiteRaw && !sanitizeStrictUrl(websiteRaw, { maxLen: 320, allowStorage: false })) {
+        issues.push({
+            field: 'trainer-website',
+            message: 'Website inválido. Use um link completo (https://...).'
+        });
+    }
+
+    const whatsappRaw = sanitizeUserInput(document.getElementById('trainer-whatsapp')?.value || '', { maxLen: 25 }).trim();
+    if (whatsappRaw) {
+        const digits = whatsappRaw.replace(/\D/g, '');
+        if (digits.length > 0 && digits.length < 10) {
+            issues.push({
+                field: 'trainer-whatsapp',
+                message: 'WhatsApp incompleto. Use DDD + número.'
+            });
+        }
+    }
+
+    if (state.ctaUrlRaw && !state.ctaUrl) {
+        issues.push({
+            field: 'trainer-cta-url',
+            message: 'Link do CTA inválido. Use formato https://...'
+        });
+    }
+
+    applyTrainerProfileFieldValidation(issues);
+
+    if (issues.length > 0) {
+        setTrainerProfileInlineStatus(issues[0].message, 'error');
+        return { ok: false, issues, message: issues[0].message };
+    }
+
+    if (live && trainerProfileDraftDirty) {
+        setTrainerProfileInlineStatus('Tudo certo para salvar.', 'success');
+    } else if (!live) {
+        setTrainerProfileInlineStatus('');
+    }
+
+    return { ok: true, issues: [], message: '' };
 }
 
 function renderTrainerSpecialties(tags) {
@@ -19810,6 +21797,7 @@ function renderTrainerProfileStudioPreview(stateLike = {}) {
             paymentQrEl.innerHTML = '<i class="ph-bold ph-qr-code"></i><span>Sem QR</span>';
         }
     }
+    refreshTrainerHubUI(state);
 }
 
 function syncTrainerProfileStudioLiveUI() {
@@ -19827,6 +21815,7 @@ function syncTrainerProfileStudioLiveUI() {
 function handleTrainerProfileStudioInputEvent() {
     if (trainerProfileStudioSyncLock) return;
     syncTrainerProfileStudioLiveUI();
+    validateTrainerProfileStudioState(collectTrainerProfileStudioState(), { live: true });
 }
 
 function bindTrainerProfileStudioBindings() {
@@ -20048,6 +22037,11 @@ function syncTrainerInviteCodeUI(code) {
     if (input) input.value = value;
     const dashCode = document.getElementById('dash-trainer-code');
     if (dashCode) dashCode.innerText = value || '00000';
+    const hubCode = document.getElementById('trainer-hub-code');
+    if (hubCode) hubCode.textContent = value || '00000';
+    const accessCode = document.getElementById('trainer-access-code');
+    if (accessCode) accessCode.textContent = value || '00000';
+    refreshTrainerHubUI();
 }
 
 function setTrainerInviteCode(code) {
@@ -20068,7 +22062,13 @@ function resetTrainerInviteCode() {
 }
 
 function loadTrainerSettingsToUI() {
+    if (isFullTabsResetModeEnabled()) {
+        const configView = document.getElementById('view-config');
+        if (configView) configView.innerHTML = '';
+        return;
+    }
     bindTrainerProfileStudioBindings();
+    ensureTrainerConfigSectionNav();
     const settings = loadTrainerSettings();
     const draft = buildTrainerProfileStudioDraftFromSources(settings, currentTrainerIdentity || {});
     trainerProfileStudioSyncLock = true;
@@ -20085,6 +22085,7 @@ function loadTrainerSettingsToUI() {
     if (bioInput) bioInput.value = draft.bio;
     const servicesInput = document.getElementById('trainer-services');
     if (servicesInput) servicesInput.value = draft.services;
+    syncTrainerServicePresetUI(draft.services);
     const instagramInput = document.getElementById('trainer-instagram');
     if (instagramInput) instagramInput.value = draft.socialLinks.instagram || '';
     const whatsappInput = document.getElementById('trainer-whatsapp');
@@ -20150,19 +22151,49 @@ function loadTrainerSettingsToUI() {
             pixQrImage: trainerProfileDraftMedia.pixQrImage || ''
         }
     });
+    refreshTrainerHubUI({
+        ...draft,
+        specialties: trainerProfileDraftSpecialties,
+        profilePhoto: trainerProfileDraftMedia.profilePhoto,
+        profileCover: trainerProfileDraftMedia.profileCover,
+        brandLogo: trainerProfileDraftMedia.brandLogo
+    });
     trainerProfileDraftBaseSnapshot = serializeTrainerProfileStudioState(collectTrainerProfileStudioState());
     trainerProfileDraftDirty = false;
     trainerProfileDraftHasRemoteError = false;
+    clearTrainerProfileFieldValidation();
+    setTrainerProfileInlineStatus('');
+    setActiveTrainerConfigNavTarget('trainer-hub-operation');
     setTrainerProfileSavebarState('clean');
     trainerProfileStudioSyncLock = false;
+    setFullTabsResetStep('idle');
+    if (isFullTabsResetModeEnabled()) {
+        setFullTabsResetStatus('Modo reset total ativo. As abas permanecem sem conteúdo interno.', 'warning');
+        const input = document.getElementById('trainer-full-reset-confirm-input');
+        if (input) input.value = '';
+        const button = document.getElementById('trainer-full-reset-action-btn');
+        if (button) button.disabled = true;
+    } else {
+        setFullTabsResetStatus(
+            `Digite "${FULL_TABS_RESET_REQUIRED_PHRASE}" para habilitar o reset total com backup obrigatório.`,
+            'info'
+        );
+        syncFullTabsResetPhraseInput();
+    }
 }
 
 async function saveTrainerSettings() {
     const state = collectTrainerProfileStudioState();
-    if (state.ctaUrlRaw && !state.ctaUrl) {
-        setTrainerProfileSavebarState('error', 'Link do CTA invalido. Use formato https://');
+    const validation = validateTrainerProfileStudioState(state);
+    if (!validation.ok) {
+        setTrainerProfileSavebarState('error', validation.message || 'Revise os campos destacados antes de salvar.');
+        const firstInvalid = validation.issues?.[0]?.field ? document.getElementById(validation.issues[0].field) : null;
+        if (firstInvalid && typeof firstInvalid.focus === 'function') {
+            setTimeout(() => firstInvalid.focus(), 120);
+        }
         return;
     }
+    setTrainerProfileInlineStatus('Salvando alterações...', 'info');
     setTrainerProfileSavebarState('saving');
 
     const nextLocal = updateTrainerSettings({
@@ -20262,6 +22293,7 @@ async function saveTrainerSettings() {
         await setCurrentTrainerIdentity(localIdentityPayload, { name: state.displayName, consultoriaName: state.consultoriaName });
         trainerProfileDraftHasRemoteError = true;
         trainerProfileDraftDirty = true;
+        setTrainerProfileInlineStatus('Perfil salvo localmente. Vamos sincronizar quando a conexão voltar.', 'error');
         setTrainerProfileSavebarState('error', 'Salvo localmente. Sem conexao para sincronizar agora.');
         if (typeof showDietRuntimeMessage === 'function') {
             showDietRuntimeMessage('Perfil salvo localmente. Vamos sincronizar quando voltar a conexao.', 'error');
@@ -20273,12 +22305,17 @@ async function saveTrainerSettings() {
         trainerProfileDraftHasRemoteError = false;
         trainerProfileDraftBaseSnapshot = serializeTrainerProfileStudioState(collectTrainerProfileStudioState());
         trainerProfileDraftDirty = false;
+        clearTrainerProfileFieldValidation();
+        setTrainerProfileInlineStatus('Perfil salvo com sucesso.', 'success');
         setTrainerProfileSavebarState('saved');
         if (typeof showDietRuntimeMessage === 'function') {
             showDietRuntimeMessage('Perfil do treinador atualizado com sucesso.', 'success');
         }
         setTimeout(() => {
-            if (!trainerProfileDraftDirty) setTrainerProfileSavebarState('clean');
+            if (!trainerProfileDraftDirty) {
+                setTrainerProfileSavebarState('clean');
+                setTrainerProfileInlineStatus('');
+            }
         }, 1200);
     }
 }
@@ -20307,7 +22344,8 @@ function resetTrainerSettings() {
     };
     updateTrainerSettings({ ...settings, ...profileOnlyReset });
     loadTrainerSettingsToUI();
-    setTrainerProfileSavebarState('clean', 'Campos de perfil restaurados para o padrao.');
+    setTrainerProfileInlineStatus('Perfil restaurado para o padrão.', 'info');
+    setTrainerProfileSavebarState('clean', 'Campos de perfil restaurados para o padrão.');
 }
 
 // â”€â”€ View switching + routes (Dashboard / Alunos / Duvidas / Exercicios) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -20319,7 +22357,7 @@ function getTrainerViewFromHash() {
     if (hash.startsWith('exercicios')) return 'exercicios';
     if (hash.startsWith('config')) return 'config';
     if (hash.startsWith('dashboard')) return 'dashboard';
-    return 'dashboard';
+    return 'alunos';
 }
 
 function setTrainerRoute(view) {
@@ -20331,7 +22369,7 @@ function setTrainerRoute(view) {
         exercicios: '#/exercicios',
         config: '#/configuracoes'
     };
-    const target = map[view] || '#/dashboard';
+    const target = map[view] || '#/alunos';
     if (location.hash === target) return;
     trainerRouteLock = true;
     location.hash = target;
@@ -20345,7 +22383,7 @@ function handleTrainerHashChange() {
     if (!view) return;
     const switched = switchDashView(view, { fromHash: true });
     if (switched === false) {
-        setTrainerRoute(lastMainTrainerView || 'dashboard');
+        setTrainerRoute(lastMainTrainerView || 'alunos');
     }
 }
 
@@ -20358,7 +22396,7 @@ function initTrainerRoutes() {
     if (view) {
         switchDashView(view, { fromHash: true });
     } else {
-        setTrainerRoute(lastMainTrainerView || 'dashboard');
+        setTrainerRoute(lastMainTrainerView || 'alunos');
     }
 }
 
@@ -20436,10 +22474,11 @@ function switchDashView(view, options = {}) {
         dashboard: document.getElementById('m-nav-dashboard'),
         alunos: document.getElementById('m-nav-alunos'),
         duvidas: document.getElementById('m-nav-duvidas'),
-        profile: document.getElementById('m-nav-profile')
+        config: document.getElementById('m-nav-profile')
     };
     const dashboardPrimaryAction = document.getElementById('dashboard-primary-action');
     const dashboardHeaderSub = document.querySelector('.dashboard-header-sub');
+    const viewText = TRAINER_UI_TEXT.views;
     const animateIn = (target, direction = 'right') => {
         if (!target) return;
         target.classList.remove('dashboard-view-enter-left', 'dashboard-view-enter-right', 'dashboard-view-enter-active');
@@ -20457,7 +22496,7 @@ function switchDashView(view, options = {}) {
 
     const leavingConfig = lastMainTrainerView === 'config' && view !== 'config';
     if (leavingConfig && hasTrainerProfilePendingChanges()) {
-        const shouldDiscard = confirm('Voce tem alteracoes nao salvas no perfil. Deseja descartar e sair de Configuracoes?');
+        const shouldDiscard = confirm(TRAINER_UI_TEXT.messages.discardConfigChanges);
         if (!shouldDiscard) {
             if (fromHash) setTrainerRoute('config');
             return false;
@@ -20485,33 +22524,63 @@ function switchDashView(view, options = {}) {
     if (navDuvidas) navDuvidas.classList.remove('active');
     if (navConfig) navConfig.classList.remove('active');
 
+    if (isFullTabsResetModeEnabled()) {
+        const emptyViewsMap = {
+            dashboard: viewDash,
+            alunos: viewAlunos,
+            duvidas: viewDuvidas,
+            config: viewConfig
+        };
+        const viewKey = ['dashboard', 'alunos', 'duvidas', 'config'].includes(view) ? view : 'dashboard';
+        const targetViewEl = emptyViewsMap[viewKey];
+        if (targetViewEl) targetViewEl.style.display = '';
+        if (viewKey === 'alunos' && navAlunos) navAlunos.classList.add('active');
+        else if (viewKey === 'duvidas' && navDuvidas) navDuvidas.classList.add('active');
+        else if (viewKey === 'config' && navConfig) navConfig.classList.add('active');
+        else if (navDash) navDash.classList.add('active');
+
+        if (pageTitle) {
+            const copy = TRAINER_UI_TEXT.views[viewKey] || TRAINER_UI_TEXT.views.dashboard;
+            pageTitle.textContent = copy.title || 'Painel';
+        }
+        if (dashboardHeaderSub) dashboardHeaderSub.textContent = '';
+        if (dashboardPrimaryAction) dashboardPrimaryAction.style.display = 'none';
+        lastMainTrainerView = viewKey;
+        applyFullTabsResetUi();
+        Object.values(mobileNav).forEach((btn) => btn && btn.classList.remove('active'));
+        if (viewKey === 'alunos' && mobileNav.alunos) mobileNav.alunos.classList.add('active');
+        else if (viewKey === 'duvidas' && mobileNav.duvidas) mobileNav.duvidas.classList.add('active');
+        else if (viewKey === 'config' && mobileNav.config) mobileNav.config.classList.add('active');
+        else if (mobileNav.dashboard) mobileNav.dashboard.classList.add('active');
+        if (!fromHash) setTrainerRoute(viewKey);
+        return true;
+    }
+
     if (view === 'alunos') {
         lastMainTrainerView = 'alunos';
         if (viewAlunos) viewAlunos.style.display = '';
         if (navAlunos) navAlunos.classList.add('active');
-        if (pageTitle) {
-            pageTitle.innerHTML = `
-                <button class="btn-icon-minimal" onclick="switchDashView('dashboard')" style="margin-right: 0.5rem; vertical-align: middle;">
-                    <i class="ph-bold ph-arrow-left"></i>
-                </button>
-                Gerenciar Alunos`;
+        if (pageTitle) pageTitle.textContent = viewText.alunos.title;
+        if (dashboardPrimaryAction) {
+            dashboardPrimaryAction.style.display = 'inline-flex';
+            dashboardPrimaryAction.innerHTML = `<i class="ph-bold ph-plus"></i> ${escHtml(viewText.alunos.primaryAction || 'Novo Aluno')}`;
+            dashboardPrimaryAction.onclick = () => openTrainerAddStudentShortcut();
         }
-        if (dashboardPrimaryAction) dashboardPrimaryAction.style.display = 'none';
-        if (dashboardHeaderSub) dashboardHeaderSub.textContent = 'Gerencie solicitações e acompanhe a evolução individual.';
+        if (dashboardHeaderSub) dashboardHeaderSub.textContent = viewText.alunos.subtitle;
         animateIn(viewAlunos, 'right');
     } else if (view === 'duvidas') {
         lastMainTrainerView = 'duvidas';
         if (viewDuvidas) viewDuvidas.style.display = '';
         if (navDuvidas) navDuvidas.classList.add('active');
-        if (pageTitle) pageTitle.textContent = 'Duvidas dos Alunos';
+        if (pageTitle) pageTitle.textContent = viewText.duvidas.title;
         if (dashboardPrimaryAction) dashboardPrimaryAction.style.display = 'none';
-        if (dashboardHeaderSub) dashboardHeaderSub.textContent = 'Central de mensagens para responder rapidamente.';
+        if (dashboardHeaderSub) dashboardHeaderSub.textContent = viewText.duvidas.subtitle;
         animateIn(viewDuvidas, 'right');
 
         const globalSearch = document.getElementById('global-search');
         if (globalSearch) {
             globalSearch.oninput = (e) => filterChats(e.target.value);
-            globalSearch.placeholder = "Buscar conversas...";
+            globalSearch.placeholder = TRAINER_UI_TEXT.placeholders.chatSearch;
             globalSearch.value = "";
         }
         renderDuvidas();
@@ -20519,25 +22588,34 @@ function switchDashView(view, options = {}) {
         lastMainTrainerView = 'config';
         if (viewConfig) viewConfig.style.display = '';
         if (navConfig) navConfig.classList.add('active');
-        if (pageTitle) pageTitle.textContent = 'Configuracoes';
+        if (pageTitle) pageTitle.textContent = viewText.config.title;
         if (dashboardPrimaryAction) dashboardPrimaryAction.style.display = 'none';
-        if (dashboardHeaderSub) dashboardHeaderSub.textContent = 'Ajustes operacionais e preferências da consultoria.';
+        if (dashboardHeaderSub) dashboardHeaderSub.textContent = viewText.config.subtitle;
         loadTrainerSettingsToUI();
         animateIn(viewConfig, 'right');
-        if (focusProfileStudio) setTimeout(() => focusTrainerProfileForm(), 120);
+        if (focusProfileStudio) {
+            setActiveTrainerConfigNavTarget('trainer-profile-studio');
+            setTimeout(() => focusTrainerProfileForm(), 120);
+        } else {
+            setActiveTrainerConfigNavTarget('trainer-hub-operation');
+        }
     } else {
         lastMainTrainerView = 'dashboard';
         if (viewDash) viewDash.style.display = '';
         if (navDash) navDash.classList.add('active');
-        if (pageTitle) pageTitle.textContent = 'Painel de Controle';
-        if (dashboardPrimaryAction) dashboardPrimaryAction.style.display = 'inline-flex';
-        if (dashboardHeaderSub) dashboardHeaderSub.textContent = 'Visão rápida do engajamento e progresso dos alunos.';
+        if (pageTitle) pageTitle.textContent = viewText.dashboard.title;
+        if (dashboardPrimaryAction) {
+            dashboardPrimaryAction.style.display = 'inline-flex';
+            dashboardPrimaryAction.innerHTML = `<i class="ph-bold ph-user-plus"></i> ${escHtml(viewText.dashboard.primaryAction)}`;
+            dashboardPrimaryAction.onclick = () => switchDashView('alunos');
+        }
+        if (dashboardHeaderSub) dashboardHeaderSub.textContent = viewText.dashboard.subtitle;
         animateIn(viewDash, 'left');
 
         const globalSearch = document.getElementById('global-search');
         if (globalSearch) {
             globalSearch.oninput = (e) => filterStudents(e.target.value);
-            globalSearch.placeholder = "Buscar aluno ou treino...";
+            globalSearch.placeholder = TRAINER_UI_TEXT.placeholders.studentSearch;
             globalSearch.value = "";
         }
     }
@@ -20545,7 +22623,7 @@ function switchDashView(view, options = {}) {
     Object.values(mobileNav).forEach((btn) => btn && btn.classList.remove('active'));
     if (lastMainTrainerView === 'alunos' && mobileNav.alunos) mobileNav.alunos.classList.add('active');
     else if (lastMainTrainerView === 'duvidas' && mobileNav.duvidas) mobileNav.duvidas.classList.add('active');
-    else if (lastMainTrainerView === 'config' && mobileNav.profile) mobileNav.profile.classList.add('active');
+    else if (lastMainTrainerView === 'config' && mobileNav.config) mobileNav.config.classList.add('active');
     else if (mobileNav.dashboard) mobileNav.dashboard.classList.add('active');
 
     if (!fromHash) setTrainerRoute(lastMainTrainerView);
@@ -20556,9 +22634,13 @@ function switchDashView(view, options = {}) {
 // â”€â”€ Helper: build a student row HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function buildStudentRow(s, idx, options = {}) {
     const recentCompact = !!options.recentCompact;
+    const studentRef = String(s?.id || (Number.isInteger(idx) ? idx : ''));
+    const studentRefArg = escHtml(JSON.stringify(studentRef));
     const safeName = escHtml(s?.name || ('Aluno ' + (s?.id || '')));
     const safeGoalText = escHtml(s?.goal || 'Sem objetivo definido');
     const safeWeight = escHtml(s?.weight || '--');
+    const safeHeight = escHtml(s?.height || '--');
+    const safeAge = escHtml(s?.age || '--');
     const activity = getStudentActivityMeta(s);
     const statusClass = activity.badgeClass;
     const statusText = activity.statusText;
@@ -20566,6 +22648,10 @@ function buildStudentRow(s, idx, options = {}) {
     const billingSnapshot = getStudentBillingSnapshot(s);
     const billingClass = getBillingBadgeClass(billingSnapshot.status);
     const billingText = getBillingSummaryBadge(billingSnapshot);
+    const nameInitial = escHtml(((String(s?.name || 'A').trim().charAt(0) || 'A')).toUpperCase());
+    const attentionFlag = (statusClass === 'alert' || billingSnapshot.status === 'atrasado' || billingSnapshot.status === 'pendente')
+        ? '<span class="trainer-student-alert">Atenção</span>'
+        : '<span class="trainer-student-alert ok">Em dia</span>';
     const w = parseFloat(s?.weight) || 70;
     const h = parseFloat(s?.height) || 175;
     const a = parseInt(s?.age) || 25;
@@ -20582,7 +22668,7 @@ function buildStudentRow(s, idx, options = {}) {
         return `
         <div class="student-list-item recent-student-card student-entry-card"
              style="padding: 1.25rem;"
-             onclick="openStudentProfile(${idx})">
+             onclick="openStudentProfile(${studentRefArg})">
             <div class="recent-student-top">
                 <h4>${safeName}</h4>
                 <span class="recent-status ${statusClass}">${statusText}</span>
@@ -20597,16 +22683,16 @@ function buildStudentRow(s, idx, options = {}) {
                 <p class="recent-last-workout">${lastWorkoutText}</p>
             </div>
             <div class="student-quick-actions compact">
-                <button class="btn-primary btn-sm student-enter-btn" title="Entrar no aluno" onclick="openStudentTrainingEditor(${idx}, event)">
+                <button class="btn-primary btn-sm student-enter-btn" title="Entrar no aluno" onclick="openStudentTrainingEditor(${studentRefArg}, event)">
                     Entrar no Aluno
                 </button>
-                <button class="quick-action-btn" title="Enviar mensagem" onclick="openWhatsAppForStudent(${idx}, event)">
+                <button class="quick-action-btn" title="Enviar mensagem" onclick="openWhatsAppForStudent(${studentRefArg}, event)">
                     <i class="ph-fill ph-chat-circle-dots"></i>
                 </button>
-                <button class="quick-action-btn" title="Editar treino" onclick="openStudentProfileTab(${idx}, 'treino', event)">
+                <button class="quick-action-btn" title="Editar treino" onclick="openStudentProfileTab(${studentRefArg}, 'treino', event)">
                     <i class="ph-bold ph-barbell"></i>
                 </button>
-                <button class="quick-action-btn" title="Ver dieta" onclick="openStudentProfileTab(${idx}, 'dieta', event)">
+                <button class="quick-action-btn" title="Ver dieta" onclick="openStudentProfileTab(${studentRefArg}, 'dieta', event)">
                     <i class="ph-bold ph-fork-knife"></i>
                 </button>
             </div>
@@ -20614,47 +22700,107 @@ function buildStudentRow(s, idx, options = {}) {
     }
 
     return `
-        <div class="student-list-item grid-layout student-entry-card"
-             style="padding: 1.25rem;"
-             onclick="openStudentProfile(${idx})">
-        <div class="sli-col" data-label="Status">
-            <span class="badge ${statusClass}"><div class="dot"></div> ${statusText}</span>
-        </div>
-        <div class="sli-col ident" data-label="Aluno">
-            <div class="sli-avatar"><i class="ph-fill ph-user"></i></div>
-            <div class="sli-info">
-                <h4>${safeName}</h4>
-                <span class="sli-sub">${timeDesc}</span>
-                <span class="sli-sub sli-last-workout">${lastWorkoutText}</span>
+        <article class="student-list-item trainer-student-card student-entry-card"
+            onclick="openStudentProfile(${studentRefArg})">
+            <header class="trainer-student-card-head">
+                <div class="trainer-student-avatar">${nameInitial}</div>
+                <div class="trainer-student-head-content">
+                    <div class="trainer-student-name-row">
+                        <h4>${safeName}</h4>
+                        <span class="badge ${statusClass}"><div class="dot"></div> ${statusText}</span>
+                    </div>
+                    <div class="trainer-student-meta-row">
+                        <span>${safeAge}a</span>
+                        <span>${safeWeight}kg</span>
+                        <span>${safeHeight}cm</span>
+                        <span>${timeDesc}</span>
+                    </div>
+                    <div class="trainer-student-goal-row">
+                        <span class="trainer-goal-label">${safeGoalText}</span>
+                        ${attentionFlag}
+                    </div>
+                </div>
+            </header>
+            <div class="trainer-student-card-body">
+                <div class="trainer-student-kpis">
+                    <span><strong>Consumo:</strong> ${kcal} kcal/dia</span>
+                    <span><strong>Financeiro:</strong> <span class="billing-pill ${billingClass}">${billingText}</span></span>
+                    <span>${lastWorkoutText}</span>
+                </div>
             </div>
-        </div>
-        <div class="sli-col font-bold" data-label="Objetivo">${safeGoalText}</div>
-        <div class="sli-col font-medium" data-label="Peso">${safeWeight} kg</div>
-        <div class="sli-col text-primary" data-label="Consumo">${kcal} kcal/dia</div>
-        <div class="sli-col" data-label="Financeiro"><span class="billing-pill ${billingClass}">${billingText}</span></div>
-        <div class="sli-col actions" data-label="Acoes">
-            <div class="student-quick-actions">
-                <button class="btn-primary btn-sm student-enter-btn" title="Entrar no aluno" onclick="openStudentTrainingEditor(${idx}, event)">
+            <footer class="trainer-student-actions">
+                <button class="btn-primary btn-sm student-enter-btn" title="Entrar no aluno" onclick="openStudentTrainingEditor(${studentRefArg}, event)">
                     Entrar no Aluno
                 </button>
-                <button class="quick-action-btn" title="Enviar mensagem" onclick="openWhatsAppForStudent(${idx}, event)">
+                <button class="quick-action-btn" title="Enviar mensagem" onclick="openWhatsAppForStudent(${studentRefArg}, event)">
                     <i class="ph-fill ph-chat-circle-dots"></i>
                 </button>
-                <button class="quick-action-btn" title="Editar treino" onclick="openStudentProfileTab(${idx}, 'treino', event)">
+                <button class="quick-action-btn" title="Editar treino" onclick="openStudentProfileTab(${studentRefArg}, 'treino', event)">
                     <i class="ph-bold ph-barbell"></i>
                 </button>
-                <button class="quick-action-btn" title="Ver dieta" onclick="openStudentProfileTab(${idx}, 'dieta', event)">
+                <button class="quick-action-btn" title="Ver dieta" onclick="openStudentProfileTab(${studentRefArg}, 'dieta', event)">
                     <i class="ph-bold ph-fork-knife"></i>
                 </button>
-            </div>
-        </div>
-    </div > `;
+            </footer>
+        </article>`;
 }
 
-function openWhatsAppForStudent(studentIdx, event) {
+function getCurrentTrainerScopeCode() {
+    return sanitizeCodeInput(
+        memoryGetItem('currentTrainerCode') || memoryGetItem('trainerCodeDefault') || '',
+        5
+    );
+}
+
+function getTrainerScopedStudents(studentsInput = null) {
+    const students = normalizeStudentsDietSchema(
+        Array.isArray(studentsInput) ? studentsInput : readStorageJSON('trainerStudents', [])
+    );
+    const currentTrainerCode = getCurrentTrainerScopeCode();
+    if (!currentTrainerCode) return Array.isArray(students) ? students : [];
+    return (Array.isArray(students) ? students : []).filter(
+        (student) => getStudentTrainerCodeValue(student) === currentTrainerCode
+    );
+}
+
+function canCurrentTrainerAccessStudent(student = {}) {
+    const currentTrainerCode = getCurrentTrainerScopeCode();
+    if (!currentTrainerCode) return true;
+    return getStudentTrainerCodeValue(student) === currentTrainerCode;
+}
+
+function resolveTrainerStudentByRef(studentRef) {
+    const students = normalizeStudentsDietSchema(readStorageJSON('trainerStudents', []));
+    const rawRef = String(studentRef ?? '').trim();
+    let idx = -1;
+    if (rawRef) {
+        idx = students.findIndex((student) => String(student?.id || '') === rawRef);
+    }
+    if (idx < 0 && Number.isInteger(studentRef)) {
+        idx = studentRef;
+    }
+    if (idx < 0 && /^\d+$/.test(rawRef)) {
+        const legacyIdx = parseInt(rawRef, 10);
+        if (students[legacyIdx]) idx = legacyIdx;
+    }
+    const student = idx >= 0 ? students[idx] : null;
+    if (!student || !canCurrentTrainerAccessStudent(student)) {
+        return { students, idx: -1, student: null, studentId: rawRef };
+    }
+    return {
+        students,
+        idx,
+        student,
+        studentId: String(student?.id || rawRef || '')
+    };
+}
+
+function openWhatsAppForStudent(studentRef, event) {
     if (event) event.stopPropagation();
-    const students = readStorageJSON('trainerStudents', []);
-    const s = students[studentIdx];
+    const selection = resolveTrainerStudentByRef(studentRef);
+    const students = selection.students;
+    const studentIdx = selection.idx;
+    const s = selection.student;
     if (!s) return;
 
     let phoneRaw = String(s.whatsapp || s.phone || s.telefone || '').trim();
@@ -20710,7 +22856,7 @@ function buildPendingCard(s, idx) {
     const cardId = buildPendingCardDomId(studentId, idx);
     const safeStudentId = escapeHTML(studentId);
     const safeName = escapeHTML(s?.name || (studentId ? `Aluno ${studentId}` : 'Aluno'));
-    const safeGoal = escapeHTML(s?.goal || 'Objetivo nao informado');
+    const safeGoal = escapeHTML(s?.goal || 'Objetivo não informado');
     const safeWeight = escapeHTML(String(s?.weight ?? '--'));
     const safeHeight = escapeHTML(String(s?.height ?? '--'));
     const safeAge = escapeHTML(String(s?.age ?? '--'));
@@ -20744,20 +22890,62 @@ function renderPendingRequests() {
 
 // â”€â”€ Main stats + list renderer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function updateTrainerStats(filterText) {
-    let students = readStorageJSON('trainerStudents', []);
-    const currentTrainerCode = sanitizeCodeInput(
-        memoryGetItem('currentTrainerCode') || memoryGetItem('trainerCodeDefault') || '',
-        5
-    );
-    const trainerScopedStudents = currentTrainerCode
-        ? students.filter((student) => getStudentTrainerCodeValue(student) === currentTrainerCode)
-        : students;
-    const activeStudents = trainerScopedStudents.filter(s => s.active && !s.pending);
-    const pendingStudents = trainerScopedStudents.filter(s => s.pending);
+    if (isFullTabsResetModeEnabled()) {
+        applyFullTabsResetUi();
+        [
+            'stat-total',
+            'stat-ativos',
+            'stat-pendentes',
+            'stat-fin-pendente',
+            'stat-fin-atrasado',
+            'trainer-hub-students',
+            'trainer-hub-active',
+            'trainer-hub-pending',
+            'chat-total-unread',
+            'pending-count-badge'
+        ].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '0';
+        });
+        return;
+    }
+    const students = normalizeStudentsDietSchema(readStorageJSON('trainerStudents', []));
+    const trainerScopedStudents = getTrainerScopedStudents(students);
+    const activeStudents = trainerScopedStudents.filter((s) => s.active && !s.pending);
+    const pendingStudents = trainerScopedStudents.filter((s) => s.pending);
     const pendingCount = pendingStudents.length;
     const engagedCount = activeStudents.filter((s) => getStudentActivityMeta(s).badgeClass !== 'alert').length;
     const notifications = readStorageJSON('trainerNotifications', []);
     const pendingDuvidasSet = getPendingDuvidaStudentIds(notifications, trainerScopedStudents);
+    const normalizedFilter = trainerStudentListState.filtro || activeDashboardFilter || 'all';
+    trainerStudentListState.filtro = normalizedFilter;
+    activeDashboardFilter = normalizedFilter;
+    if (typeof filterText === 'string') {
+        const nextQuery = sanitizeUserInput(filterText || '', { maxLen: 90 }).trim();
+        if (trainerStudentListState.query !== nextQuery) {
+            trainerStudentListState.query = nextQuery;
+            trainerStudentListState.page = 1;
+        }
+    }
+    const normalizedQuery = normalizeText(trainerStudentListState.query || '').trim();
+    const matchesStudentSearch = (student) => {
+        if (!normalizedQuery) return true;
+        const sid = normalizeText(String(student?.id || ''));
+        const sname = normalizeText(String(student?.name || ''));
+        const sgoal = normalizeText(String(student?.goal || ''));
+        if (sid.includes(normalizedQuery) || sname.includes(normalizedQuery) || sgoal.includes(normalizedQuery)) return true;
+        const workoutBlocks = Array.isArray(student?.workoutBlocks) ? student.workoutBlocks : [];
+        for (const block of workoutBlocks) {
+            const blockName = normalizeText(String(block?.group || block?.name || ''));
+            if (blockName.includes(normalizedQuery)) return true;
+            const exercises = Array.isArray(block?.exercises) ? block.exercises : [];
+            for (const exercise of exercises) {
+                const exerciseName = normalizeText(String(exercise?.name || exercise?.exercise || ''));
+                if (exerciseName.includes(normalizedQuery)) return true;
+            }
+        }
+        return false;
+    };
     const unreadDuvidas = trainerScopedStudents.reduce((total, student) => {
         const sid = String(student?.id || '').trim();
         if (!sid) return total;
@@ -20775,10 +22963,14 @@ function updateTrainerStats(filterText) {
     const financialLateCount = activeStudents.filter((s) => getStudentBillingSnapshot(s).status === 'atrasado').length;
     updateDashboardFilterUI(filterCounts);
 
-    const filteredActive = applyDashboardFilterList(activeStudents, activeDashboardFilter, pendingDuvidasSet);
-    const listBase = activeDashboardFilter === 'all' ? activeStudents : filteredActive;
+    const filteredActive = applyDashboardFilterList(activeStudents, normalizedFilter, pendingDuvidasSet);
+    const sortedActive = sortTrainerStudentsByState(filteredActive, pendingDuvidasSet);
+    const searchedActive = sortedActive.filter(matchesStudentSearch);
+    const emptyStateText = activeStudents.length === 0
+        ? TRAINER_UI_TEXT.messages.noActiveStudents
+        : TRAINER_UI_TEXT.messages.noStudentsForFilter;
 
-    // â”€â”€ Stats cards â”€â”€
+    // Stats cards
     const elTotal = document.getElementById('stat-total');
     if (elTotal) elTotal.innerText = activeStudents.length;
     const elAtivos = document.getElementById('stat-ativos');
@@ -20789,15 +22981,26 @@ function updateTrainerStats(filterText) {
     if (elFinancePending) elFinancePending.innerText = financialPendingCount;
     const elFinanceLate = document.getElementById('stat-fin-atrasado');
     if (elFinanceLate) elFinanceLate.innerText = financialLateCount;
+    const sidebarTotal = document.getElementById('sidebar-stat-total');
+    if (sidebarTotal) sidebarTotal.innerText = trainerScopedStudents.length;
+    const sidebarEngaged = document.getElementById('sidebar-stat-engaged');
+    if (sidebarEngaged) sidebarEngaged.innerText = engagedCount;
+    const sidebarOverdue = document.getElementById('sidebar-stat-overdue');
+    if (sidebarOverdue) sidebarOverdue.innerText = financialLateCount;
+    const alunosHeaderSubtitle = document.getElementById('alunos-header-subtitle');
+    if (alunosHeaderSubtitle) {
+        const totalBase = trainerScopedStudents.length;
+        alunosHeaderSubtitle.textContent = `${totalBase} aluno${totalBase === 1 ? '' : 's'} cadastrado${totalBase === 1 ? '' : 's'}`;
+    }
 
-    // â”€â”€ Pending nav badge â”€â”€
+    // Pending nav badge
     const navBadge = document.getElementById('pending-nav-badge');
     if (navBadge) {
         navBadge.style.display = pendingCount > 0 ? 'inline-flex' : 'none';
         navBadge.textContent = pendingCount;
     }
 
-    // â”€â”€ Pending banner (dashboard view) â”€â”€
+    // Pending banner (dashboard view)
     const banner = document.getElementById('pending-banner');
     if (banner) {
         banner.style.display = pendingCount > 0 ? 'flex' : 'none';
@@ -20805,32 +23008,20 @@ function updateTrainerStats(filterText) {
         if (bannerTitle) bannerTitle.textContent = `${pendingCount} nova${pendingCount > 1 ? 's' : ''} solicitaç${pendingCount > 1 ? 'ões' : 'ão'}`;
     }
 
-    // â”€â”€ Dashboard recent list (view-dashboard) â”€â”€
+    // Dashboard recent list
     const recentList = document.getElementById('trainer-student-list');
     if (recentList) {
-        const query = (filterText || '').toLowerCase();
-        const matchesStudent = (s) => {
-            const sid = String(s?.id || '').toLowerCase();
-            const sname = String(s?.name || '').toLowerCase();
-            const sgoal = String(s?.goal || '').toLowerCase();
-            return !query || sid.includes(query) || sname.includes(query) || sgoal.includes(query);
-        };
-        const getStudentIndex = (student) => {
-            const byId = students.findIndex(x => String(x?.id || '') === String(student?.id || ''));
-            if (byId >= 0) return byId;
-            return students.indexOf(student);
-        };
-        const toShow = listBase
-            .filter(matchesStudent)
-            .slice(0, 5);
-        recentList.innerHTML = toShow.length === 0
-            ? `<p style="text-align:center;color:var(--text-muted);padding:3rem 0;">Nenhum aluno ativo ainda.</p>`
-            : toShow.map((s) => buildStudentRow(s, getStudentIndex(s), { recentCompact: true })).join('');
+        const recentItems = searchedActive.slice(0, 5);
+        recentList.innerHTML = recentItems.length === 0
+            ? `<p style="text-align:center;color:var(--text-muted);padding:3rem 0;">${escHtml(emptyStateText)}</p>`
+            : recentItems.map((s) => buildStudentRow(s, findStudentIndexById(students, s?.id), { recentCompact: true })).join('');
         const paginInfo = document.getElementById('pagination-info');
-        if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${listBase.length} alunos`;
+        if (paginInfo) paginInfo.textContent = searchedActive.length > 0
+            ? `Exibindo ${recentItems.length} de ${searchedActive.length} alunos`
+            : TRAINER_UI_TEXT.messages.noStudentsToDisplay;
     }
 
-    // â”€â”€ Pending requests list (view-alunos) â”€â”€
+    // Pending requests list
     const pendingList = document.getElementById('pending-student-list');
     if (pendingList) {
         const badge = document.getElementById('pending-count-badge');
@@ -20840,34 +23031,60 @@ function updateTrainerStats(filterText) {
             : pendingStudents.map((s, idx) => buildPendingCard(s, idx)).join('');
     }
 
-    // â”€â”€ Active list (view-alunos) â”€â”€
+    // Active list with pagination
     const activeList = document.getElementById('alunos-active-list');
     if (activeList) {
-        const query = (filterText || '').toLowerCase();
-        const toShow = listBase.filter((s) => {
-            const sid = String(s?.id || '').toLowerCase();
-            const sname = String(s?.name || '').toLowerCase();
-            const sgoal = String(s?.goal || '').toLowerCase();
-            return !query || sid.includes(query) || sname.includes(query) || sgoal.includes(query);
-        });
-        activeList.innerHTML = toShow.length === 0
-            ? `<p style="text-align:center;color:var(--text-muted);padding:3rem 0;">Nenhum aluno ativo ainda.</p>`
-            : toShow.map((s) => {
-                const idx = students.findIndex(x => String(x?.id || '') === String(s?.id || ''));
-                return buildStudentRow(s, idx >= 0 ? idx : students.indexOf(s));
-            }).join('');
+        const pageSize = Math.max(1, parseIntegerSafe(trainerStudentListState.pageSize) || 12);
+        trainerStudentListState.pageSize = pageSize;
+        const totalItems = searchedActive.length;
+        const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+        const safePage = Math.min(totalPages, Math.max(1, parseIntegerSafe(trainerStudentListState.page) || 1));
+        trainerStudentListState.page = safePage;
+        const startIndex = (safePage - 1) * pageSize;
+        const pageItems = searchedActive.slice(startIndex, startIndex + pageSize);
+        activeList.innerHTML = pageItems.length === 0
+            ? `<p style="text-align:center;color:var(--text-muted);padding:3rem 0;">${escHtml(emptyStateText)}</p>`
+            : pageItems.map((s) => buildStudentRow(s, findStudentIndexById(students, s?.id))).join('');
+
         const paginInfo = document.getElementById('alunos-pagination-info');
-        if (paginInfo) paginInfo.textContent = `Exibindo ${toShow.length} de ${listBase.length} alunos`;
+        if (paginInfo) {
+            if (!totalItems) {
+                paginInfo.textContent = TRAINER_UI_TEXT.messages.noStudentsToDisplay;
+            } else {
+                const startLabel = startIndex + 1;
+                const endLabel = Math.min(startIndex + pageItems.length, totalItems);
+                paginInfo.textContent = `Mostrando ${startLabel}-${endLabel} de ${totalItems} alunos`;
+            }
+        }
+
+        const pageCurrent = document.getElementById('alunos-page-current');
+        if (pageCurrent) pageCurrent.textContent = `Página ${safePage} de ${totalPages}`;
+        const prevBtn = document.getElementById('alunos-page-prev');
+        if (prevBtn) {
+            const isDisabled = safePage <= 1 || totalItems === 0;
+            prevBtn.disabled = isDisabled;
+            prevBtn.classList.toggle('disabled', isDisabled);
+        }
+        const nextBtn = document.getElementById('alunos-page-next');
+        if (nextBtn) {
+            const isDisabled = safePage >= totalPages || totalItems === 0;
+            nextBtn.disabled = isDisabled;
+            nextBtn.classList.toggle('disabled', isDisabled);
+        }
+    }
+    const studentSearchInput = document.getElementById('alunos-search');
+    if (studentSearchInput && studentSearchInput.value !== trainerStudentListState.query) {
+        studentSearchInput.value = trainerStudentListState.query || '';
     }
 
-    // â”€â”€ Duvidas nav badge â”€â”€
+    // Dúvidas nav badge
     const duvidasBadge = document.getElementById('duvidas-nav-badge');
     if (duvidasBadge) {
         duvidasBadge.style.display = unreadDuvidas > 0 ? 'inline-flex' : 'none';
         duvidasBadge.textContent = unreadDuvidas;
     }
 
-    // â”€â”€ Chat sidebar total unread â”€â”€
+    // Chat sidebar total unread
     const chatTotalBadge = document.getElementById('chat-total-unread');
     if (chatTotalBadge) {
         chatTotalBadge.style.display = unreadDuvidas > 0 ? 'flex' : 'none';
@@ -20876,6 +23093,8 @@ function updateTrainerStats(filterText) {
 
     syncTrainerDashboardTutorialVisibility();
     renderEngagementChart();
+    refreshTrainerHubUI();
+    syncTestAccountSwitcherUI();
 }
 
 function backToChatList() {
@@ -20886,15 +23105,7 @@ function backToChatList() {
 }
 
 function getTrainerScopedStudentsForChat() {
-    const students = readStorageJSON('trainerStudents', []);
-    const currentTrainerCode = sanitizeCodeInput(
-        memoryGetItem('currentTrainerCode') || memoryGetItem('trainerCodeDefault') || '',
-        5
-    );
-    if (!currentTrainerCode) return Array.isArray(students) ? students : [];
-    return (Array.isArray(students) ? students : []).filter(
-        (student) => getStudentTrainerCodeValue(student) === currentTrainerCode
-    );
+    return getTrainerScopedStudents();
 }
 
 function buildTrainerChatThreads(filterText = '') {
@@ -20925,6 +23136,11 @@ function buildTrainerChatThreads(filterText = '') {
 }
 
 async function renderDuvidas(filterText) {
+    if (isFullTabsResetModeEnabled()) {
+        const view = document.getElementById('view-duvidas');
+        if (view) view.innerHTML = '';
+        return;
+    }
     const listContainer = document.getElementById('chat-list');
     const threads = buildTrainerChatThreads(filterText);
     if (listContainer) {
@@ -21457,15 +23673,19 @@ function rejectStudentById(studentId) {
 
 // â”€â”€ Filter helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function filterStudents(query) {
-    updateTrainerStats(query);
+    const nextQuery = sanitizeUserInput(query || '', { maxLen: 90 }).trim();
+    if (trainerStudentListState.query !== nextQuery) {
+        trainerStudentListState.query = nextQuery;
+        trainerStudentListState.page = 1;
+    }
+    updateTrainerStats();
 }
 
 function applyDashboardFilter(filterKey) {
-    if (activeDashboardFilter === filterKey) {
-        activeDashboardFilter = 'all';
-    } else {
-        activeDashboardFilter = filterKey || 'all';
-    }
+    if (trainerStudentListState.filtro === filterKey) trainerStudentListState.filtro = 'all';
+    else trainerStudentListState.filtro = filterKey || 'all';
+    trainerStudentListState.page = 1;
+    activeDashboardFilter = trainerStudentListState.filtro;
     updateTrainerStats();
 }
 
@@ -21520,6 +23740,101 @@ let exerciseSearchMatches = [];
 let exerciseSearchActiveIndex = -1;
 let workoutBlockDragState = null;
 let workoutExerciseDragState = null;
+let trainerDeftState = null;
+let trainerDeftUiState = {
+    expandedDays: {},
+    openDayEditor: '',
+    dayEditorDraft: null,
+    dayEditorExpandedMeals: {},
+    dayEditorDragMealIdx: -1,
+    dayEditorDropMealIdx: -1,
+    foodPicker: {
+        open: false,
+        dayKey: '',
+        mealIdx: -1,
+        optionKey: 'A',
+        itemIdx: -1,
+        mode: 'add',
+        query: ''
+    },
+    copyWizard: {
+        open: false,
+        step: 1,
+        sourceKey: 'base',
+        targetKeys: []
+    },
+    periodEditor: {
+        open: false,
+        periodId: '',
+        draft: null
+    }
+};
+
+const DEFT_WEEK_DAYS = [
+    { key: 'sun', short: 'Dom', full: 'Domingo' },
+    { key: 'mon', short: 'Seg', full: 'Segunda-feira' },
+    { key: 'tue', short: 'Ter', full: 'Terça-feira' },
+    { key: 'wed', short: 'Qua', full: 'Quarta-feira' },
+    { key: 'thu', short: 'Qui', full: 'Quinta-feira' },
+    { key: 'fri', short: 'Sex', full: 'Sexta-feira' },
+    { key: 'sat', short: 'Sáb', full: 'Sábado' }
+];
+
+const DEFT_DAY_TYPE_CONFIG = {
+    heavy: { label: 'Treino pesado', delta: 350 },
+    weak: { label: 'Ponto fraco', delta: 500 },
+    normal: { label: 'Treino normal', delta: 150 },
+    cardio: { label: 'Cardio', delta: -150 },
+    rest: { label: 'Descanso', delta: -350 }
+};
+
+const DEFT_DAY_TYPE_ORDER = ['heavy', 'weak', 'normal', 'cardio', 'rest'];
+
+const DEFT_MACRO_PRESETS = {
+    high: { protein: 0.25, carb: 0.45, fat: 0.30 },
+    mid: { protein: 0.25, carb: 0.30, fat: 0.45 },
+    low: { protein: 0.45, carb: 0.25, fat: 0.30 }
+};
+
+const DEFT_CARB_PRESETS = {
+    weekend_high_monday_mid: {
+        label: 'FDS alto, segunda média, resto baixo',
+        map: { sun: 'high', mon: 'mid', tue: 'low', wed: 'low', thu: 'low', fri: 'low', sat: 'high' }
+    },
+    weekend_high_rest_low: {
+        label: 'FDS alto, resto baixo',
+        map: { sun: 'high', mon: 'low', tue: 'low', wed: 'low', thu: 'low', fri: 'low', sat: 'high' }
+    },
+    two_high_two_mid_three_low: {
+        label: '2 dias alto, 2 médio, 3 baixo',
+        map: { sun: 'high', mon: 'mid', tue: 'low', wed: 'high', thu: 'mid', fri: 'low', sat: 'low' }
+    },
+    weekend_mid_rest_low: {
+        label: 'FDS médio, resto baixo',
+        map: { sun: 'mid', mon: 'low', tue: 'low', wed: 'low', thu: 'low', fri: 'low', sat: 'mid' }
+    }
+};
+
+const DEFT_FAF_OPTIONS = [
+    { value: 1.2, label: 'Sedentário', key: 'sedentario' },
+    { value: 1.3, label: 'Falso magro conservador', key: 'falso_magro' },
+    { value: 1.375, label: 'Levemente ativo', key: 'leve' },
+    { value: 1.55, label: 'Moderadamente ativo', key: 'moderado' },
+    { value: 1.65, label: 'Bastante ativo', key: 'bastante_ativo' },
+    { value: 1.725, label: 'Muito ativo', key: 'muito_ativo' },
+    { value: 1.9, label: 'Extremamente ativo', key: 'extremo' }
+];
+
+const DEFT_MEAL_PRESETS = [
+    'Café da manhã',
+    'Lanche',
+    'Almoço',
+    'Lanche da tarde',
+    'Jantar',
+    'Ceia',
+    'Pré-treino',
+    'Pós-treino'
+];
 
 function resolveCurrentTrainerStudentSelection(studentsInput = null) {
     const students = normalizeStudentsDietSchema(
@@ -21534,6 +23849,11 @@ function resolveCurrentTrainerStudentSelection(studentsInput = null) {
         idx = currentStudentIdx;
     }
     if (idx < 0) {
+        return { students, idx: -1, student: null, studentId: selectedId };
+    }
+    if (!canCurrentTrainerAccessStudent(students[idx])) {
+        currentStudentIdx = null;
+        currentTrainerStudentId = null;
         return { students, idx: -1, student: null, studentId: selectedId };
     }
     currentStudentIdx = idx;
@@ -21592,6 +23912,7 @@ function persistCurrentTrainerStudentDraft(options = {}) {
     if (carbInput) dietMeta.carb = carbInput.value || '';
     if (fatInput) dietMeta.fat = fatInput.value || '';
     student.dietMeta = dietMeta;
+    applyTrainerDeftStateToStudent(student);
     student._localPlanRevision = trainerPlanEditRevision;
     student._localPlanUpdatedAt = new Date().toISOString();
 
@@ -21608,6 +23929,7 @@ function persistCurrentTrainerStudentDraft(options = {}) {
             revision: trainerPlanEditRevision
         };
     }
+    renderTrainerDemoStudentPreview();
     return {
         students: selection.students,
         student,
@@ -21646,6 +23968,284 @@ function escapeHTML(str) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+function isTrainerDemoBenchActive() {
+    return isTrainerEvaluationModeActive()
+        && String(currentTrainerStudentId || '').trim() === String(ADMIN_STUDENT_CODE)
+        && !!document.getElementById('trainer-student-profile-screen');
+}
+
+function setTrainerDemoSplitMode(active = false) {
+    const enabled = !!active;
+    const screen = document.getElementById('trainer-student-profile-screen');
+    const layout = screen?.querySelector?.('.prof-editor-layout');
+    const preview = document.getElementById('trainer-demo-student-preview');
+    if (screen) screen.classList.toggle('trainer-demo-split-mode', enabled);
+    if (layout) layout.classList.toggle('demo-split-active', enabled);
+    if (!enabled && preview) preview.innerHTML = '';
+}
+
+function getTrainerDemoDietMetaDraft(baseMeta = {}) {
+    const dietMeta = baseMeta && typeof baseMeta === 'object' ? { ...baseMeta } : {};
+    const fieldMap = {
+        kcal: 'diet-kcal-meta',
+        protein: 'diet-protein-meta',
+        carb: 'diet-carb-meta',
+        fat: 'diet-fat-meta'
+    };
+    Object.entries(fieldMap).forEach(([key, id]) => {
+        const input = document.getElementById(id);
+        if (input) dietMeta[key] = input.value || '';
+    });
+    return dietMeta;
+}
+
+function getTrainerDemoStudentPreviewSnapshot() {
+    if (!isTrainerDemoBenchActive()) return null;
+    const selection = resolveCurrentTrainerStudentSelection();
+    const storedDemoStudent = readStorageJSON('trainerStudents', [])
+        .find((student) => String(student?.id || '') === String(ADMIN_STUDENT_CODE));
+    const baseStudent = selection.student || storedDemoStudent || {};
+    if (String(baseStudent?.id || ADMIN_STUDENT_CODE) !== String(ADMIN_STUDENT_CODE)) return null;
+    return {
+        ...baseStudent,
+        id: ADMIN_STUDENT_CODE,
+        name: ADMIN_STUDENT_NAME,
+        trainerCode: EVALUATION_TRAINER_CODE,
+        workoutBlocks: JSON.parse(JSON.stringify(Array.isArray(workoutBlocks) ? workoutBlocks : [])),
+        mealBlocks: JSON.parse(JSON.stringify(Array.isArray(mealBlocks) ? mealBlocks : [])),
+        cardioPlan: JSON.parse(JSON.stringify(normalizeCardioPlanShape(trainerCardioPlan))),
+        waterPlan: JSON.parse(JSON.stringify(normalizeWaterPlanShape(trainerWaterPlan))),
+        routine: JSON.parse(JSON.stringify(normalizeRoutineShape(trainerRoutinePlan))),
+        dietMeta: getTrainerDemoDietMetaDraft(baseStudent.dietMeta || {}),
+        _previewDirty: studentConfigDirty
+    };
+}
+
+function formatTrainerDemoPreviewTimestamp(value) {
+    const raw = value || new Date().toISOString();
+    const date = new Date(raw);
+    if (!Number.isFinite(date.getTime())) return 'agora';
+    return date.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+function buildTrainerDemoMetricCard(iconClass, label, value, hint = '') {
+    return `
+        <div class="demo-student-preview-metric">
+            <i class="ph-bold ${iconClass}"></i>
+            <span>${escapeHTML(label)}</span>
+            <strong>${escapeHTML(value)}</strong>
+            ${hint ? `<small>${escapeHTML(hint)}</small>` : ''}
+        </div>
+    `;
+}
+
+function buildTrainerDemoPreviewEmpty(message) {
+    return `<div class="demo-student-preview-empty">${escapeHTML(message)}</div>`;
+}
+
+function buildTrainerDemoWorkoutPreview(blocks = []) {
+    const safeBlocks = Array.isArray(blocks) ? blocks : [];
+    if (safeBlocks.length === 0) {
+        return buildTrainerDemoPreviewEmpty('Nenhum treino configurado ainda.');
+    }
+    return safeBlocks.slice(0, 4).map((block, idx) => {
+        const exercises = Array.isArray(block?.exercises) ? block.exercises : [];
+        const names = exercises
+            .slice(0, 3)
+            .map((exercise) => sanitizeUserInput(exercise?.nome || exercise?.name || 'Exercício', { maxLen: 60 }))
+            .filter(Boolean);
+        const extraCount = Math.max(0, exercises.length - names.length);
+        const exerciseLine = names.length
+            ? `${names.join(', ')}${extraCount ? ` +${extraCount}` : ''}`
+            : 'Sem exercícios';
+        return `
+            <div class="demo-preview-list-item">
+                <strong>${escapeHTML(sanitizeUserInput(block?.name || `Treino ${idx + 1}`, { maxLen: 80 }))}</strong>
+                <span>${escapeHTML(`${exercises.length} exercício${exercises.length === 1 ? '' : 's'}`)}</span>
+                <p>${escapeHTML(exerciseLine)}</p>
+            </div>
+        `;
+    }).join('');
+}
+
+function buildTrainerDemoMealPreview(meals = []) {
+    const safeMeals = Array.isArray(meals) ? meals : [];
+    if (safeMeals.length === 0) {
+        return buildTrainerDemoPreviewEmpty('Nenhuma refeição configurada ainda.');
+    }
+    return safeMeals.slice(0, 4).map((meal, idx) => {
+        const items = Array.isArray(meal?.items) ? meal.items : [];
+        const kcal = Math.round(items.reduce((total, item) => {
+            const itemKcal = parseDecimalSafe(item?.kcal)
+                || ((parseDecimalSafe(item?.prot) * 4) + (parseDecimalSafe(item?.carb) * 4) + (parseDecimalSafe(item?.gord) * 9));
+            return total + (Number.isFinite(itemKcal) ? itemKcal : 0);
+        }, 0));
+        const names = items
+            .slice(0, 3)
+            .map((item) => sanitizeUserInput(item?.nome || item?.name || 'Alimento', { maxLen: 50 }))
+            .filter(Boolean);
+        const extraCount = Math.max(0, items.length - names.length);
+        const itemLine = names.length
+            ? `${names.join(', ')}${extraCount ? ` +${extraCount}` : ''}`
+            : 'Sem alimentos';
+        return `
+            <div class="demo-preview-list-item">
+                <strong>${escapeHTML(sanitizeUserInput(meal?.name || `Refeição ${idx + 1}`, { maxLen: 80 }))}</strong>
+                <span>${escapeHTML(`${kcal} kcal`)}</span>
+                <p>${escapeHTML(itemLine)}</p>
+            </div>
+        `;
+    }).join('');
+}
+
+function buildTrainerDemoCardioPreview(cardioPlan = {}) {
+    const cardio = normalizeCardioPlanShape(cardioPlan);
+    const activeDays = (cardio.days || []).filter((day) => hasCardioPlanDayData(day));
+    if (activeDays.length === 0 && !cardio.coachRecommendation) {
+        return buildTrainerDemoPreviewEmpty('Cardio sem prescrição específica.');
+    }
+    const daysHtml = activeDays.slice(0, 4).map((day) => {
+        const duration = sanitizeUserInput(day?.durationMin || '', { maxLen: 8 });
+        const type = sanitizeUserInput(day?.type || 'Cardio', { maxLen: 80 });
+        const intensityMeta = getCardioIntensityMeta(day?.intensityKey);
+        const zoneMeta = getCardioZoneMeta(day?.zoneKey || cardio.baseZoneKey);
+        return `
+            <div class="demo-preview-list-item compact">
+                <strong>${escapeHTML(day?.dayLabel || 'Dia')}</strong>
+                <span>${escapeHTML(duration ? `${duration} min` : 'Livre')}</span>
+                <p>${escapeHTML(`${type} · ${intensityMeta.shortLabel} · ${zoneMeta.key.toUpperCase()}`)}</p>
+            </div>
+        `;
+    }).join('');
+    return `
+        <div class="demo-preview-note">
+            Meta semanal: <strong>${escapeHTML(`${cardio.weeklyGoalMin || 120} min`)}</strong>
+            ${cardio.coachRecommendation ? `<p>${escapeHTML(cardio.coachRecommendation)}</p>` : ''}
+        </div>
+        ${daysHtml || ''}
+    `;
+}
+
+function buildTrainerDemoRoutinePreview(routine = {}) {
+    const normalized = normalizeRoutineShape(routine);
+    const habits = (normalized.habits || []).filter((habit) => habit.active !== false);
+    const reminders = (normalized.reminders || []).filter((reminder) => reminder.active !== false);
+    if (habits.length === 0 && reminders.length === 0) {
+        return buildTrainerDemoPreviewEmpty('Rotina sem hábitos ou lembretes.');
+    }
+    return [...habits.map((habit) => ({ ...habit, kind: 'Hábito' })), ...reminders.map((reminder) => ({ ...reminder, kind: 'Lembrete' }))]
+        .slice(0, 4)
+        .map((item) => `
+            <div class="demo-preview-list-item compact">
+                <strong>${escapeHTML(item.title || item.kind)}</strong>
+                <span>${escapeHTML(item.timeHHmm || '--:--')}</span>
+                <p>${escapeHTML(`${item.kind} · ${item.recurrenceType === 'weekdays' ? 'dias fixos' : 'todos os dias'}`)}</p>
+            </div>
+        `).join('');
+}
+
+function renderTrainerDemoStudentPreview() {
+    const root = document.getElementById('trainer-demo-student-preview');
+    if (!root) return;
+    const active = isTrainerDemoBenchActive();
+    setTrainerDemoSplitMode(active);
+    if (!active) return;
+
+    const student = getTrainerDemoStudentPreviewSnapshot();
+    if (!student) {
+        root.innerHTML = buildTrainerDemoPreviewEmpty('Abra o Aluno Teste para ver a prévia.');
+        return;
+    }
+
+    const blocks = Array.isArray(student.workoutBlocks) ? student.workoutBlocks : [];
+    const meals = Array.isArray(student.mealBlocks) ? student.mealBlocks : [];
+    const cardio = normalizeCardioPlanShape(student.cardioPlan);
+    const water = normalizeWaterPlanShape(student.waterPlan);
+    const routine = normalizeRoutineShape(student.routine);
+    const exerciseCount = blocks.reduce((total, block) => total + (Array.isArray(block?.exercises) ? block.exercises.length : 0), 0);
+    const foodCount = meals.reduce((total, meal) => total + (Array.isArray(meal?.items) ? meal.items.length : 0), 0);
+    const cardioDays = (cardio.days || []).filter((day) => hasCardioPlanDayData(day));
+    const waterCtx = resolveStudentWaterGoalContext(student, water);
+    const activeHabits = (routine.habits || []).filter((habit) => habit.active !== false).length;
+    const activeReminders = (routine.reminders || []).filter((reminder) => reminder.active !== false).length;
+    const dietMeta = student.dietMeta || {};
+    const statusText = student._previewDirty ? 'Rascunho' : 'Salvo no sandbox';
+    const statusClass = student._previewDirty ? 'is-draft' : 'is-saved';
+    const lastUpdate = formatTrainerDemoPreviewTimestamp(student._localPlanUpdatedAt || student.updatedAt || student.updated_at);
+
+    root.innerHTML = `
+        <div class="demo-student-preview-head">
+            <div>
+                <span class="demo-preview-kicker">Bancada de teste</span>
+                <h3>Prévia do aluno</h3>
+                <p>${escapeHTML(student.name || ADMIN_STUDENT_NAME)}</p>
+            </div>
+            <span class="demo-student-preview-status ${statusClass}">${escapeHTML(statusText)}</span>
+        </div>
+
+        <div class="demo-student-preview-metrics">
+            ${buildTrainerDemoMetricCard('ph-barbell', 'Treino', `${blocks.length} bloco${blocks.length === 1 ? '' : 's'}`, `${exerciseCount} exercícios`)}
+            ${buildTrainerDemoMetricCard('ph-fork-knife', 'Dieta', `${meals.length} refeiç${meals.length === 1 ? 'ão' : 'ões'}`, `${foodCount} alimentos`)}
+            ${buildTrainerDemoMetricCard('ph-gauge', 'Cardio', `${cardioDays.length} dia${cardioDays.length === 1 ? '' : 's'}`, `${cardio.weeklyGoalMin || 120} min/sem`)}
+            ${buildTrainerDemoMetricCard('ph-drop', 'Água', `${waterCtx.goalMl} ml`, `${formatWaterLiters(waterCtx.goalMl)} L`)}
+        </div>
+
+        <section class="demo-student-preview-section is-workout">
+            <div class="demo-preview-section-title">
+                <i class="ph-bold ph-barbell"></i>
+                <span>Treino do aluno</span>
+            </div>
+            ${buildTrainerDemoWorkoutPreview(blocks)}
+        </section>
+
+        <section class="demo-student-preview-section is-diet">
+            <div class="demo-preview-section-title">
+                <i class="ph-bold ph-fork-knife"></i>
+                <span>Dieta e macros</span>
+            </div>
+            <div class="demo-preview-macro-strip">
+                <span>${escapeHTML(dietMeta.kcal || '--')} kcal</span>
+                <span>${escapeHTML(dietMeta.protein || '--')}g P</span>
+                <span>${escapeHTML(dietMeta.carb || '--')}g C</span>
+                <span>${escapeHTML(dietMeta.fat || '--')}g G</span>
+            </div>
+            ${buildTrainerDemoMealPreview(meals)}
+        </section>
+
+        <section class="demo-student-preview-section is-cardio">
+            <div class="demo-preview-section-title">
+                <i class="ph-bold ph-gauge"></i>
+                <span>Cardio</span>
+            </div>
+            ${buildTrainerDemoCardioPreview(cardio)}
+        </section>
+
+        <section class="demo-student-preview-section is-routine">
+            <div class="demo-preview-section-title">
+                <i class="ph-bold ph-calendar-check"></i>
+                <span>Água e rotina</span>
+            </div>
+            <div class="demo-preview-note">
+                Água: <strong>${escapeHTML(`${waterCtx.goalMl} ml/dia`)}</strong>
+                <p>${escapeHTML(water.notes || waterCtx.originLabel)}</p>
+            </div>
+            <div class="demo-preview-note">
+                Rotina: <strong>${escapeHTML(`${activeHabits} hábitos · ${activeReminders} lembretes`)}</strong>
+            </div>
+            ${buildTrainerDemoRoutinePreview(routine)}
+        </section>
+
+        <div class="demo-student-preview-footer">
+            Última atualização: ${escapeHTML(lastUpdate)}
+        </div>
+    `;
 }
 
 function setTrainerProfileText(id, value) {
@@ -22055,13 +24655,24 @@ function renderTrainerStudentProfileOverview(student = {}) {
 }
 
 
-function openStudentProfile(studentIndex) {
-    let students = readStorageJSON('trainerStudents', []);
-    const s = students[studentIndex];
-    if (!s) return;
+function openStudentProfileById(studentId) {
+    openStudentProfile(studentId);
+}
 
-    currentStudentIdx = studentIndex;
-    currentTrainerStudentId = s.id || null;
+function openStudentProfile(studentRef) {
+    if (isFullTabsResetModeEnabled()) {
+        alert('Modo reset total ativo. O conteúdo das abas está desativado.');
+        return;
+    }
+    const selection = resolveTrainerStudentByRef(studentRef);
+    const s = selection.student;
+    if (!s) {
+        alert('Aluno não encontrado para este treinador.');
+        return;
+    }
+
+    currentStudentIdx = selection.idx;
+    currentTrainerStudentId = String(s.id || selection.studentId || '') || null;
 
     // Load existing plan data
     workoutBlocks = s.workoutBlocks ? JSON.parse(JSON.stringify(s.workoutBlocks)) : [];
@@ -22069,6 +24680,33 @@ function openStudentProfile(studentIndex) {
     trainerCardioPlan = normalizeCardioPlanShape(s.cardioPlan);
     trainerWaterPlan = normalizeWaterPlanShape(s.waterPlan);
     trainerRoutinePlan = normalizeRoutineShape(s.routine);
+    resetTrainerWorkoutUiRuntimeState();
+    loadTrainerDeftState(s);
+    trainerDeftUiState.openDayEditor = '';
+    trainerDeftUiState.dayEditorDraft = null;
+    trainerDeftUiState.dayEditorExpandedMeals = {};
+    trainerDeftUiState.dayEditorDragMealIdx = -1;
+    trainerDeftUiState.dayEditorDropMealIdx = -1;
+    trainerDeftUiState.foodPicker = {
+        open: false,
+        dayKey: '',
+        mealIdx: -1,
+        optionKey: 'A',
+        itemIdx: -1,
+        mode: 'add',
+        query: ''
+    };
+    trainerDeftUiState.copyWizard = {
+        open: false,
+        step: 1,
+        sourceKey: 'base',
+        targetKeys: []
+    };
+    trainerDeftUiState.periodEditor = {
+        open: false,
+        periodId: '',
+        draft: null
+    };
 
     // Calculate TMB (Mifflin-St Jeor)
     const tmbCalc = calcTMBMifflin(s.weight, s.height, s.age, s.gender);
@@ -22079,12 +24717,13 @@ function openStudentProfile(studentIndex) {
     renderTrainerStudentProfileOverview(s);
 
     // Diet meta
+    const activePeriod = getTrainerDeftActiveDietPeriod(trainerDeftState || {}, s);
     const diet = s.dietMeta || {};
     const dm = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
-    dm('diet-kcal-meta', diet.kcal);
-    dm('diet-protein-meta', diet.protein);
-    dm('diet-carb-meta', diet.carb);
-    dm('diet-fat-meta', diet.fat);
+    dm('diet-kcal-meta', activePeriod?.kcal || diet.kcal);
+    dm('diet-protein-meta', activePeriod?.protein || diet.protein);
+    dm('diet-carb-meta', activePeriod?.carb || diet.carb);
+    dm('diet-fat-meta', activePeriod?.fat || diet.fat);
     const tmbEl = document.getElementById('diet-tmb-value');
     if (tmbEl) tmbEl.textContent = tmbCalc > 0 ? `${Math.round(tmbCalc)} kcal` : '--';
     const gastoEl = document.getElementById('diet-gasto-value');
@@ -22093,6 +24732,8 @@ function openStudentProfile(studentIndex) {
     // Switch screens
     document.getElementById('trainer-dashboard-screen').classList.remove('active');
     document.getElementById('trainer-student-profile-screen').classList.add('active');
+    document.body.classList.add('trainer-student-editor-open');
+    setTrainerDemoSplitMode(isTrainerDemoBenchActive());
 
     // Render workout and open Perfil tab
     renderWorkoutBlocks();
@@ -22105,58 +24746,173 @@ function openStudentProfile(studentIndex) {
     clearStudentConfigDirty();
     switchProfileTab('perfil');
     renderTrainerWorkoutHistory(currentTrainerStudentId);
+    renderTrainerDemoStudentPreview();
 }
 
-function openStudentProfileTab(studentIndex, tabName, event) {
+function openStudentProfileTab(studentRef, tabName, event) {
     if (event) event.stopPropagation();
-    openStudentProfile(studentIndex);
+    openStudentProfile(studentRef);
     setTimeout(() => {
         if (tabName) switchProfileTab(tabName);
     }, 0);
 }
 
-function openStudentTrainingEditor(studentIndex, event) {
+function openStudentTrainingEditor(studentRef, event) {
     if (event) event.stopPropagation();
-    openStudentProfileTab(studentIndex, 'treino');
+    openStudentProfileTab(studentRef, 'treino');
 }
 
 function closeStudentProfile() {
     if (studentConfigDirty) {
         persistCurrentTrainerStudentDraft({ syncMode: 'local-only' });
     }
+    setTrainerDemoSplitMode(false);
+    document.body.classList.remove('trainer-student-editor-open');
     document.getElementById('trainer-student-profile-screen').classList.remove('active');
     document.getElementById('trainer-dashboard-screen').classList.add('active');
     currentStudentIdx = null;
     currentTrainerStudentId = null;
+    trainerDeftState = null;
+    trainerDeftUiState.openDayEditor = '';
+    trainerDeftUiState.dayEditorDraft = null;
+    trainerDeftUiState.foodPicker.open = false;
+    trainerDeftUiState.copyWizard.open = false;
+    trainerDeftUiState.periodEditor.open = false;
+    trainerDeftUiState.periodEditor.periodId = '';
+    trainerDeftUiState.periodEditor.draft = null;
+    resetTrainerWorkoutUiRuntimeState();
+}
+
+function getTrainerStudentProfileTabConfig(tabName) {
+    const rawTab = normalizeText(String(tabName || '').trim());
+    const tabMeta = {
+        perfil: {
+            content: 'perfil',
+            nav: 'perfil',
+            title: 'Geral',
+            subtitle: 'Resumo completo do aluno e principais indicadores.'
+        },
+        checkin: {
+            content: 'checkin',
+            nav: 'checkin',
+            title: 'Check-In',
+            subtitle: 'Acompanhamento semanal com sinais de evolução e adesão.'
+        },
+        dieta: {
+            content: 'deft',
+            nav: 'dieta',
+            title: 'Dieta',
+            subtitle: 'Sistema avançado com estratégia, períodos mensais e ciclagem semanal.'
+        },
+        refeicoes: {
+            content: 'dieta',
+            nav: 'refeicoes',
+            title: 'Refeições',
+            subtitle: 'Organização das refeições do dia com foco em execução.'
+        },
+        treino: {
+            content: 'treino',
+            nav: 'treino',
+            title: 'Treino',
+            subtitle: 'Prescrição detalhada de exercícios, séries e progressões.'
+        },
+        cardio: {
+            content: 'cardio',
+            nav: 'cardio',
+            title: 'Cardio',
+            subtitle: 'Planejamento semanal de cardio com intensidade e zonas.'
+        },
+        agua: {
+            content: 'agua',
+            nav: 'agua',
+            title: 'Água',
+            subtitle: 'Meta de hidratação e orientações de rotina.'
+        },
+        anamnese: {
+            content: 'anamnese',
+            nav: 'anamnese',
+            title: 'Ficha',
+            subtitle: 'Histórico, limitações e informações clínicas relevantes.'
+        },
+        dados: {
+            content: 'dados',
+            nav: 'dados',
+            title: 'Dados',
+            subtitle: 'Dados físicos, objetivos e base para decisões da consultoria.'
+        },
+        pgto: {
+            content: 'config',
+            nav: 'pgto',
+            title: 'Pgto',
+            subtitle: 'Situação financeira, cobranças e confirmação de pagamentos.',
+            scroll: '#student-billing-summary-card'
+        },
+        periodos: {
+            content: 'config',
+            nav: 'periodos',
+            title: 'Períodos',
+            subtitle: 'Períodos ativos da consultoria e histórico de movimentações.',
+            scroll: '#student-billing-history-list'
+        },
+        chat: {
+            content: 'chat',
+            nav: 'chat',
+            title: 'Chat',
+            subtitle: 'Canal direto para suporte e orientação com o aluno.'
+        }
+    };
+    const aliasMap = {
+        geral: 'perfil',
+        perfil: 'perfil',
+        deft: 'dieta',
+        deficit: 'dieta',
+        checkin: 'checkin',
+        'check-in': 'checkin',
+        nutricao: 'dieta',
+        dieta: 'dieta',
+        refeicao: 'refeicoes',
+        refeicoes: 'refeicoes',
+        treino: 'treino',
+        cardio: 'cardio',
+        agua: 'agua',
+        ficha: 'anamnese',
+        anamnese: 'anamnese',
+        dados: 'dados',
+        pgto: 'pgto',
+        pagamento: 'pgto',
+        pagamentos: 'pgto',
+        periodos: 'periodos',
+        periodo: 'periodos',
+        config: 'periodos',
+        chat: 'chat'
+    };
+    const tabKey = aliasMap[rawTab] || 'perfil';
+    return tabMeta[tabKey];
 }
 
 function switchProfileTab(tabName) {
     if (studentConfigDirty) {
         persistCurrentTrainerStudentDraft({ syncMode: 'local-only' });
     }
-    const rawTab = String(tabName || '').trim().toLowerCase();
-    const tabAliasMap = {
-        nutricao: 'dieta',
-        dieta: 'dieta',
-        treino: 'treino',
-        cardio: 'cardio',
-        agua: 'agua',
-        config: 'config',
-        perfil: 'perfil',
-        anamnese: 'anamnese'
-    };
-    const resolvedTab = tabAliasMap[rawTab] || 'treino';
+    const tabConfig = getTrainerStudentProfileTabConfig(tabName);
+    const resolvedTab = tabConfig.content;
+    const profileScreen = document.getElementById('trainer-student-profile-screen');
+    if (profileScreen) profileScreen.dataset.profileTab = tabConfig.nav;
     document.querySelectorAll('.p-tab-content').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.prof-tab').forEach(b => b.classList.remove('active'));
     const tab =
         document.getElementById(`p-tab-${resolvedTab}`)
         || (resolvedTab === 'dieta' ? document.getElementById('p-tab-nutricao') : null);
-    const nav =
-        document.getElementById(`p-nav-${resolvedTab}`)
-        || (resolvedTab === 'dieta' ? document.getElementById('p-nav-nutricao') : null);
+    const nav = document.getElementById(`p-nav-${tabConfig.nav}`);
     if (!tab || !nav) return;
     tab.classList.add('active');
     nav.classList.add('active');
+    setTrainerProfileText('prof-current-tab-title', tabConfig.title);
+    setTrainerProfileText('prof-current-tab-subtitle', tabConfig.subtitle || '');
+    if (isFullTabsResetModeEnabled()) {
+        clearTrainerProfileTabsForReset();
+        return;
+    }
     if (resolvedTab === 'config') {
         const selection = resolveCurrentTrainerStudentSelection();
         const student = selection.student;
@@ -22165,12 +24921,2686 @@ function switchProfileTab(tabName) {
             trainerRoutinePlan = normalizeRoutineShape(student.routine);
             renderTrainerRoutineSettingsEditor();
         }
+        if (tabConfig.scroll) {
+            setTimeout(() => {
+                const target = document.querySelector(tabConfig.scroll);
+                if (target) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+            }, 60);
+        }
     } else if (resolvedTab === 'perfil') {
         const selection = resolveCurrentTrainerStudentSelection();
         if (selection.student) renderTrainerStudentProfileOverview(selection.student);
     } else if (resolvedTab === 'anamnese') {
         const selection = resolveCurrentTrainerStudentSelection();
         renderTrainerAnamnesisTab(selection.student || {});
+    } else if (resolvedTab === 'deft') {
+        renderTrainerDeftTab();
+    } else if (resolvedTab === 'checkin') {
+        renderTrainerCheckinTab();
+    } else if (resolvedTab === 'dados') {
+        renderTrainerDadosTab();
+    } else if (resolvedTab === 'chat') {
+        renderTrainerProfileChatTab();
+    }
+    renderTrainerDemoStudentPreview();
+}
+
+function buildTrainerLiteMetricCard({ icon = 'ph-info', label = '', value = '--', hint = '' } = {}) {
+    return `
+        <article class="trainer-lite-metric-card">
+            <div class="trainer-lite-metric-icon"><i class="ph-bold ${escHtml(icon)}"></i></div>
+            <div>
+                <span>${escHtml(label)}</span>
+                <strong>${escHtml(value)}</strong>
+                ${hint ? `<small>${escHtml(hint)}</small>` : ''}
+            </div>
+        </article>
+    `;
+}
+
+function renderTrainerDeftTab() {
+    renderTrainerDeftStudio();
+}
+
+function deftNumber(value, fallback = 0) {
+    const parsed = parseDecimalSafe(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function deftRound(value, digits = 0) {
+    const factor = 10 ** Math.max(0, parseIntegerSafe(digits));
+    return Math.round((deftNumber(value, 0) + Number.EPSILON) * factor) / factor;
+}
+
+function deftClamp(value, minValue, maxValue) {
+    return Math.min(maxValue, Math.max(minValue, value));
+}
+
+function getDeftDayMeta(dayKey = '') {
+    return DEFT_WEEK_DAYS.find((day) => day.key === dayKey) || DEFT_WEEK_DAYS[0];
+}
+
+function getDeftTodayKey() {
+    const idx = new Date().getDay();
+    return DEFT_WEEK_DAYS[idx]?.key || 'sun';
+}
+
+function getDeftDayTypeLabel(dayType = 'normal') {
+    return DEFT_DAY_TYPE_CONFIG[dayType]?.label || DEFT_DAY_TYPE_CONFIG.normal.label;
+}
+
+function getDefaultDeftMealItemFromFood(foodLike = {}) {
+    const normalized = normalizeFoodCatalogRow(foodLike);
+    if (!normalized) return null;
+    const calc = computeMacrosByAmount(
+        normalized,
+        Math.max(0.1, parseDecimalSafe(normalized.base_qty) || 100),
+        normalizeFoodUnitKey(normalized.base_unit || 'g')
+    );
+    return {
+        id: `deft-food-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        foodId: String(normalized.id || ''),
+        name: sanitizeUserInput(normalized.name || 'Alimento', { maxLen: 120 }) || 'Alimento',
+        category: sanitizeUserInput(normalized.family_key || '', { maxLen: 40 }) || 'outros',
+        baseQty: Math.max(0.1, parseDecimalSafe(normalized.base_qty) || 100),
+        baseUnit: normalizeFoodUnitKey(normalized.base_unit || 'g'),
+        amount: calc.amount,
+        unitKey: calc.unit_key,
+        portionId: calc.portion_id || '',
+        portionLabel: calc.portion_label || '',
+        kcalBase: deftNumber(normalized.kcal),
+        proteinBase: deftNumber(normalized.protein),
+        carbBase: deftNumber(normalized.carb),
+        fatBase: deftNumber(normalized.fat),
+        kcal: calc.kcal,
+        protein: calc.protein,
+        carb: calc.carb,
+        fat: calc.fat
+    };
+}
+
+function normalizeTrainerDeftFoodItem(itemLike = {}) {
+    const item = itemLike && typeof itemLike === 'object' ? itemLike : {};
+    const fallbackFood = normalizeFoodCatalogRow({
+        id: item.foodId || item.id || '',
+        name: item.name || item.nome || 'Alimento',
+        base_qty: item.baseQty || item.base_qty || 100,
+        base_unit: item.baseUnit || item.base_unit || item.unitKey || 'g',
+        kcal: item.kcalBase || item.kcal || 0,
+        protein: item.proteinBase || item.protein || item.prot || 0,
+        carb: item.carbBase || item.carb || 0,
+        fat: item.fatBase || item.fat || item.gord || 0
+    });
+    if (!fallbackFood) return null;
+    const amount = Math.max(0.1, parseDecimalSafe(item.amount) || parseAmountAndUnit(item.qty || item.qtd || '', item.unitKey || fallbackFood.base_unit || 'g').amount || fallbackFood.base_qty || 100);
+    const unitKey = normalizeFoodUnitKey(item.unitKey || parseAmountAndUnit(item.qty || item.qtd || '', fallbackFood.base_unit || 'g').unit || fallbackFood.base_unit || 'g');
+    const calc = computeMacrosByAmount(
+        fallbackFood,
+        amount,
+        unitKey,
+        item.portionId || item.portion_id || ''
+    );
+    return {
+        id: sanitizeUserInput(item.id || '', { maxLen: 90 }) || `deft-food-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        foodId: String(item.foodId || item.food_id || fallbackFood.id || ''),
+        name: sanitizeUserInput(item.name || item.nome || fallbackFood.name || 'Alimento', { maxLen: 120 }) || 'Alimento',
+        category: sanitizeUserInput(item.category || item.familyKey || item.family_key || fallbackFood.family_key || 'outros', { maxLen: 40 }) || 'outros',
+        baseQty: Math.max(0.1, parseDecimalSafe(item.baseQty || item.base_qty || fallbackFood.base_qty) || 100),
+        baseUnit: normalizeFoodUnitKey(item.baseUnit || item.base_unit || fallbackFood.base_unit || 'g'),
+        amount: calc.amount,
+        unitKey: calc.unit_key,
+        portionId: calc.portion_id || '',
+        portionLabel: sanitizeUserInput(item.portionLabel || item.portion_label || calc.portion_label || '', { maxLen: 80 }),
+        kcalBase: deftNumber(item.kcalBase || fallbackFood.kcal),
+        proteinBase: deftNumber(item.proteinBase || fallbackFood.protein),
+        carbBase: deftNumber(item.carbBase || fallbackFood.carb),
+        fatBase: deftNumber(item.fatBase || fallbackFood.fat),
+        kcal: calc.kcal,
+        protein: calc.protein,
+        carb: calc.carb,
+        fat: calc.fat
+    };
+}
+
+function getDefaultTrainerDeftMealFromMealBlock(mealBlock = {}, mealIdx = 0) {
+    const items = Array.isArray(mealBlock?.items) ? mealBlock.items : [];
+    const optionA = items
+        .map((item) => normalizeTrainerDeftFoodItem({
+            id: item.id || '',
+            foodId: item.foodId || item.food_id || '',
+            name: item.nome || item.name || '',
+            category: item.familyKey || item.family_key || '',
+            baseQty: item.baseQty || item.base_qty || 100,
+            baseUnit: item.baseUnit || item.base_unit || item.unitKey || 'g',
+            amount: item.amount || parseAmountAndUnit(item.qtd || '', item.unitKey || item.baseUnit || 'g').amount || 100,
+            unitKey: item.unitKey || parseAmountAndUnit(item.qtd || '', item.baseUnit || 'g').unit || item.baseUnit || 'g',
+            portionId: item.portionId || '',
+            portionLabel: item.portionLabel || '',
+            kcalBase: item.kcal || 0,
+            proteinBase: item.prot || item.protein || 0,
+            carbBase: item.carb || 0,
+            fatBase: item.gord || item.fat || 0
+        }))
+        .filter(Boolean);
+    return {
+        id: sanitizeUserInput(mealBlock?.id || '', { maxLen: 80 }) || `deft-meal-${mealIdx + 1}`,
+        name: sanitizeUserInput(mealBlock?.name || `Refeição ${mealIdx + 1}`, { maxLen: 90 }) || `Refeição ${mealIdx + 1}`,
+        expanded: true,
+        activeOption: 'A',
+        options: {
+            A: optionA,
+            B: []
+        }
+    };
+}
+
+function normalizeTrainerDeftMeal(mealLike = {}, mealIdx = 0) {
+    const meal = mealLike && typeof mealLike === 'object' ? mealLike : {};
+    const optionsSource = meal.options && typeof meal.options === 'object' ? meal.options : {};
+    const optA = Array.isArray(optionsSource.A || meal.optionA || meal.items)
+        ? (optionsSource.A || meal.optionA || meal.items).map(normalizeTrainerDeftFoodItem).filter(Boolean)
+        : [];
+    const optB = Array.isArray(optionsSource.B || meal.optionB)
+        ? (optionsSource.B || meal.optionB).map(normalizeTrainerDeftFoodItem).filter(Boolean)
+        : [];
+    const activeOption = String(meal.activeOption || 'A').toUpperCase() === 'B' && optB.length ? 'B' : 'A';
+    return {
+        id: sanitizeUserInput(meal.id || '', { maxLen: 80 }) || `deft-meal-${mealIdx + 1}`,
+        name: sanitizeUserInput(meal.name || `Refeição ${mealIdx + 1}`, { maxLen: 90 }) || `Refeição ${mealIdx + 1}`,
+        expanded: meal.expanded !== false,
+        activeOption,
+        options: {
+            A: optA,
+            B: optB
+        }
+    };
+}
+
+function cloneTrainerDeftDayPlan(planLike = null) {
+    const plan = planLike && typeof planLike === 'object' ? planLike : {};
+    const normalizedMeals = (Array.isArray(plan.meals) ? plan.meals : [])
+        .map((meal, idx) => normalizeTrainerDeftMeal(meal, idx))
+        .filter(Boolean);
+    return {
+        meals: normalizedMeals
+    };
+}
+
+function buildTrainerDeftBaseDayPlanFromMeals() {
+    const baseMeals = (Array.isArray(mealBlocks) ? mealBlocks : [])
+        .map((meal, idx) => getDefaultTrainerDeftMealFromMealBlock(meal, idx))
+        .filter(Boolean);
+    if (baseMeals.length > 0) {
+        return { meals: baseMeals };
+    }
+    const fallbackCatalog = getEffectiveFoodCatalog(8);
+    const fallbackMeals = DEFT_MEAL_PRESETS.slice(0, 4).map((name, idx) => ({
+        id: `deft-base-${idx + 1}`,
+        name,
+        expanded: true,
+        activeOption: 'A',
+        options: {
+            A: fallbackCatalog[idx] ? [getDefaultDeftMealItemFromFood(fallbackCatalog[idx])] : [],
+            B: []
+        }
+    }));
+    return { meals: fallbackMeals };
+}
+
+function normalizeTrainerDeftDailyPlanMap(mapLike = {}, baseDayPlan = { meals: [] }) {
+    const safeMap = mapLike && typeof mapLike === 'object' ? mapLike : {};
+    return DEFT_WEEK_DAYS.reduce((acc, day) => {
+        const raw = safeMap[day.key];
+        acc[day.key] = cloneTrainerDeftDayPlan(raw && typeof raw === 'object' ? raw : baseDayPlan);
+        return acc;
+    }, {});
+}
+
+function getDefaultTrainerDeftFafSuggestion(student = {}) {
+    const activity = getTrainerStudentActivityProfile(student, getStudentAnamnesisSource(student));
+    const normalized = normalizeText(activity?.label || activity?.hint || '');
+    if (normalized.includes('sedent')) return { value: 1.2, label: 'Sedentário', reason: 'Sugerido pela anamnese' };
+    if (normalized.includes('leve')) return { value: 1.375, label: 'Levemente ativo', reason: 'Sugerido pela anamnese' };
+    if (normalized.includes('moder')) return { value: 1.55, label: 'Moderadamente ativo', reason: 'Sugerido pela anamnese' };
+    if (normalized.includes('alto') || normalized.includes('muito') || normalized.includes('intenso')) {
+        return { value: 1.725, label: 'Muito ativo', reason: 'Sugerido pela anamnese' };
+    }
+    return { value: 1.3, label: 'Falso magro conservador', reason: 'Sem atividade detalhada na anamnese' };
+}
+
+function normalizeTrainerDeftStrategyKey(value = 'maintenance') {
+    const safe = String(value || '').toLowerCase().trim();
+    if (safe === 'cutting') return 'cutting';
+    if (safe === 'bulking') return 'bulking';
+    return 'maintenance';
+}
+
+function getTrainerDeftStrategyLabel(strategyKey = 'maintenance') {
+    const key = normalizeTrainerDeftStrategyKey(strategyKey);
+    if (key === 'cutting') return 'Cutting';
+    if (key === 'bulking') return 'Bulking';
+    return 'Norma Calórica';
+}
+
+function getTrainerDeftPeriodMacroDefaults(kcal = 0) {
+    const safeKcal = Math.max(1200, parseIntegerSafe(kcal) || 2400);
+    return {
+        protein: Math.max(20, parseIntegerSafe((safeKcal * 0.25) / 4)),
+        carb: Math.max(20, parseIntegerSafe((safeKcal * 0.35) / 4)),
+        fat: Math.max(10, parseIntegerSafe((safeKcal * 0.30) / 9))
+    };
+}
+
+function getTrainerDeftDefaultDietPeriod(student = {}, source = {}, order = 1) {
+    const fallbackKcal = Math.max(
+        1200,
+        parseIntegerSafe(source.dailyBaseKcal || source.tdee || source.bulkingBaseKcal || student.dailyKcal || student.gastoDiario || 0)
+            || 2400
+    );
+    const defaultMacros = getTrainerDeftPeriodMacroDefaults(fallbackKcal);
+    return {
+        id: `period-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name: `Mês ${Math.max(1, parseIntegerSafe(order) || 1)}`,
+        strategy: normalizeTrainerDeftStrategyKey(source.dietStrategy || 'maintenance'),
+        kcal: fallbackKcal,
+        protein: defaultMacros.protein,
+        carb: defaultMacros.carb,
+        fat: defaultMacros.fat,
+        notes: '',
+        active: true,
+        order: Math.max(1, parseIntegerSafe(order) || 1)
+    };
+}
+
+function normalizeTrainerDeftDietPeriod(periodLike = {}, fallbackPeriod = {}, order = 1) {
+    const fallback = fallbackPeriod && typeof fallbackPeriod === 'object' ? fallbackPeriod : {};
+    const raw = periodLike && typeof periodLike === 'object' ? periodLike : {};
+    const fallbackMacros = getTrainerDeftPeriodMacroDefaults(fallback.kcal || 2400);
+    const normalizedOrder = Math.max(1, parseIntegerSafe(raw.order || fallback.order || order) || order);
+    const period = {
+        id: sanitizeUserInput(raw.id || fallback.id || '', { maxLen: 90 }) || `period-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name: sanitizeUserInput(raw.name || fallback.name || `Mês ${normalizedOrder}`, { maxLen: 48 }) || `Mês ${normalizedOrder}`,
+        strategy: normalizeTrainerDeftStrategyKey(raw.strategy || fallback.strategy || 'maintenance'),
+        kcal: Math.max(900, parseIntegerSafe(raw.kcal || fallback.kcal || 2400) || 2400),
+        protein: Math.max(0, parseIntegerSafe(raw.protein || fallback.protein || fallbackMacros.protein) || fallbackMacros.protein),
+        carb: Math.max(0, parseIntegerSafe(raw.carb || fallback.carb || fallbackMacros.carb) || fallbackMacros.carb),
+        fat: Math.max(0, parseIntegerSafe(raw.fat || fallback.fat || fallbackMacros.fat) || fallbackMacros.fat),
+        notes: sanitizeUserInput(raw.notes || fallback.notes || '', { allowNewlines: true, maxLen: 500 }),
+        active: raw.active === true || fallback.active === true,
+        order: normalizedOrder
+    };
+    return period;
+}
+
+function ensureTrainerDeftDietPeriods(stateLike = {}, student = {}) {
+    const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
+    const rawPeriods = Array.isArray(state.dietPeriods) ? state.dietPeriods : [];
+    const fallbackPeriod = getTrainerDeftDefaultDietPeriod(student, state, 1);
+    const normalizedPeriods = (rawPeriods.length ? rawPeriods : [fallbackPeriod])
+        .map((period, idx) => normalizeTrainerDeftDietPeriod(period, fallbackPeriod, idx + 1))
+        .sort((a, b) => a.order - b.order)
+        .map((period, idx) => ({ ...period, order: idx + 1 }));
+    if (!normalizedPeriods.length) normalizedPeriods.push(fallbackPeriod);
+
+    let activeId = sanitizeUserInput(state.activeDietPeriodId || '', { maxLen: 90 });
+    if (!activeId || !normalizedPeriods.some((period) => period.id === activeId)) {
+        const fromFlag = normalizedPeriods.find((period) => period.active);
+        activeId = fromFlag?.id || normalizedPeriods[0].id;
+    }
+    normalizedPeriods.forEach((period) => {
+        period.active = period.id === activeId;
+    });
+    return {
+        periods: normalizedPeriods,
+        activeId
+    };
+}
+
+function getTrainerDeftActiveDietPeriod(stateLike = {}, student = {}) {
+    const normalized = ensureTrainerDeftDietPeriods(stateLike, student);
+    return normalized.periods.find((period) => period.id === normalized.activeId) || normalized.periods[0];
+}
+
+function getTrainerDeftPeriodMacroRatios(periodLike = {}) {
+    const period = periodLike && typeof periodLike === 'object' ? periodLike : {};
+    const proteinKcal = Math.max(0, deftNumber(period.protein, 0) * 4);
+    const carbKcal = Math.max(0, deftNumber(period.carb, 0) * 4);
+    const fatKcal = Math.max(0, deftNumber(period.fat, 0) * 9);
+    const total = proteinKcal + carbKcal + fatKcal;
+    if (!total) return null;
+    return {
+        protein: proteinKcal / total,
+        carb: carbKcal / total,
+        fat: fatKcal / total
+    };
+}
+
+function syncTrainerDeftStateWithActivePeriod(stateLike = {}, student = {}) {
+    const state = stateLike && typeof stateLike === 'object' ? stateLike : {};
+    const normalized = ensureTrainerDeftDietPeriods(state, student);
+    state.dietPeriods = normalized.periods;
+    state.activeDietPeriodId = normalized.activeId;
+    const activePeriod = normalized.periods.find((period) => period.id === normalized.activeId) || normalized.periods[0];
+    const safeStrategy = normalizeTrainerDeftStrategyKey(activePeriod?.strategy || state.dietStrategy || 'maintenance');
+    state.dietStrategy = safeStrategy;
+    if (safeStrategy === 'bulking') {
+        state.bulkingBaseKcal = String(Math.max(900, parseIntegerSafe(activePeriod?.kcal || state.bulkingBaseKcal || 0) || 0));
+    }
+    return activePeriod;
+}
+
+function getDefaultTrainerDeftState(student = {}) {
+    const genderNormalized = normalizeText(student.gender || student.genero || '');
+    const defaultGender = genderNormalized.startsWith('f') ? 'female' : 'male';
+    const baseDayPlan = buildTrainerDeftBaseDayPlanFromMeals();
+    const defaultPeriod = getTrainerDeftDefaultDietPeriod(student, { dietStrategy: 'maintenance' }, 1);
+    return {
+        methodStatus: 'ativo',
+        methodFlags: {
+            failProximity: true,
+            execution: true,
+            progression: true
+        },
+        gender: defaultGender,
+        weight: parsePositiveNumber(student.weight || student.currentWeight) || '',
+        height: parsePositiveNumber(student.height) || '',
+        age: parseIntegerSafe(student.age) || '',
+        bodyFat: parsePositiveNumber(student.bodyFat || student.currentBF) || '',
+        tmbFormula: 'mifflin',
+        tmbRecommendation: 'mifflin',
+        tmbValue: 0,
+        faf: 1.55,
+        fafLabel: 'Moderadamente ativo',
+        fafSuggestion: getDefaultTrainerDeftFafSuggestion(student),
+        tdee: 0,
+        tdeeWeekly: 0,
+        dietStrategy: defaultPeriod.strategy,
+        adhesionType: 'constant',
+        weeklyDeficit: 0,
+        weeklyLossGrams: 0,
+        bulkingBaseKcal: '',
+        dailyBaseKcal: defaultPeriod.kcal,
+        dietPeriods: [defaultPeriod],
+        activeDietPeriodId: defaultPeriod.id,
+        baseDayPlan,
+        dailyCalPlanTypes: DEFT_WEEK_DAYS.reduce((acc, day) => ({ ...acc, [day.key]: 'normal' }), {}),
+        dailyCalPlanOverrides: DEFT_WEEK_DAYS.reduce((acc, day) => ({ ...acc, [day.key]: '' }), {}),
+        dailyCalPlan: DEFT_WEEK_DAYS.reduce((acc, day) => ({ ...acc, [day.key]: 0 }), {}),
+        carbCycleActive: false,
+        carbCycleDayTypes: { ...DEFT_CARB_PRESETS.weekend_mid_rest_low.map },
+        carbCyclePresetKey: 'weekend_mid_rest_low',
+        deftDayMealPlan: normalizeTrainerDeftDailyPlanMap({}, baseDayPlan),
+        deftDayNotes: DEFT_WEEK_DAYS.reduce((acc, day) => ({ ...acc, [day.key]: '' }), {}),
+        lastUpdated: ''
+    };
+}
+
+function getTrainerDeftStateFromStudent(student = {}) {
+    const defaultState = getDefaultTrainerDeftState(student);
+    const source = student.deftState && typeof student.deftState === 'object'
+        ? student.deftState
+        : student;
+
+    const rawBasePlan = source.baseDayPlan || defaultState.baseDayPlan;
+    const baseDayPlan = cloneTrainerDeftDayPlan(rawBasePlan);
+    const rawDayMealPlan = source.deftDayMealPlan && typeof source.deftDayMealPlan === 'object'
+        ? source.deftDayMealPlan
+        : {};
+    const dayPlanMap = normalizeTrainerDeftDailyPlanMap(rawDayMealPlan, baseDayPlan);
+    const notesMap = source.deftDayNotes && typeof source.deftDayNotes === 'object' ? source.deftDayNotes : {};
+    const typeMap = source.dailyCalPlanTypes && typeof source.dailyCalPlanTypes === 'object' ? source.dailyCalPlanTypes : {};
+    const overrideMap = source.dailyCalPlanOverrides && typeof source.dailyCalPlanOverrides === 'object' ? source.dailyCalPlanOverrides : {};
+    const carbTypeMap = source.carbCycleDayTypes && typeof source.carbCycleDayTypes === 'object' ? source.carbCycleDayTypes : {};
+    const dayCalMap = source.dailyCalPlan && typeof source.dailyCalPlan === 'object' ? source.dailyCalPlan : {};
+    const state = {
+        ...defaultState,
+        ...source,
+        methodFlags: {
+            ...defaultState.methodFlags,
+            ...(source.methodFlags && typeof source.methodFlags === 'object' ? source.methodFlags : {})
+        },
+        baseDayPlan,
+        deftDayMealPlan: dayPlanMap,
+        deftDayNotes: DEFT_WEEK_DAYS.reduce((acc, day) => ({
+            ...acc,
+            [day.key]: sanitizeUserInput(notesMap[day.key] || '', { allowNewlines: true, maxLen: 500 })
+        }), {}),
+        dailyCalPlanTypes: DEFT_WEEK_DAYS.reduce((acc, day) => ({
+            ...acc,
+            [day.key]: DEFT_DAY_TYPE_CONFIG[typeMap[day.key]] ? typeMap[day.key] : 'normal'
+        }), {}),
+        dailyCalPlanOverrides: DEFT_WEEK_DAYS.reduce((acc, day) => ({
+            ...acc,
+            [day.key]: sanitizeUserInput(overrideMap[day.key] ?? '', { maxLen: 10 })
+        }), {}),
+        carbCycleDayTypes: DEFT_WEEK_DAYS.reduce((acc, day) => ({
+            ...acc,
+            [day.key]: ['high', 'mid', 'low'].includes(carbTypeMap[day.key]) ? carbTypeMap[day.key] : defaultState.carbCycleDayTypes[day.key]
+        }), {}),
+        dailyCalPlan: DEFT_WEEK_DAYS.reduce((acc, day) => ({
+            ...acc,
+            [day.key]: Math.max(0, parseIntegerSafe(dayCalMap[day.key] || 0))
+        }), {}),
+        fafSuggestion: getDefaultTrainerDeftFafSuggestion(student)
+    };
+    return recomputeTrainerDeftState(state, student);
+}
+
+function getTrainerDeftImc(weight, height) {
+    const safeWeight = Math.max(0, deftNumber(weight, 0));
+    const safeHeightCm = Math.max(0, deftNumber(height, 0));
+    if (!safeWeight || !safeHeightCm) return { value: 0, label: 'Sem dados' };
+    const heightM = safeHeightCm / 100;
+    if (!heightM) return { value: 0, label: 'Sem dados' };
+    const value = safeWeight / (heightM * heightM);
+    let label = 'Saudável';
+    if (value < 18.5) label = 'Abaixo do peso';
+    else if (value >= 30) label = 'Obesidade';
+    else if (value >= 25) label = 'Sobrepeso';
+    return { value: deftRound(value, 1), label };
+}
+
+function getTrainerDeftRecommendedFormula(state = {}) {
+    const bodyFat = Math.max(0, deftNumber(state.bodyFat, 0));
+    const imc = getTrainerDeftImc(state.weight, state.height).value;
+    if (bodyFat > 0 && bodyFat < 15 && imc > 0 && imc < 28) return 'tinsley';
+    if ((imc >= 30) || bodyFat > 25) return 'mifflin';
+    return 'harris';
+}
+
+function calculateTrainerDeftTmb(state = {}) {
+    const weight = Math.max(0, deftNumber(state.weight, 0));
+    const height = Math.max(0, deftNumber(state.height, 0));
+    const age = Math.max(0, parseIntegerSafe(state.age));
+    const bodyFat = Math.max(0, deftNumber(state.bodyFat, 0));
+    const gender = String(state.gender || 'male') === 'female' ? 'female' : 'male';
+    const formula = String(state.tmbFormula || 'mifflin');
+    if (!weight || !height || !age) return 0;
+    if (formula === 'harris') {
+        if (gender === 'male') return 88.362 + (13.397 * weight) + (4.799 * height) - (5.677 * age);
+        return 447.593 + (9.247 * weight) + (3.098 * height) - (4.330 * age);
+    }
+    if (formula === 'tinsley') {
+        if (bodyFat <= 0 || bodyFat >= 70) return 0;
+        const leanMass = weight * (1 - (bodyFat / 100));
+        return 370 + (21.6 * leanMass);
+    }
+    if (gender === 'male') return (10 * weight) + (6.25 * height) - (5 * age) + 5;
+    return (10 * weight) + (6.25 * height) - (5 * age) - 161;
+}
+
+function getTrainerDeftFafLabel(value) {
+    const match = DEFT_FAF_OPTIONS.find((item) => Math.abs(Number(item.value) - Number(value)) < 0.0001);
+    return match?.label || 'Personalizado';
+}
+
+function getTrainerDeftStrategyDailyBase(state = {}) {
+    const tdee = Math.max(0, deftNumber(state.tdee, 0));
+    const activePeriod = getTrainerDeftActiveDietPeriod(state);
+    const strategy = normalizeTrainerDeftStrategyKey(activePeriod?.strategy || state.dietStrategy || 'maintenance');
+    const activePeriodKcal = Math.max(0, parseIntegerSafe(activePeriod?.kcal || 0));
+    let weeklyDeficit = 0;
+    let weeklyLossGrams = 0;
+    let baseDaily = tdee;
+
+    if (strategy === 'cutting') {
+        const weight = Math.max(0, deftNumber(state.weight, 0));
+        const ratio = String(state.adhesionType || 'constant') === 'result' ? 0.01 : 0.005;
+        weeklyLossGrams = deftRound(weight * ratio * 1000, 0);
+        weeklyDeficit = deftRound(((weeklyLossGrams / 1000) * 7700), 0);
+        const tdeeWeekly = tdee * 7;
+        baseDaily = Math.max(900, (tdeeWeekly - weeklyDeficit) / 7);
+    } else if (strategy === 'bulking') {
+        const customBase = Math.max(0, deftNumber(state.bulkingBaseKcal, 0));
+        baseDaily = customBase > 0 ? customBase : Math.max(1200, tdee + 250);
+    }
+    if (activePeriodKcal > 0) {
+        baseDaily = Math.max(900, activePeriodKcal);
+        if (strategy === 'cutting' && tdee > 0) {
+            const tdeeWeekly = tdee * 7;
+            weeklyDeficit = Math.max(0, deftRound(tdeeWeekly - (baseDaily * 7), 0));
+            weeklyLossGrams = weeklyDeficit > 0 ? deftRound((weeklyDeficit / 7700) * 1000, 0) : 0;
+        }
+    }
+
+    return {
+        baseDaily: deftRound(baseDaily, 0),
+        weeklyDeficit,
+        weeklyLossGrams
+    };
+}
+
+function computeTrainerDeftDailyPlan(state = {}) {
+    const strategy = getTrainerDeftStrategyDailyBase(state);
+    const baseDaily = Math.max(0, strategy.baseDaily);
+    const modifierEntries = DEFT_WEEK_DAYS.map((day) => {
+        const typeKey = state.dailyCalPlanTypes?.[day.key] || 'normal';
+        return {
+            dayKey: day.key,
+            typeKey,
+            delta: deftNumber(DEFT_DAY_TYPE_CONFIG[typeKey]?.delta, 0)
+        };
+    });
+    const averageDelta = modifierEntries.reduce((acc, item) => acc + item.delta, 0) / Math.max(1, modifierEntries.length);
+
+    const dailyPlan = {};
+    modifierEntries.forEach((entry) => {
+        const neutralized = baseDaily + (entry.delta - averageDelta);
+        const overrideRaw = String(state.dailyCalPlanOverrides?.[entry.dayKey] ?? '').trim();
+        const overrideValue = parseIntegerSafe(overrideRaw);
+        const finalValue = overrideRaw !== '' && overrideValue > 0
+            ? overrideValue
+            : Math.max(900, deftRound(neutralized, 0));
+        dailyPlan[entry.dayKey] = finalValue;
+    });
+
+    return {
+        baseDaily,
+        weeklyDeficit: strategy.weeklyDeficit,
+        weeklyLossGrams: strategy.weeklyLossGrams,
+        dailyPlan
+    };
+}
+
+function getTrainerDeftDayMacroTargets(state = {}, dayKey = '') {
+    const cal = Math.max(0, parseIntegerSafe(state.dailyCalPlan?.[dayKey] || 0));
+    let carbMode = 'mid';
+    let ratios = null;
+    if (state.carbCycleActive) {
+        carbMode = ['high', 'mid', 'low'].includes(state.carbCycleDayTypes?.[dayKey])
+            ? state.carbCycleDayTypes[dayKey]
+            : 'mid';
+        ratios = DEFT_MACRO_PRESETS[carbMode] || DEFT_MACRO_PRESETS.mid;
+    } else {
+        const activePeriod = getTrainerDeftActiveDietPeriod(state);
+        ratios = getTrainerDeftPeriodMacroRatios(activePeriod) || DEFT_MACRO_PRESETS.mid;
+    }
+    const proteinKcal = cal * ratios.protein;
+    const carbKcal = cal * ratios.carb;
+    const fatKcal = cal * ratios.fat;
+    return {
+        mode: carbMode,
+        kcal: cal,
+        protein: deftRound(proteinKcal / 4, 1),
+        carb: deftRound(carbKcal / 4, 1),
+        fat: deftRound(fatKcal / 9, 1)
+    };
+}
+
+function getTrainerDeftDayPlanActual(dayPlan = { meals: [] }) {
+    const meals = Array.isArray(dayPlan?.meals) ? dayPlan.meals : [];
+    let kcal = 0;
+    let protein = 0;
+    let carb = 0;
+    let fat = 0;
+    let items = 0;
+    meals.forEach((meal) => {
+        const activeOption = String(meal?.activeOption || 'A').toUpperCase() === 'B' ? 'B' : 'A';
+        const optionFoods = Array.isArray(meal?.options?.[activeOption]) ? meal.options[activeOption] : [];
+        optionFoods.forEach((food) => {
+            const normalized = normalizeTrainerDeftFoodItem(food);
+            if (!normalized) return;
+            items += 1;
+            kcal += deftNumber(normalized.kcal);
+            protein += deftNumber(normalized.protein);
+            carb += deftNumber(normalized.carb);
+            fat += deftNumber(normalized.fat);
+        });
+    });
+    return {
+        kcal: deftRound(kcal, 0),
+        protein: deftRound(protein, 1),
+        carb: deftRound(carb, 1),
+        fat: deftRound(fat, 1),
+        items
+    };
+}
+
+function recomputeTrainerDeftState(inputState = null, student = null) {
+    const safeState = inputState && typeof inputState === 'object'
+        ? inputState
+        : (trainerDeftState && typeof trainerDeftState === 'object' ? trainerDeftState : getDefaultTrainerDeftState(student || {}));
+    const safeStudent = student && typeof student === 'object'
+        ? student
+        : (resolveCurrentTrainerStudentSelection().student || {});
+
+    safeState.gender = String(safeState.gender || 'male') === 'female' ? 'female' : 'male';
+    safeState.weight = safeState.weight === '' ? '' : Math.max(0, deftRound(safeState.weight, 1));
+    safeState.height = safeState.height === '' ? '' : Math.max(0, parseIntegerSafe(safeState.height));
+    safeState.age = safeState.age === '' ? '' : Math.max(0, parseIntegerSafe(safeState.age));
+    safeState.bodyFat = safeState.bodyFat === '' ? '' : Math.max(0, deftRound(safeState.bodyFat, 1));
+    safeState.baseDayPlan = cloneTrainerDeftDayPlan(safeState.baseDayPlan || buildTrainerDeftBaseDayPlanFromMeals());
+    safeState.deftDayMealPlan = normalizeTrainerDeftDailyPlanMap(safeState.deftDayMealPlan || {}, safeState.baseDayPlan);
+    const activePeriod = syncTrainerDeftStateWithActivePeriod(safeState, safeStudent);
+
+    const recommendation = getTrainerDeftRecommendedFormula(safeState);
+    safeState.tmbRecommendation = recommendation;
+    if (!['harris', 'mifflin', 'tinsley'].includes(safeState.tmbFormula)) safeState.tmbFormula = recommendation;
+    const tmb = calculateTrainerDeftTmb(safeState);
+    safeState.tmbValue = deftRound(tmb, 0);
+    safeState.faf = Math.max(1.2, deftRound(safeState.faf || safeState.fafSuggestion?.value || 1.55, 3));
+    safeState.fafLabel = getTrainerDeftFafLabel(safeState.faf);
+    safeState.fafSuggestion = getDefaultTrainerDeftFafSuggestion(safeStudent);
+    safeState.tdee = deftRound(safeState.tmbValue * safeState.faf, 0);
+    safeState.tdeeWeekly = deftRound(safeState.tdee * 7, 0);
+
+    const strategy = computeTrainerDeftDailyPlan(safeState);
+    safeState.dailyBaseKcal = strategy.baseDaily;
+    safeState.weeklyDeficit = strategy.weeklyDeficit;
+    safeState.weeklyLossGrams = strategy.weeklyLossGrams;
+    safeState.dailyCalPlan = strategy.dailyPlan;
+    if (activePeriod) {
+        activePeriod.strategy = normalizeTrainerDeftStrategyKey(safeState.dietStrategy);
+        activePeriod.kcal = Math.max(900, parseIntegerSafe(safeState.dailyBaseKcal || activePeriod.kcal || 0) || 900);
+    }
+
+    const presetMap = DEFT_CARB_PRESETS[safeState.carbCyclePresetKey]?.map;
+    if (!safeState.carbCycleDayTypes || typeof safeState.carbCycleDayTypes !== 'object') {
+        safeState.carbCycleDayTypes = presetMap ? { ...presetMap } : { ...DEFT_CARB_PRESETS.weekend_mid_rest_low.map };
+    }
+    DEFT_WEEK_DAYS.forEach((day) => {
+        if (!['high', 'mid', 'low'].includes(safeState.carbCycleDayTypes[day.key])) {
+            safeState.carbCycleDayTypes[day.key] = presetMap?.[day.key] || 'low';
+        }
+        if (!DEFT_DAY_TYPE_CONFIG[safeState.dailyCalPlanTypes?.[day.key]]) {
+            safeState.dailyCalPlanTypes[day.key] = 'normal';
+        }
+        if (safeState.deftDayNotes?.[day.key] === undefined) {
+            safeState.deftDayNotes[day.key] = '';
+        }
+    });
+    safeState.lastUpdated = new Date().toISOString();
+    return safeState;
+}
+
+function loadTrainerDeftState(student = {}) {
+    trainerDeftState = getTrainerDeftStateFromStudent(student || {});
+    const defaultExpanded = {};
+    DEFT_WEEK_DAYS.forEach((day) => {
+        if (trainerDeftUiState.expandedDays[day.key] === undefined) defaultExpanded[day.key] = true;
+    });
+    trainerDeftUiState.expandedDays = {
+        ...defaultExpanded,
+        ...trainerDeftUiState.expandedDays
+    };
+}
+
+function applyTrainerDeftStateToStudent(student = {}) {
+    if (!student || typeof student !== 'object') return student;
+    if (!trainerDeftState) loadTrainerDeftState(student);
+    trainerDeftState = recomputeTrainerDeftState(trainerDeftState, student);
+    const activePeriod = getTrainerDeftActiveDietPeriod(trainerDeftState, student);
+    const payload = {
+        tmbFormula: trainerDeftState.tmbFormula,
+        tmbValue: trainerDeftState.tmbValue,
+        faf: trainerDeftState.faf,
+        fafLabel: trainerDeftState.fafLabel,
+        tdee: trainerDeftState.tdee,
+        tdeeWeekly: trainerDeftState.tdeeWeekly,
+        dietStrategy: trainerDeftState.dietStrategy,
+        adhesionType: trainerDeftState.adhesionType,
+        weeklyDeficit: trainerDeftState.weeklyDeficit,
+        weeklyLossGrams: trainerDeftState.weeklyLossGrams,
+        dietPeriods: JSON.parse(JSON.stringify(trainerDeftState.dietPeriods || [])),
+        activeDietPeriodId: sanitizeUserInput(trainerDeftState.activeDietPeriodId || '', { maxLen: 90 }),
+        dailyCalPlan: JSON.parse(JSON.stringify(trainerDeftState.dailyCalPlan || {})),
+        dailyCalPlanTypes: JSON.parse(JSON.stringify(trainerDeftState.dailyCalPlanTypes || {})),
+        dailyCalPlanOverrides: JSON.parse(JSON.stringify(trainerDeftState.dailyCalPlanOverrides || {})),
+        carbCycleActive: !!trainerDeftState.carbCycleActive,
+        carbCycleDayTypes: JSON.parse(JSON.stringify(trainerDeftState.carbCycleDayTypes || {})),
+        deftDayMealPlan: JSON.parse(JSON.stringify(trainerDeftState.deftDayMealPlan || {})),
+        deftDayNotes: JSON.parse(JSON.stringify(trainerDeftState.deftDayNotes || {})),
+        bodyFat: trainerDeftState.bodyFat || '',
+        gender: trainerDeftState.gender === 'female' ? 'F' : 'M',
+        weight: trainerDeftState.weight || '',
+        height: trainerDeftState.height || '',
+        age: trainerDeftState.age || '',
+        lastUpdated: trainerDeftState.lastUpdated || new Date().toISOString()
+    };
+    Object.assign(student, payload);
+    const currentDietMeta = student.dietMeta && typeof student.dietMeta === 'object' ? student.dietMeta : {};
+    student.dietMeta = {
+        ...currentDietMeta,
+        kcal: activePeriod?.kcal || currentDietMeta.kcal || '',
+        protein: activePeriod?.protein || currentDietMeta.protein || '',
+        carb: activePeriod?.carb || currentDietMeta.carb || '',
+        fat: activePeriod?.fat || currentDietMeta.fat || ''
+    };
+    student.deftState = {
+        ...JSON.parse(JSON.stringify(trainerDeftState)),
+        methodFlags: { ...(trainerDeftState.methodFlags || {}) }
+    };
+    return student;
+}
+
+function touchTrainerDeftState(options = {}) {
+    const selection = resolveCurrentTrainerStudentSelection();
+    if (!trainerDeftState) loadTrainerDeftState(selection.student || {});
+    trainerDeftState = recomputeTrainerDeftState(trainerDeftState, selection.student || {});
+    if (options.markDirty !== false) signalStudentPlanDirty();
+    renderTrainerDeftStudio();
+}
+
+function deftDeepClone(value) {
+    return JSON.parse(JSON.stringify(value ?? null));
+}
+
+function getTrainerDeftFormulaLabel(formulaKey = 'mifflin') {
+    const key = String(formulaKey || 'mifflin');
+    if (key === 'harris') return 'Harris-Benedict';
+    if (key === 'tinsley') return 'Tinsley MLM';
+    return 'Mifflin-St Jeor';
+}
+
+function getTrainerDeftMethodStatusMeta(statusKey = 'ativo') {
+    const key = String(statusKey || '').toLowerCase();
+    if (key === 'pausado') return { label: 'Pausado', className: 'paused' };
+    if (key === 'ajuste') return { label: 'Em ajuste', className: 'adjusting' };
+    return { label: 'Ativo', className: 'active' };
+}
+
+function getTrainerDeftSafeState() {
+    const selection = resolveCurrentTrainerStudentSelection();
+    if (!trainerDeftState) loadTrainerDeftState(selection.student || {});
+    trainerDeftState = recomputeTrainerDeftState(trainerDeftState, selection.student || {});
+    return trainerDeftState;
+}
+
+function getTrainerDeftPlanForDay(dayKey = 'sun') {
+    const state = getTrainerDeftSafeState();
+    if (String(dayKey) === 'base') return cloneTrainerDeftDayPlan(state.baseDayPlan || { meals: [] });
+    return cloneTrainerDeftDayPlan(state.deftDayMealPlan?.[dayKey] || state.baseDayPlan || { meals: [] });
+}
+
+function setTrainerDeftPlanForDay(dayKey = 'sun', planLike = { meals: [] }) {
+    const state = getTrainerDeftSafeState();
+    const normalized = cloneTrainerDeftDayPlan(planLike || { meals: [] });
+    if (String(dayKey) === 'base') {
+        state.baseDayPlan = normalized;
+        return;
+    }
+    if (!state.deftDayMealPlan || typeof state.deftDayMealPlan !== 'object') {
+        state.deftDayMealPlan = {};
+    }
+    state.deftDayMealPlan[dayKey] = normalized;
+}
+
+function isTrainerDeftPlanEqual(left, right) {
+    try {
+        return JSON.stringify(left || {}) === JSON.stringify(right || {});
+    } catch (error) {
+        return false;
+    }
+}
+
+function getTrainerDeftDaySourceLabel(dayKey = 'sun') {
+    const state = getTrainerDeftSafeState();
+    const basePlan = state.baseDayPlan || { meals: [] };
+    const currentPlan = state.deftDayMealPlan?.[dayKey] || basePlan;
+    return isTrainerDeftPlanEqual(basePlan, currentPlan) ? 'Base' : 'Custom';
+}
+
+function getTrainerDeftFoodPickerResults(limit = 56) {
+    const query = normalizeText(trainerDeftUiState.foodPicker?.query || '');
+    const catalog = getEffectiveFoodCatalog(280).map((food) => normalizeFoodCatalogRow(food)).filter(Boolean);
+    const filtered = !query
+        ? catalog
+        : catalog.filter((item) => {
+            const haystack = normalizeText(`${item.name || ''} ${item.brand || ''} ${item.family_key || ''}`);
+            return haystack.includes(query);
+        });
+    return filtered.slice(0, Math.max(8, parseIntegerSafe(limit) || 56));
+}
+
+function fitTrainerDeftReplacementItem(referenceItem = {}, candidateItem = {}) {
+    const ref = normalizeTrainerDeftFoodItem(referenceItem);
+    const next = normalizeTrainerDeftFoodItem(candidateItem);
+    if (!ref || !next) return next || ref;
+    const fallbackFood = normalizeFoodCatalogRow({
+        id: next.foodId || next.id || '',
+        name: next.name || 'Alimento',
+        base_qty: next.baseQty || 100,
+        base_unit: next.baseUnit || 'g',
+        kcal: next.kcalBase || 0,
+        protein: next.proteinBase || 0,
+        carb: next.carbBase || 0,
+        fat: next.fatBase || 0
+    });
+    if (!fallbackFood) return next;
+    const probe = computeMacrosByAmount(
+        fallbackFood,
+        Math.max(0.1, deftNumber(ref.amount, 0)),
+        normalizeFoodUnitKey(ref.unitKey || next.unitKey || next.baseUnit || 'g'),
+        next.portionId || ''
+    );
+    const targetKcal = Math.max(1, deftNumber(ref.kcal, 0));
+    const targetProtein = Math.max(0, deftNumber(ref.protein, 0));
+    const kcalRatio = probe.kcal > 0 ? (targetKcal / probe.kcal) : 1;
+    const proteinRatio = probe.protein > 0 ? (targetProtein / probe.protein) : kcalRatio;
+    const mixedRatio = deftClamp(((kcalRatio * 0.65) + (proteinRatio * 0.35)), 0.25, 4.5);
+    const adjustedAmount = Math.max(0.1, deftRound(probe.amount * mixedRatio, probe.unit_key === 'g' || probe.unit_key === 'ml' ? 0 : 1));
+    const adjusted = computeMacrosByAmount(
+        fallbackFood,
+        adjustedAmount,
+        probe.unit_key,
+        next.portionId || ''
+    );
+    return {
+        ...next,
+        amount: adjusted.amount,
+        unitKey: adjusted.unit_key,
+        portionId: adjusted.portion_id || '',
+        portionLabel: adjusted.portion_label || '',
+        kcal: adjusted.kcal,
+        protein: adjusted.protein,
+        carb: adjusted.carb,
+        fat: adjusted.fat
+    };
+}
+
+function convertTrainerDeftFoodToMealItem(foodLike = {}) {
+    const food = normalizeTrainerDeftFoodItem(foodLike);
+    if (!food) return null;
+    return {
+        nome: food.name,
+        qtd: formatFoodQuantity(food.amount, food.unitKey),
+        kcal: deftRound(food.kcal, 0),
+        prot: deftRound(food.protein, 1),
+        carb: deftRound(food.carb, 1),
+        gord: deftRound(food.fat, 1),
+        foodId: food.foodId || '',
+        baseQty: food.baseQty || 100,
+        baseUnit: food.baseUnit || 'g',
+        amount: food.amount,
+        unitKey: food.unitKey,
+        portionId: food.portionId || '',
+        portionLabel: food.portionLabel || '',
+        familyKey: food.category || ''
+    };
+}
+
+function convertTrainerDeftPlanToMealBlocks(dayPlan = { meals: [] }) {
+    const meals = Array.isArray(dayPlan?.meals) ? dayPlan.meals : [];
+    return meals.map((meal, idx) => {
+        const optionKey = String(meal?.activeOption || 'A').toUpperCase() === 'B' ? 'B' : 'A';
+        const foods = Array.isArray(meal?.options?.[optionKey]) ? meal.options[optionKey] : [];
+        return {
+            id: sanitizeUserInput(meal?.id || '', { maxLen: 80 }) || `deft-export-${idx + 1}`,
+            name: sanitizeUserInput(meal?.name || `Refeição ${idx + 1}`, { maxLen: 90 }) || `Refeição ${idx + 1}`,
+            items: foods.map((food) => convertTrainerDeftFoodToMealItem(food)).filter(Boolean)
+        };
+    });
+}
+
+function getTrainerDeftDayTargetVsActual(state = {}, dayKey = 'sun') {
+    const target = getTrainerDeftDayMacroTargets(state, dayKey);
+    const plan = state.deftDayMealPlan?.[dayKey] || state.baseDayPlan || { meals: [] };
+    const actual = getTrainerDeftDayPlanActual(plan);
+    return {
+        target,
+        actual,
+        diff: {
+            kcal: deftRound(actual.kcal - target.kcal, 0),
+            protein: deftRound(actual.protein - target.protein, 1),
+            carb: deftRound(actual.carb - target.carb, 1),
+            fat: deftRound(actual.fat - target.fat, 1)
+        }
+    };
+}
+
+function getTrainerDeftPlanPreview(planLike = { meals: [] }) {
+    const plan = cloneTrainerDeftDayPlan(planLike || { meals: [] });
+    const actual = getTrainerDeftDayPlanActual(plan);
+    const mealsCount = Array.isArray(plan.meals) ? plan.meals.length : 0;
+    return {
+        mealsCount,
+        items: actual.items,
+        kcal: actual.kcal,
+        protein: actual.protein,
+        carb: actual.carb,
+        fat: actual.fat
+    };
+}
+
+function renderTrainerDeftStudio() {
+    const container = document.getElementById('trainer-deft-content');
+    if (!container) return;
+    const selection = resolveCurrentTrainerStudentSelection();
+    const student = selection.student || {};
+    if (!student || !selection.studentId) {
+        container.innerHTML = '<div class="trainer-lite-empty"><i class="ph-bold ph-trend-down"></i><strong>Aluno indisponível</strong><span>Abra um aluno válido para editar a Dieta.</span></div>';
+        return;
+    }
+    const state = getTrainerDeftSafeState();
+    const activePeriod = getTrainerDeftActiveDietPeriod(state, student);
+    const imc = getTrainerDeftImc(state.weight, state.height);
+    const methodStatus = getTrainerDeftMethodStatusMeta(state.methodStatus);
+    const suggestedFormula = getTrainerDeftFormulaLabel(state.tmbRecommendation);
+    const weeklyPlanTotal = DEFT_WEEK_DAYS.reduce((acc, day) => acc + Math.max(0, parseIntegerSafe(state.dailyCalPlan?.[day.key] || 0)), 0);
+    const activePeriodWeek = Math.max(0, parseIntegerSafe(activePeriod?.kcal || 0)) * 7;
+    const weekDelta = deftRound(weeklyPlanTotal - activePeriodWeek, 0);
+    const weekDeltaLabel = weekDelta === 0 ? 'Distribuição alinhada à base do mês' : (weekDelta > 0 ? `+${weekDelta} kcal vs base` : `${weekDelta} kcal vs base`);
+
+    const methodCards = [
+        { key: 'failProximity', title: 'Proximidade com a falha', icon: 'ph-gauge' },
+        { key: 'execution', title: 'Boa execução', icon: 'ph-check-circle' },
+        { key: 'progression', title: 'Progressão de carga', icon: 'ph-trend-up' }
+    ];
+
+    const strategyLabel = getTrainerDeftStrategyLabel(activePeriod?.strategy || state.dietStrategy);
+    const formatFactorLabel = (factorValue) => {
+        const value = deftRound(factorValue, 3);
+        const normalized = String(value).replace(/(\.\d*?[1-9])0+$/g, '$1').replace(/\.0+$/g, '');
+        return `x${normalized}`;
+    };
+    const tmbFormulaCards = [
+        {
+            key: 'harris',
+            title: 'Harris-Benedict',
+            subtitle: 'Saudável · IMC < 30',
+            hint: 'Para saudáveis sem fisiculturismo.'
+        },
+        {
+            key: 'mifflin',
+            title: 'Mifflin-St Jeor',
+            subtitle: 'Obesos · Falso Magro',
+            hint: 'Mais conservadora para obesos e falsos magros.'
+        },
+        {
+            key: 'tinsley',
+            title: 'Tinsley (MLM)',
+            subtitle: 'Atlético · Baixo BF',
+            hint: 'Baseada na massa livre de gordura.'
+        }
+    ];
+    const hasBodyFatForTinsley = deftNumber(state.bodyFat, 0) > 0;
+    const tmbRowsHtml = tmbFormulaCards.map((item) => {
+        const active = state.tmbFormula === item.key;
+        const recommended = state.tmbRecommendation === item.key;
+        const needsBodyFat = item.key === 'tinsley' && !hasBodyFatForTinsley;
+        return `
+            <button type="button" class="trainer-deft-option-row ${active ? 'active' : ''}" onclick="setTrainerDeftFormula('${item.key}')">
+                <span class="trainer-deft-option-radio">${active ? '<i class="ph-fill ph-circle"></i>' : ''}</span>
+                <span class="trainer-deft-option-copy">
+                    <strong>${escHtml(item.title)}</strong>
+                    <small>${escHtml(item.subtitle)}</small>
+                    <em>${escHtml(item.hint)}</em>
+                </span>
+                <span class="trainer-deft-option-tags">
+                    ${recommended ? '<span class="trainer-deft-pill purple">Recomendada</span>' : ''}
+                    ${needsBodyFat ? '<span class="trainer-deft-pill amber">Requer % gordura</span>' : ''}
+                </span>
+            </button>
+        `;
+    }).join('');
+    const activeFafLabel = getTrainerDeftFafLabel(state.faf);
+    const suggestionFactorLabel = formatFactorLabel(state.fafSuggestion?.value || 1.3);
+    const fafRowsHtml = DEFT_FAF_OPTIONS.map((item) => {
+        const active = Math.abs(Number(item.value) - Number(state.faf || 0)) < 0.0001;
+        const conservativeBadge = item.value === 1.3 ? '<span class="trainer-deft-pill amber">Conservador</span>' : '';
+        return `
+            <button type="button" class="trainer-deft-option-row trainer-deft-option-row-faf ${active ? 'active active-green' : ''}" onclick="setTrainerDeftFaf('${item.value}')">
+                <span class="trainer-deft-option-radio">${active ? '<i class="ph-fill ph-circle"></i>' : ''}</span>
+                <span class="trainer-deft-option-copy inline">
+                    <strong>${escHtml(formatFactorLabel(item.value))}</strong>
+                    <small>${escHtml(item.label)}</small>
+                </span>
+                <span class="trainer-deft-option-tags">${conservativeBadge}</span>
+            </button>
+        `;
+    }).join('');
+    const strategyCardsHtml = [
+        {
+            key: 'cutting',
+            icon: 'ph-fire',
+            title: 'Cutting',
+            subtitle: 'Déficit calórico'
+        },
+        {
+            key: 'bulking',
+            icon: 'ph-barbell',
+            title: 'Bulking',
+            subtitle: 'Superávit calórico'
+        },
+        {
+            key: 'maintenance',
+            icon: 'ph-scales',
+            title: 'Norma Calórica',
+            subtitle: 'Manutenção'
+        }
+    ].map((item) => {
+        const active = normalizeTrainerDeftStrategyKey(activePeriod?.strategy || state.dietStrategy) === item.key;
+        return `
+            <button type="button" class="trainer-deft-strategy-card ${active ? 'active' : ''}" onclick="setTrainerDeftDietStrategy('${item.key}')">
+                <span class="trainer-deft-strategy-icon"><i class="ph-bold ${item.icon}"></i></span>
+                <span>
+                    <strong>${escHtml(item.title)}</strong>
+                    <small>${escHtml(item.subtitle)}</small>
+                </span>
+                ${active ? '<span class="trainer-deft-pill amber">Ativo</span>' : ''}
+            </button>
+        `;
+    }).join('');
+    const periodCardsHtml = (Array.isArray(state.dietPeriods) ? [...state.dietPeriods] : [])
+        .sort((a, b) => (parseIntegerSafe(a.order) || 0) - (parseIntegerSafe(b.order) || 0))
+        .map((period) => {
+            const isActive = String(state.activeDietPeriodId || '') === String(period.id || '');
+            const safeName = sanitizeUserInput(period.name || 'Mês', { maxLen: 48 }) || 'Mês';
+            const notes = sanitizeUserInput(period.notes || '', { maxLen: 120 });
+            const safePeriodId = String(period.id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            return `
+                <article class="trainer-deft-period-card ${isActive ? 'active' : ''}">
+                    <div class="trainer-deft-period-head">
+                        <div>
+                            <strong>${escHtml(safeName)}</strong>
+                            <small>${escHtml(getTrainerDeftStrategyLabel(period.strategy))}</small>
+                        </div>
+                        <span class="trainer-deft-period-kcal">${parseIntegerSafe(period.kcal || 0)} kcal</span>
+                    </div>
+                    <div class="trainer-deft-period-macros">
+                        <span><b>${parseIntegerSafe(period.protein || 0)}g</b> Proteína</span>
+                        <span><b>${parseIntegerSafe(period.carb || 0)}g</b> Carbo</span>
+                        <span><b>${parseIntegerSafe(period.fat || 0)}g</b> Gordura</span>
+                    </div>
+                    ${notes ? `<p class="trainer-deft-period-note">${escHtml(notes)}</p>` : ''}
+                    <div class="trainer-deft-period-actions">
+                        ${isActive
+                            ? '<span class="trainer-deft-period-active"><i class="ph-bold ph-check"></i> Ativo</span>'
+                            : `<button type="button" class="btn-secondary btn-sm" onclick="setTrainerDeftActivePeriod('${safePeriodId}')">Marcar ativo</button>`}
+                        <button type="button" class="btn-secondary btn-sm" onclick="openTrainerDeftPeriodEditor('${safePeriodId}')"><i class="ph-bold ph-pencil-simple"></i> Editar</button>
+                        <button type="button" class="btn-secondary btn-sm" onclick="removeTrainerDeftPeriod('${safePeriodId}')"><i class="ph-bold ph-x"></i> Remover</button>
+                    </div>
+                </article>
+            `;
+        }).join('');
+
+    const dayRowsHtml = DEFT_WEEK_DAYS.map((day) => {
+        const typeKey = state.dailyCalPlanTypes?.[day.key] || 'normal';
+        const override = state.dailyCalPlanOverrides?.[day.key] || '';
+        const targetInfo = getTrainerDeftDayTargetVsActual(state, day.key);
+        const daySource = getTrainerDeftDaySourceLabel(day.key);
+        const carbMode = state.carbCycleActive ? (state.carbCycleDayTypes?.[day.key] || 'mid') : 'base';
+        const isToday = getDeftTodayKey() === day.key;
+        const expanded = trainerDeftUiState.expandedDays?.[day.key] !== false;
+        const typeButtons = DEFT_DAY_TYPE_ORDER.map((typeOption) => {
+            const active = typeOption === typeKey ? 'active' : '';
+            return `<button type="button" class="trainer-deft-chip ${active}" onclick="setTrainerDeftDayType('${day.key}','${typeOption}')">${escHtml(DEFT_DAY_TYPE_CONFIG[typeOption].label)}</button>`;
+        }).join('');
+        return `
+            <article class="trainer-deft-day-card ${expanded ? 'expanded' : ''}">
+                <button type="button" class="trainer-deft-day-head" onclick="toggleTrainerDeftDayExpanded('${day.key}')">
+                    <div class="trainer-deft-day-head-left">
+                        <strong>${escHtml(day.full)}</strong>
+                        ${isToday ? '<span class="trainer-deft-badge today">Hoje</span>' : ''}
+                        <span class="trainer-deft-badge source">${escHtml(daySource)}</span>
+                        <span class="trainer-deft-badge carb">${escHtml(carbMode.toUpperCase())}</span>
+                    </div>
+                    <div class="trainer-deft-day-head-right">
+                        <span>${targetInfo.actual.kcal} / ${targetInfo.target.kcal} kcal</span>
+                        <i class="ph-bold ${expanded ? 'ph-caret-up' : 'ph-caret-down'}"></i>
+                    </div>
+                </button>
+                <div class="trainer-deft-day-body">
+                    <div class="trainer-deft-chip-row">${typeButtons}</div>
+                    <div class="trainer-deft-day-grid">
+                        <label>
+                            <span>Meta do dia</span>
+                            <strong>${parseIntegerSafe(state.dailyCalPlan?.[day.key] || 0)} kcal</strong>
+                        </label>
+                        <label>
+                            <span>Override manual</span>
+                            <div class="trainer-deft-inline-input">
+                                <input class="q-input" type="number" min="900" value="${escHtml(override)}" placeholder="Auto" onchange="setTrainerDeftDayOverride('${day.key}', this.value)">
+                                <button type="button" class="btn-secondary btn-sm" onclick="clearTrainerDeftDayOverride('${day.key}')">Reset</button>
+                            </div>
+                        </label>
+                    </div>
+                    <div class="trainer-deft-day-macros">
+                        <span>P ${targetInfo.actual.protein}g / ${targetInfo.target.protein}g</span>
+                        <span>C ${targetInfo.actual.carb}g / ${targetInfo.target.carb}g</span>
+                        <span>G ${targetInfo.actual.fat}g / ${targetInfo.target.fat}g</span>
+                    </div>
+                    <label class="trainer-deft-day-note">
+                        <span>Nota do dia</span>
+                        <textarea class="q-input" rows="2" placeholder="Observações para o aluno..." onchange="setTrainerDeftDayNote('${day.key}', this.value)">${escHtml(state.deftDayNotes?.[day.key] || '')}</textarea>
+                    </label>
+                    <div class="trainer-deft-day-actions">
+                        <button type="button" class="btn-secondary btn-sm" onclick="openTrainerDeftDayEditor('${day.key}')"><i class="ph-bold ph-note-pencil"></i> Editar refeições</button>
+                        <button type="button" class="btn-secondary btn-sm" onclick="openTrainerDeftCopyWizard('${day.key}')"><i class="ph-bold ph-copy"></i> Copiar dia</button>
+                        <button type="button" class="btn-secondary btn-sm" onclick="sendTrainerDeftDayToRefeicoes('${day.key}', true)"><i class="ph-bold ph-paper-plane-tilt"></i> Enviar p/ Refeições</button>
+                        <button type="button" class="btn-secondary btn-sm" onclick="resetTrainerDeftDayToBase('${day.key}')"><i class="ph-bold ph-arrow-counter-clockwise"></i> Voltar p/ base</button>
+                    </div>
+                </div>
+            </article>
+        `;
+    }).join('');
+
+    const carbPresetButtons = Object.entries(DEFT_CARB_PRESETS).map(([key, preset]) => {
+        const preview = DEFT_WEEK_DAYS.map((day) => {
+            const mode = preset.map?.[day.key] || 'low';
+            const className = mode === 'high' ? 'high' : (mode === 'mid' ? 'mid' : 'low');
+            return `<span class="trainer-deft-preset-dot ${className}"></span>`;
+        }).join('');
+        return `
+            <button type="button" class="trainer-deft-preset-btn ${state.carbCyclePresetKey === key ? 'active' : ''}" onclick="setTrainerDeftCarbPreset('${key}')">
+                <span>${escHtml(preset.label)}</span>
+                <span class="trainer-deft-preset-preview">${preview}</span>
+            </button>
+        `;
+    }).join('');
+
+    const carbModeCounts = { high: 0, mid: 0, low: 0 };
+    const carbRowsHtml = DEFT_WEEK_DAYS.map((day) => {
+        const mode = ['high', 'mid', 'low'].includes(state.carbCycleDayTypes?.[day.key]) ? state.carbCycleDayTypes[day.key] : 'low';
+        carbModeCounts[mode] += 1;
+        const target = getTrainerDeftDayMacroTargets(state, day.key);
+        const proteinCal = Math.max(0, deftNumber(target.protein, 0) * 4);
+        const carbCal = Math.max(0, deftNumber(target.carb, 0) * 4);
+        const fatCal = Math.max(0, deftNumber(target.fat, 0) * 9);
+        const totalCal = Math.max(1, proteinCal + carbCal + fatCal);
+        const pWidth = deftClamp((proteinCal / totalCal) * 100, 0, 100);
+        const cWidth = deftClamp((carbCal / totalCal) * 100, 0, 100);
+        const fWidth = Math.max(0, 100 - pWidth - cWidth);
+        const options = ['high', 'mid', 'low'].map((option) => `
+            <button type="button" class="trainer-deft-segment-btn ${mode === option ? 'active' : ''}" onclick="setTrainerDeftCarbDayType('${day.key}','${option}')">${option === 'high' ? 'H' : (option === 'mid' ? 'M' : 'L')}</button>
+        `).join('');
+        return `
+            <article class="trainer-deft-carb-day-row-advanced">
+                <div class="trainer-deft-carb-day-left">
+                    <span>${escHtml(day.short)}</span>
+                    <div class="trainer-deft-segment">${options}</div>
+                </div>
+                <div class="trainer-deft-carb-day-bar-wrap">
+                    <div class="trainer-deft-carb-bar">
+                        <span class="protein" style="width:${pWidth.toFixed(2)}%"></span>
+                        <span class="carb" style="width:${cWidth.toFixed(2)}%"></span>
+                        <span class="fat" style="width:${fWidth.toFixed(2)}%"></span>
+                    </div>
+                    <div class="trainer-deft-carb-macro-values">
+                        <span>P${Math.round(target.protein)}</span>
+                        <span>C${Math.round(target.carb)}</span>
+                        <span>G${Math.round(target.fat)}</span>
+                    </div>
+                </div>
+            </article>
+        `;
+    }).join('');
+    const averageMacro = DEFT_WEEK_DAYS.reduce((acc, day) => {
+        const target = getTrainerDeftDayMacroTargets(state, day.key);
+        acc.protein += deftNumber(target.protein, 0);
+        acc.carb += deftNumber(target.carb, 0);
+        acc.fat += deftNumber(target.fat, 0);
+        return acc;
+    }, { protein: 0, carb: 0, fat: 0 });
+    const avgProtein = Math.round(averageMacro.protein / DEFT_WEEK_DAYS.length);
+    const avgCarb = Math.round(averageMacro.carb / DEFT_WEEK_DAYS.length);
+    const avgFat = Math.round(averageMacro.fat / DEFT_WEEK_DAYS.length);
+    const weekProtein = Math.round(averageMacro.protein);
+    const weekCarb = Math.round(averageMacro.carb);
+    const weekFat = Math.round(averageMacro.fat);
+    const highCount = carbModeCounts.high || 0;
+    const midCount = carbModeCounts.mid || 0;
+    const lowCount = carbModeCounts.low || 0;
+
+    const methodCardsHtml = methodCards.map((item) => `
+        <button type="button" class="trainer-deft-method-card ${state.methodFlags?.[item.key] ? 'active' : ''}" onclick="toggleTrainerDeftMethodFlag('${item.key}')">
+            <span class="trainer-deft-method-icon"><i class="ph-bold ${item.icon}"></i></span>
+            <span>
+                <strong>${escHtml(item.title)}</strong>
+                <small>${state.methodFlags?.[item.key] ? 'Ativo' : 'Inativo'}</small>
+            </span>
+        </button>
+    `).join('');
+
+    const dayEditor = renderTrainerDeftDayEditorModal(state, student);
+    const copyWizard = renderTrainerDeftCopyWizardModal(state);
+    const periodEditor = renderTrainerDeftPeriodEditorModal(state);
+
+    container.innerHTML = `
+        <section class="trainer-deft-shell">
+            <header class="trainer-deft-header">
+                <div class="trainer-deft-header-main">
+                    <span class="trainer-deft-kicker">Aluno</span>
+                    <h3>${escHtml(student.name || 'Aluno')} · Dieta</h3>
+                    <p>Status do método: <span class="trainer-deft-status ${methodStatus.className}">${escHtml(methodStatus.label)}</span></p>
+                </div>
+                <div class="trainer-deft-header-actions">
+                    <label>
+                        <span>Status do método</span>
+                        <select class="q-input" onchange="updateTrainerDeftMethodStatus(this.value)">
+                            <option value="ativo" ${state.methodStatus === 'ativo' ? 'selected' : ''}>Ativo</option>
+                            <option value="ajuste" ${state.methodStatus === 'ajuste' ? 'selected' : ''}>Em ajuste</option>
+                            <option value="pausado" ${state.methodStatus === 'pausado' ? 'selected' : ''}>Pausado</option>
+                        </select>
+                    </label>
+                    <button type="button" class="btn-primary btn-sm" onclick="sendTrainerDeftAllDaysToRefeicoes()"><i class="ph-bold ph-paper-plane-tilt"></i> Enviar todos os dias</button>
+                </div>
+            </header>
+
+            <div class="trainer-deft-method-grid">${methodCardsHtml}</div>
+
+            <section class="trainer-deft-card">
+                <div class="trainer-deft-card-head">
+                    <h4>Dados físicos</h4>
+                    <span class="trainer-deft-muted">IMC ${imc.value || '--'} · ${escHtml(imc.label)}</span>
+                </div>
+                <div class="trainer-deft-form-grid">
+                    <label><span>Sexo biológico</span>
+                        <select class="q-input" onchange="updateTrainerDeftBodyField('gender', this.value)">
+                            <option value="male" ${state.gender === 'male' ? 'selected' : ''}>Masculino</option>
+                            <option value="female" ${state.gender === 'female' ? 'selected' : ''}>Feminino</option>
+                        </select>
+                    </label>
+                    <label><span>Peso (kg)</span><input class="q-input" type="number" min="0" step="0.1" value="${escHtml(state.weight)}" onchange="updateTrainerDeftBodyField('weight', this.value)"></label>
+                    <label><span>Altura (cm)</span><input class="q-input" type="number" min="0" step="1" value="${escHtml(state.height)}" onchange="updateTrainerDeftBodyField('height', this.value)"></label>
+                    <label><span>Idade</span><input class="q-input" type="number" min="0" step="1" value="${escHtml(state.age)}" onchange="updateTrainerDeftBodyField('age', this.value)"></label>
+                    <label><span>% Gordura</span><input class="q-input" type="number" min="0" step="0.1" value="${escHtml(state.bodyFat)}" onchange="updateTrainerDeftBodyField('bodyFat', this.value)"></label>
+                </div>
+            </section>
+
+            <section class="trainer-deft-card trainer-deft-card-formula">
+                <div class="trainer-deft-card-head">
+                    <h4><i class="ph-bold ph-calculator"></i> Fórmula de TMB</h4>
+                    <span class="trainer-deft-muted">Sugestão: ${escHtml(suggestedFormula)}</span>
+                </div>
+                <div class="trainer-deft-option-list">${tmbRowsHtml}</div>
+                <footer class="trainer-deft-summary-bar">
+                    <span>TMB calculada</span>
+                    <strong>${parseIntegerSafe(state.tmbValue || 0)} <small>kcal/dia</small></strong>
+                </footer>
+            </section>
+
+            <section class="trainer-deft-card trainer-deft-card-faf">
+                <div class="trainer-deft-card-head">
+                    <h4><i class="ph-bold ph-wave-sine"></i> Fator de Atividade Física (FAF)</h4>
+                    <span class="trainer-deft-muted">Selecionado: ${escHtml(`${formatFactorLabel(state.faf)} · ${activeFafLabel}`)}</span>
+                </div>
+                <div class="trainer-deft-faf-banner">
+                    <div>
+                        <span>Sugerido pela anamnese</span>
+                        <strong>${escHtml(`${suggestionFactorLabel} · ${state.fafSuggestion?.label || 'Sem sugestão'}`)}</strong>
+                    </div>
+                    <button type="button" class="btn-secondary btn-sm" onclick="applyTrainerDeftSuggestedFaf()">Usar</button>
+                </div>
+                <div class="trainer-deft-option-list trainer-deft-option-list-faf">${fafRowsHtml}</div>
+                <div class="trainer-deft-kpi-grid trainer-deft-kpi-grid-faf">
+                    <div><span>Por dia</span><strong>${parseIntegerSafe(state.tdee || 0)} kcal</strong></div>
+                    <div><span>Por semana</span><strong>${parseIntegerSafe(state.tdeeWeekly || 0)} kcal</strong></div>
+                </div>
+            </section>
+
+            <section class="trainer-deft-card">
+                <div class="trainer-deft-card-head">
+                    <h4>Estratégia nutricional</h4>
+                    <span class="trainer-deft-muted">${escHtml(`${strategyLabel} · ${activePeriod?.name || 'Mês ativo'}`)}</span>
+                </div>
+                <div class="trainer-deft-strategy-grid">${strategyCardsHtml}</div>
+                <div class="trainer-deft-inline-form">
+                    ${normalizeTrainerDeftStrategyKey(activePeriod?.strategy || state.dietStrategy) === 'cutting' ? `
+                        <label>
+                            <span>Adesão</span>
+                            <select class="q-input" onchange="setTrainerDeftAdhesionType(this.value)">
+                                <option value="constant" ${state.adhesionType === 'constant' ? 'selected' : ''}>Constante (0,5%/sem)</option>
+                                <option value="result" ${state.adhesionType === 'result' ? 'selected' : ''}>Orientado por resultado (1%/sem)</option>
+                            </select>
+                        </label>
+                    ` : ''}
+                    ${normalizeTrainerDeftStrategyKey(activePeriod?.strategy || state.dietStrategy) === 'bulking' ? `
+                        <label>
+                            <span>Base calórica bulking</span>
+                            <input class="q-input" type="number" min="1200" value="${escHtml(state.bulkingBaseKcal || '')}" onchange="setTrainerDeftBulkingBase(this.value)" placeholder="Ex: 3200">
+                        </label>
+                    ` : ''}
+                </div>
+                <div class="trainer-deft-kpi-grid">
+                    <div><span>Meta diária base</span><strong>${parseIntegerSafe(state.dailyBaseKcal || 0)} kcal</strong></div>
+                    <div><span>Déficit semanal</span><strong>${parseIntegerSafe(state.weeklyDeficit || 0)} kcal</strong></div>
+                    <div><span>Perda semanal alvo</span><strong>${parseIntegerSafe(state.weeklyLossGrams || 0)} g</strong></div>
+                </div>
+            </section>
+
+            <section class="trainer-deft-card trainer-deft-periods-card">
+                <div class="trainer-deft-card-head">
+                    <h4>Períodos mensais</h4>
+                    <button type="button" class="btn-secondary btn-sm" onclick="addTrainerDeftDietPeriod()"><i class="ph-bold ph-plus"></i> Adicionar mês</button>
+                </div>
+                <div class="trainer-deft-period-list">
+                    ${periodCardsHtml || '<div class="trainer-lite-empty compact"><i class="ph-bold ph-calendar-plus"></i><strong>Sem períodos</strong><span>Crie o primeiro mês para iniciar.</span></div>'}
+                </div>
+            </section>
+
+            <section class="trainer-deft-card">
+                <div class="trainer-deft-card-head">
+                    <h4>Distribuição semanal</h4>
+                    <span class="trainer-deft-muted">${escHtml(weekDeltaLabel)}</span>
+                </div>
+                <div class="trainer-deft-week-kpi-grid">
+                    <article>
+                        <span>Total da semana</span>
+                        <strong>${parseIntegerSafe(weeklyPlanTotal || 0)}</strong>
+                        <small>kcal / 7 dias</small>
+                    </article>
+                    <article>
+                        <span>Média por dia</span>
+                        <strong>${parseIntegerSafe(weeklyPlanTotal / 7 || 0)}</strong>
+                        <small>kcal / dia</small>
+                    </article>
+                    <article>
+                        <span>Macros da semana</span>
+                        <strong>P ${weekProtein}g · C ${weekCarb}g · G ${weekFat}g</strong>
+                        <small>Base do mês: ${parseIntegerSafe(activePeriodWeek || 0)} kcal/sem</small>
+                    </article>
+                </div>
+                <div class="trainer-deft-day-list">${dayRowsHtml}</div>
+            </section>
+
+            <section class="trainer-deft-card trainer-deft-card-carb">
+                <div class="trainer-deft-card-head trainer-deft-carb-head">
+                    <h4>
+                        <i class="ph-bold ph-arrows-clockwise"></i>
+                        Ciclo de carboidratos
+                        <span class="trainer-deft-help-wrap" tabindex="0">
+                            <button type="button" class="trainer-deft-help-dot" aria-label="Ajuda H M L">?</button>
+                            <span class="trainer-deft-help-pop">
+                                H = High carbs (carbo alto)
+                                <br>M = Mid carbs (carbo médio)
+                                <br>L = Low carbs (carbo baixo)
+                            </span>
+                        </span>
+                    </h4>
+                    <button type="button" class="trainer-deft-state-pill ${state.carbCycleActive ? 'active' : ''}" onclick="toggleTrainerDeftCarbCycle(${state.carbCycleActive ? 'false' : 'true'})">
+                        ${state.carbCycleActive ? 'Ativo' : 'Inativo'}
+                    </button>
+                </div>
+                <div class="trainer-deft-carb-presets">${carbPresetButtons}</div>
+                <div class="trainer-deft-carb-grid-advanced">${carbRowsHtml}</div>
+                <footer class="trainer-deft-carb-footer">
+                    <div class="trainer-deft-carb-counts">
+                        <span>${highCount} alto</span>
+                        <span>${midCount} médio</span>
+                        <span>${lowCount} baixo</span>
+                    </div>
+                    <div class="trainer-deft-carb-avg">
+                        média:
+                        <span>P${avgProtein}</span>
+                        <span>C${avgCarb}</span>
+                        <span>G${avgFat}</span>
+                        / dia
+                    </div>
+                </footer>
+            </section>
+
+            <section class="trainer-deft-card">
+                <div class="trainer-deft-card-head">
+                    <h4>Dieta igual para todos os dias</h4>
+                    <span class="trainer-deft-muted">Wizard 3 etapas</span>
+                </div>
+                <div class="trainer-deft-actions-row">
+                    <button type="button" class="btn-secondary btn-sm" onclick="openTrainerDeftCopyWizard('base')"><i class="ph-bold ph-wand"></i> Abrir wizard</button>
+                    <button type="button" class="btn-secondary btn-sm" onclick="openTrainerDeftDayEditor('base')"><i class="ph-bold ph-cards"></i> Editar dieta base</button>
+                </div>
+            </section>
+        </section>
+        ${dayEditor}
+        ${copyWizard}
+        ${periodEditor}
+    `;
+}
+
+function updateTrainerDeftMethodStatus(value) {
+    const state = getTrainerDeftSafeState();
+    const next = String(value || '').toLowerCase();
+    state.methodStatus = ['ativo', 'ajuste', 'pausado'].includes(next) ? next : 'ativo';
+    touchTrainerDeftState();
+}
+
+function toggleTrainerDeftMethodFlag(flagKey = '') {
+    const state = getTrainerDeftSafeState();
+    const key = String(flagKey || '').trim();
+    if (!['failProximity', 'execution', 'progression'].includes(key)) return;
+    state.methodFlags[key] = !state.methodFlags[key];
+    touchTrainerDeftState();
+}
+
+function updateTrainerDeftBodyField(field, value) {
+    const state = getTrainerDeftSafeState();
+    const key = String(field || '').trim();
+    if (key === 'gender') {
+        state.gender = String(value || '') === 'female' ? 'female' : 'male';
+    } else if (key === 'weight') {
+        state.weight = sanitizeUserInput(value ?? '', { maxLen: 8 });
+    } else if (key === 'height') {
+        state.height = sanitizeUserInput(value ?? '', { maxLen: 8 });
+    } else if (key === 'age') {
+        state.age = sanitizeUserInput(value ?? '', { maxLen: 4 });
+    } else if (key === 'bodyFat') {
+        state.bodyFat = sanitizeUserInput(value ?? '', { maxLen: 6 });
+    } else {
+        return;
+    }
+    touchTrainerDeftState();
+}
+
+function setTrainerDeftFormula(formulaKey = 'mifflin') {
+    const state = getTrainerDeftSafeState();
+    const safe = String(formulaKey || '').toLowerCase();
+    state.tmbFormula = ['harris', 'mifflin', 'tinsley'].includes(safe) ? safe : 'mifflin';
+    touchTrainerDeftState();
+}
+
+function applyTrainerDeftRecommendedFormula() {
+    const state = getTrainerDeftSafeState();
+    state.tmbFormula = getTrainerDeftRecommendedFormula(state);
+    touchTrainerDeftState();
+}
+
+function setTrainerDeftFaf(value) {
+    const state = getTrainerDeftSafeState();
+    state.faf = deftRound(parseFloat(String(value || '').replace(',', '.')) || 1.55, 3);
+    touchTrainerDeftState();
+}
+
+function applyTrainerDeftSuggestedFaf() {
+    const state = getTrainerDeftSafeState();
+    const suggested = deftNumber(state.fafSuggestion?.value, 1.55);
+    state.faf = deftRound(Math.max(1.2, suggested), 3);
+    touchTrainerDeftState();
+}
+
+function setTrainerDeftDietStrategy(value) {
+    const state = getTrainerDeftSafeState();
+    const safe = normalizeTrainerDeftStrategyKey(value);
+    state.dietStrategy = safe;
+    const activePeriod = getTrainerDeftActiveDietPeriod(state);
+    if (activePeriod) activePeriod.strategy = safe;
+    touchTrainerDeftState();
+}
+
+function setTrainerDeftAdhesionType(value) {
+    const state = getTrainerDeftSafeState();
+    const safe = String(value || '').toLowerCase();
+    state.adhesionType = safe === 'result' ? 'result' : 'constant';
+    touchTrainerDeftState();
+}
+
+function setTrainerDeftBulkingBase(value) {
+    const state = getTrainerDeftSafeState();
+    state.bulkingBaseKcal = sanitizeUserInput(value ?? '', { maxLen: 6 });
+    const activePeriod = getTrainerDeftActiveDietPeriod(state);
+    const parsed = Math.max(0, parseIntegerSafe(state.bulkingBaseKcal || 0));
+    if (activePeriod && parsed > 0) {
+        activePeriod.kcal = parsed;
+    }
+    touchTrainerDeftState();
+}
+
+function addTrainerDeftDietPeriod() {
+    const state = getTrainerDeftSafeState();
+    const nextOrder = Math.max(1, (Array.isArray(state.dietPeriods) ? state.dietPeriods.length : 0) + 1);
+    const activePeriod = getTrainerDeftActiveDietPeriod(state);
+    const fallback = getTrainerDeftDefaultDietPeriod({}, state, nextOrder);
+    const draft = {
+        ...fallback,
+        name: `Mês ${nextOrder}`,
+        strategy: normalizeTrainerDeftStrategyKey(activePeriod?.strategy || state.dietStrategy || 'maintenance'),
+        kcal: Math.max(900, parseIntegerSafe(activePeriod?.kcal || state.dailyBaseKcal || state.tdee || fallback.kcal) || fallback.kcal),
+        protein: parseIntegerSafe(activePeriod?.protein || fallback.protein) || fallback.protein,
+        carb: parseIntegerSafe(activePeriod?.carb || fallback.carb) || fallback.carb,
+        fat: parseIntegerSafe(activePeriod?.fat || fallback.fat) || fallback.fat,
+        notes: '',
+        active: false,
+        isNew: true
+    };
+    trainerDeftUiState.periodEditor = {
+        open: true,
+        periodId: '',
+        draft
+    };
+    renderTrainerDeftStudio();
+}
+
+function openTrainerDeftPeriodEditor(periodId = '') {
+    const state = getTrainerDeftSafeState();
+    const periods = Array.isArray(state.dietPeriods) ? state.dietPeriods : [];
+    const target = periods.find((period) => period.id === periodId);
+    if (!target) {
+        addTrainerDeftDietPeriod();
+        return;
+    }
+    trainerDeftUiState.periodEditor = {
+        open: true,
+        periodId: target.id,
+        draft: {
+            ...JSON.parse(JSON.stringify(target)),
+            isNew: false
+        }
+    };
+    renderTrainerDeftStudio();
+}
+
+function closeTrainerDeftPeriodEditor() {
+    trainerDeftUiState.periodEditor.open = false;
+    trainerDeftUiState.periodEditor.periodId = '';
+    trainerDeftUiState.periodEditor.draft = null;
+    renderTrainerDeftStudio();
+}
+
+function updateTrainerDeftPeriodDraftField(field = '', value = '') {
+    const editor = trainerDeftUiState.periodEditor;
+    if (!editor?.open || !editor?.draft) return;
+    const key = String(field || '').trim();
+    if (key === 'name') {
+        editor.draft.name = sanitizeUserInput(value ?? '', { maxLen: 48 });
+    } else if (key === 'strategy') {
+        editor.draft.strategy = normalizeTrainerDeftStrategyKey(value);
+    } else if (key === 'kcal' || key === 'protein' || key === 'carb' || key === 'fat') {
+        editor.draft[key] = sanitizeUserInput(value ?? '', { maxLen: 6 });
+    } else if (key === 'notes') {
+        editor.draft.notes = sanitizeUserInput(value ?? '', { allowNewlines: true, maxLen: 500 });
+    } else if (key === 'active') {
+        editor.draft.active = !!value;
+    }
+    renderTrainerDeftStudio();
+}
+
+function applyTrainerDeftPeriodDraftTdee() {
+    const editor = trainerDeftUiState.periodEditor;
+    if (!editor?.open || !editor?.draft) return;
+    const state = getTrainerDeftSafeState();
+    const tdee = Math.max(900, parseIntegerSafe(state.tdee || 0) || 2400);
+    const ratios = getTrainerDeftPeriodMacroRatios(editor.draft) || DEFT_MACRO_PRESETS.mid;
+    editor.draft.kcal = tdee;
+    editor.draft.protein = Math.max(0, parseIntegerSafe((tdee * ratios.protein) / 4) || 0);
+    editor.draft.carb = Math.max(0, parseIntegerSafe((tdee * ratios.carb) / 4) || 0);
+    editor.draft.fat = Math.max(0, parseIntegerSafe((tdee * ratios.fat) / 9) || 0);
+    renderTrainerDeftStudio();
+}
+
+function setTrainerDeftActivePeriod(periodId = '') {
+    const state = getTrainerDeftSafeState();
+    const safeId = sanitizeUserInput(periodId || '', { maxLen: 90 });
+    const periods = Array.isArray(state.dietPeriods) ? state.dietPeriods : [];
+    if (!safeId || !periods.some((period) => period.id === safeId)) return;
+    state.activeDietPeriodId = safeId;
+    periods.forEach((period) => {
+        period.active = period.id === safeId;
+    });
+    touchTrainerDeftState();
+}
+
+function removeTrainerDeftPeriod(periodId = '') {
+    const state = getTrainerDeftSafeState();
+    const safeId = sanitizeUserInput(periodId || '', { maxLen: 90 });
+    const periods = Array.isArray(state.dietPeriods) ? state.dietPeriods : [];
+    const target = periods.find((period) => period.id === safeId);
+    if (!target) return;
+    if (periods.length <= 1) {
+        showTrainerRuntimeMessage('Precisa existir pelo menos 1 mês ativo.', 'info');
+        return;
+    }
+    if (!confirm(`Remover "${target.name}"?`)) return;
+    state.dietPeriods = periods.filter((period) => period.id !== safeId).map((period, idx) => ({
+        ...period,
+        order: idx + 1
+    }));
+    if (!state.dietPeriods.some((period) => period.id === state.activeDietPeriodId)) {
+        state.activeDietPeriodId = state.dietPeriods[0]?.id || '';
+    }
+    state.dietPeriods.forEach((period) => {
+        period.active = period.id === state.activeDietPeriodId;
+    });
+    touchTrainerDeftState();
+}
+
+function saveTrainerDeftPeriodEditor() {
+    const editor = trainerDeftUiState.periodEditor;
+    if (!editor?.open || !editor?.draft) return;
+    const state = getTrainerDeftSafeState();
+    const periods = Array.isArray(state.dietPeriods) ? [...state.dietPeriods] : [];
+    const draftRaw = editor.draft;
+    const fallback = getTrainerDeftDefaultDietPeriod({}, state, periods.length + 1);
+    const normalizedDraft = normalizeTrainerDeftDietPeriod({
+        ...draftRaw,
+        id: sanitizeUserInput(draftRaw.id || '', { maxLen: 90 }) || `period-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        strategy: normalizeTrainerDeftStrategyKey(draftRaw.strategy || state.dietStrategy || 'maintenance'),
+        active: !!draftRaw.active
+    }, fallback, parseIntegerSafe(draftRaw.order || periods.length + 1) || (periods.length + 1));
+
+    const existingIdx = periods.findIndex((period) => period.id === normalizedDraft.id);
+    if (existingIdx >= 0) {
+        periods[existingIdx] = {
+            ...periods[existingIdx],
+            ...normalizedDraft
+        };
+    } else {
+        normalizedDraft.order = periods.length + 1;
+        periods.push(normalizedDraft);
+    }
+
+    state.dietPeriods = periods
+        .sort((a, b) => a.order - b.order)
+        .map((period, idx) => ({ ...period, order: idx + 1 }));
+
+    if (normalizedDraft.active || !state.activeDietPeriodId) {
+        state.activeDietPeriodId = normalizedDraft.id;
+    } else if (!state.dietPeriods.some((period) => period.id === state.activeDietPeriodId)) {
+        state.activeDietPeriodId = state.dietPeriods[0]?.id || normalizedDraft.id;
+    }
+    state.dietPeriods.forEach((period) => {
+        period.active = period.id === state.activeDietPeriodId;
+    });
+    closeTrainerDeftPeriodEditor();
+    touchTrainerDeftState();
+    showTrainerRuntimeMessage('Período mensal salvo.', 'success');
+}
+
+function setTrainerDeftDayType(dayKey = 'sun', typeKey = 'normal') {
+    const state = getTrainerDeftSafeState();
+    if (!DEFT_DAY_TYPE_CONFIG[typeKey]) return;
+    state.dailyCalPlanTypes[dayKey] = typeKey;
+    touchTrainerDeftState();
+}
+
+function setTrainerDeftDayOverride(dayKey = 'sun', value = '') {
+    const state = getTrainerDeftSafeState();
+    state.dailyCalPlanOverrides[dayKey] = sanitizeUserInput(value ?? '', { maxLen: 6 });
+    touchTrainerDeftState();
+}
+
+function clearTrainerDeftDayOverride(dayKey = 'sun') {
+    const state = getTrainerDeftSafeState();
+    state.dailyCalPlanOverrides[dayKey] = '';
+    touchTrainerDeftState();
+}
+
+function toggleTrainerDeftDayExpanded(dayKey = 'sun') {
+    trainerDeftUiState.expandedDays[dayKey] = trainerDeftUiState.expandedDays[dayKey] === false;
+    renderTrainerDeftStudio();
+}
+
+function toggleTrainerDeftCarbCycle(enabled = false) {
+    const state = getTrainerDeftSafeState();
+    state.carbCycleActive = !!enabled;
+    touchTrainerDeftState();
+}
+
+function setTrainerDeftCarbPreset(presetKey = 'weekend_mid_rest_low') {
+    const state = getTrainerDeftSafeState();
+    if (!DEFT_CARB_PRESETS[presetKey]) return;
+    state.carbCyclePresetKey = presetKey;
+    state.carbCycleDayTypes = { ...DEFT_CARB_PRESETS[presetKey].map };
+    state.carbCycleActive = true;
+    touchTrainerDeftState();
+}
+
+function setTrainerDeftCarbDayType(dayKey = 'sun', mode = 'mid') {
+    const state = getTrainerDeftSafeState();
+    const safeMode = ['high', 'mid', 'low'].includes(mode) ? mode : 'mid';
+    state.carbCycleDayTypes[dayKey] = safeMode;
+    state.carbCycleActive = true;
+    touchTrainerDeftState();
+}
+
+function setTrainerDeftDayNote(dayKey = 'sun', value = '') {
+    const state = getTrainerDeftSafeState();
+    state.deftDayNotes[dayKey] = sanitizeUserInput(value || '', { allowNewlines: true, maxLen: 500 });
+    touchTrainerDeftState();
+}
+
+function resetTrainerDeftDayToBase(dayKey = 'sun') {
+    const state = getTrainerDeftSafeState();
+    if (!confirm(`Voltar ${getDeftDayMeta(dayKey).full} para a dieta base?`)) return;
+    state.deftDayMealPlan[dayKey] = cloneTrainerDeftDayPlan(state.baseDayPlan || { meals: [] });
+    touchTrainerDeftState();
+    showTrainerRuntimeMessage(`Dia ${getDeftDayMeta(dayKey).short} voltou para a base.`, 'success');
+}
+
+function sendTrainerDeftDayToRefeicoes(dayKey = 'sun', switchTabAfter = false) {
+    const state = getTrainerDeftSafeState();
+    const plan = state.deftDayMealPlan?.[dayKey] || state.baseDayPlan || { meals: [] };
+    mealBlocks = convertTrainerDeftPlanToMealBlocks(plan);
+    renderMeals();
+    signalStudentPlanDirty();
+    showTrainerRuntimeMessage(`Dieta de ${getDeftDayMeta(dayKey).full} enviada para Refeições.`, 'success');
+    if (switchTabAfter) switchProfileTab('refeicoes');
+}
+
+function sendTrainerDeftAllDaysToRefeicoes() {
+    const state = getTrainerDeftSafeState();
+    if (!confirm('Enviar todos os dias para a aba Refeições? Isso vai montar um plano semanal consolidado.')) return;
+    const weeklyBlocks = [];
+    DEFT_WEEK_DAYS.forEach((day) => {
+        const plan = state.deftDayMealPlan?.[day.key] || state.baseDayPlan || { meals: [] };
+        const meals = convertTrainerDeftPlanToMealBlocks(plan);
+        meals.forEach((meal) => {
+            weeklyBlocks.push({
+                ...meal,
+                name: `${day.short} · ${meal.name}`
+            });
+        });
+    });
+    mealBlocks = weeklyBlocks;
+    renderMeals();
+    signalStudentPlanDirty();
+    showTrainerRuntimeMessage('Plano semanal enviado para Refeições.', 'success');
+    switchProfileTab('refeicoes');
+}
+
+function createTrainerDeftDraftMeal(mealName = '') {
+    const name = sanitizeUserInput(mealName || `Refeição ${Date.now()}`, { maxLen: 90 }) || 'Refeição';
+    return {
+        id: `deft-draft-meal-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name,
+        expanded: true,
+        activeOption: 'A',
+        options: { A: [], B: [] }
+    };
+}
+
+function openTrainerDeftDayEditor(dayKey = 'sun') {
+    const state = getTrainerDeftSafeState();
+    const safeKey = String(dayKey || 'sun');
+    const sourcePlan = safeKey === 'base'
+        ? cloneTrainerDeftDayPlan(state.baseDayPlan || { meals: [] })
+        : cloneTrainerDeftDayPlan(state.deftDayMealPlan?.[safeKey] || state.baseDayPlan || { meals: [] });
+    trainerDeftUiState.openDayEditor = safeKey;
+    trainerDeftUiState.dayEditorDraft = {
+        dayKey: safeKey,
+        plan: sourcePlan
+    };
+    trainerDeftUiState.dayEditorExpandedMeals = {};
+    (Array.isArray(sourcePlan.meals) ? sourcePlan.meals : []).forEach((_, idx) => {
+        trainerDeftUiState.dayEditorExpandedMeals[idx] = true;
+    });
+    trainerDeftUiState.dayEditorDragMealIdx = -1;
+    trainerDeftUiState.dayEditorDropMealIdx = -1;
+    closeTrainerDeftFoodPicker();
+    renderTrainerDeftStudio();
+}
+
+function closeTrainerDeftDayEditor() {
+    trainerDeftUiState.openDayEditor = '';
+    trainerDeftUiState.dayEditorDraft = null;
+    trainerDeftUiState.dayEditorExpandedMeals = {};
+    trainerDeftUiState.dayEditorDragMealIdx = -1;
+    trainerDeftUiState.dayEditorDropMealIdx = -1;
+    closeTrainerDeftFoodPicker();
+    renderTrainerDeftStudio();
+}
+
+function saveTrainerDeftDayEditor() {
+    const state = getTrainerDeftSafeState();
+    const draft = trainerDeftUiState.dayEditorDraft;
+    if (!draft || !draft.plan) return;
+    const safeKey = String(draft.dayKey || 'sun');
+    const plan = cloneTrainerDeftDayPlan(draft.plan);
+    if (safeKey === 'base') {
+        const oldBase = cloneTrainerDeftDayPlan(state.baseDayPlan || { meals: [] });
+        state.baseDayPlan = plan;
+        DEFT_WEEK_DAYS.forEach((day) => {
+            const current = state.deftDayMealPlan?.[day.key] || oldBase;
+            if (isTrainerDeftPlanEqual(current, oldBase)) {
+                state.deftDayMealPlan[day.key] = cloneTrainerDeftDayPlan(plan);
+            }
+        });
+        showTrainerRuntimeMessage('Dieta base atualizada.', 'success');
+    } else {
+        state.deftDayMealPlan[safeKey] = plan;
+        showTrainerRuntimeMessage(`Dieta de ${getDeftDayMeta(safeKey).short} salva.`, 'success');
+    }
+    trainerDeftUiState.openDayEditor = '';
+    trainerDeftUiState.dayEditorDraft = null;
+    closeTrainerDeftFoodPicker();
+    touchTrainerDeftState();
+}
+
+function getTrainerDeftEditorDraftPlan() {
+    const draft = trainerDeftUiState.dayEditorDraft;
+    if (!draft || !draft.plan) return null;
+    if (!Array.isArray(draft.plan.meals)) draft.plan.meals = [];
+    return draft.plan;
+}
+
+function addTrainerDeftDraftMeal(mealName = '') {
+    const plan = getTrainerDeftEditorDraftPlan();
+    if (!plan) return;
+    const safeName = sanitizeUserInput(mealName || '', { maxLen: 90 }) || `Refeição ${plan.meals.length + 1}`;
+    plan.meals.push(createTrainerDeftDraftMeal(safeName));
+    trainerDeftUiState.dayEditorExpandedMeals[plan.meals.length - 1] = true;
+    renderTrainerDeftStudio();
+}
+
+function removeTrainerDeftDraftMeal(mealIdx = -1) {
+    const plan = getTrainerDeftEditorDraftPlan();
+    if (!plan || !plan.meals[mealIdx]) return;
+    if (!confirm('Remover esta refeição do dia?')) return;
+    plan.meals.splice(mealIdx, 1);
+    renderTrainerDeftStudio();
+}
+
+function copyTrainerDeftDraftMeal(mealIdx = -1) {
+    const plan = getTrainerDeftEditorDraftPlan();
+    if (!plan || !plan.meals[mealIdx]) return;
+    const cloned = normalizeTrainerDeftMeal(deftDeepClone(plan.meals[mealIdx]), mealIdx + 1);
+    cloned.id = `deft-draft-copy-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    cloned.name = `${cloned.name} (cópia)`;
+    plan.meals.splice(mealIdx + 1, 0, cloned);
+    renderTrainerDeftStudio();
+}
+
+function copyTrainerDeftDraftMealToDay(mealIdx = -1, targetDayKey = '') {
+    const plan = getTrainerDeftEditorDraftPlan();
+    const state = getTrainerDeftSafeState();
+    if (!plan || !plan.meals[mealIdx]) return;
+    const safeTarget = String(targetDayKey || '').trim();
+    if (!DEFT_WEEK_DAYS.some((day) => day.key === safeTarget)) return;
+    if (!state.deftDayMealPlan?.[safeTarget]) state.deftDayMealPlan[safeTarget] = cloneTrainerDeftDayPlan(state.baseDayPlan || { meals: [] });
+    const clonedMeal = normalizeTrainerDeftMeal(deftDeepClone(plan.meals[mealIdx]), 0);
+    state.deftDayMealPlan[safeTarget].meals.push(clonedMeal);
+    touchTrainerDeftState({ markDirty: true });
+    showTrainerRuntimeMessage(`Refeição copiada para ${getDeftDayMeta(safeTarget).full}.`, 'success');
+    openTrainerDeftDayEditor(trainerDeftUiState.dayEditorDraft?.dayKey || safeTarget);
+}
+
+function moveTrainerDeftDraftMeal(mealIdx = -1, direction = 1) {
+    const plan = getTrainerDeftEditorDraftPlan();
+    if (!plan || !plan.meals[mealIdx]) return;
+    const toIdx = mealIdx + (direction > 0 ? 1 : -1);
+    if (toIdx < 0 || toIdx >= plan.meals.length) return;
+    const [moved] = plan.meals.splice(mealIdx, 1);
+    plan.meals.splice(toIdx, 0, moved);
+    renderTrainerDeftStudio();
+}
+
+function handleTrainerDeftDraftMealDragStart(event, mealIdx = -1) {
+    trainerDeftUiState.dayEditorDragMealIdx = mealIdx;
+    trainerDeftUiState.dayEditorDropMealIdx = mealIdx;
+    if (event?.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', String(mealIdx));
+    }
+}
+
+function handleTrainerDeftDraftMealDragOver(event, mealIdx = -1) {
+    if (!event) return;
+    event.preventDefault();
+    trainerDeftUiState.dayEditorDropMealIdx = mealIdx;
+}
+
+function handleTrainerDeftDraftMealDrop(event, mealIdx = -1) {
+    if (event) event.preventDefault();
+    const plan = getTrainerDeftEditorDraftPlan();
+    if (!plan) return;
+    const fromIdx = trainerDeftUiState.dayEditorDragMealIdx;
+    const toIdx = mealIdx;
+    if (!Number.isInteger(fromIdx) || !Number.isInteger(toIdx) || fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) {
+        trainerDeftUiState.dayEditorDragMealIdx = -1;
+        trainerDeftUiState.dayEditorDropMealIdx = -1;
+        renderTrainerDeftStudio();
+        return;
+    }
+    const [moved] = plan.meals.splice(fromIdx, 1);
+    plan.meals.splice(toIdx, 0, moved);
+    trainerDeftUiState.dayEditorDragMealIdx = -1;
+    trainerDeftUiState.dayEditorDropMealIdx = -1;
+    renderTrainerDeftStudio();
+}
+
+function handleTrainerDeftDraftMealDragEnd() {
+    trainerDeftUiState.dayEditorDragMealIdx = -1;
+    trainerDeftUiState.dayEditorDropMealIdx = -1;
+    renderTrainerDeftStudio();
+}
+
+function updateTrainerDeftDraftMealName(mealIdx = -1, value = '') {
+    const plan = getTrainerDeftEditorDraftPlan();
+    if (!plan || !plan.meals[mealIdx]) return;
+    plan.meals[mealIdx].name = sanitizeUserInput(value || '', { maxLen: 90 }) || `Refeição ${mealIdx + 1}`;
+}
+
+function toggleTrainerDeftDraftMealExpanded(mealIdx = -1) {
+    trainerDeftUiState.dayEditorExpandedMeals[mealIdx] = trainerDeftUiState.dayEditorExpandedMeals[mealIdx] === false;
+    renderTrainerDeftStudio();
+}
+
+function setTrainerDeftDraftMealOption(mealIdx = -1, optionKey = 'A') {
+    const plan = getTrainerDeftEditorDraftPlan();
+    if (!plan || !plan.meals[mealIdx]) return;
+    const safe = String(optionKey || 'A').toUpperCase() === 'B' ? 'B' : 'A';
+    if (safe === 'B' && (!Array.isArray(plan.meals[mealIdx].options?.B) || plan.meals[mealIdx].options.B.length === 0)) {
+        plan.meals[mealIdx].options.B = [];
+    }
+    plan.meals[mealIdx].activeOption = safe;
+    renderTrainerDeftStudio();
+}
+
+function toggleTrainerDeftDraftMealOptionB(mealIdx = -1) {
+    const plan = getTrainerDeftEditorDraftPlan();
+    if (!plan || !plan.meals[mealIdx]) return;
+    const meal = plan.meals[mealIdx];
+    const hasB = Array.isArray(meal.options?.B) && meal.options.B.length > 0;
+    if (!hasB) {
+        if (!meal.options) meal.options = { A: [], B: [] };
+        meal.options.B = Array.isArray(meal.options.A) ? meal.options.A.map((item) => normalizeTrainerDeftFoodItem(item)).filter(Boolean) : [];
+        meal.activeOption = 'B';
+    } else {
+        if (!confirm('Remover a opção B desta refeição?')) return;
+        meal.options.B = [];
+        meal.activeOption = 'A';
+    }
+    renderTrainerDeftStudio();
+}
+
+function resolveTrainerDeftDraftFoodsRef(mealIdx = -1, optionKey = 'A') {
+    const plan = getTrainerDeftEditorDraftPlan();
+    if (!plan || !plan.meals[mealIdx]) return null;
+    const meal = plan.meals[mealIdx];
+    if (!meal.options || typeof meal.options !== 'object') meal.options = { A: [], B: [] };
+    const safeOpt = String(optionKey || 'A').toUpperCase() === 'B' ? 'B' : 'A';
+    if (!Array.isArray(meal.options[safeOpt])) meal.options[safeOpt] = [];
+    return meal.options[safeOpt];
+}
+
+function addTrainerDeftDraftFood(mealIdx = -1, optionKey = 'A') {
+    const dayKey = trainerDeftUiState.dayEditorDraft?.dayKey || trainerDeftUiState.openDayEditor || 'sun';
+    openTrainerDeftFoodPicker(dayKey, mealIdx, optionKey, -1, 'add');
+}
+
+function replaceTrainerDeftDraftFood(mealIdx = -1, optionKey = 'A', itemIdx = -1) {
+    const dayKey = trainerDeftUiState.dayEditorDraft?.dayKey || trainerDeftUiState.openDayEditor || 'sun';
+    openTrainerDeftFoodPicker(dayKey, mealIdx, optionKey, itemIdx, 'replace');
+}
+
+function removeTrainerDeftDraftFood(mealIdx = -1, optionKey = 'A', itemIdx = -1) {
+    const foods = resolveTrainerDeftDraftFoodsRef(mealIdx, optionKey);
+    if (!foods || !foods[itemIdx]) return;
+    foods.splice(itemIdx, 1);
+    renderTrainerDeftStudio();
+}
+
+function adjustTrainerDeftDraftFoodAmount(mealIdx = -1, optionKey = 'A', itemIdx = -1, delta = 0) {
+    const foods = resolveTrainerDeftDraftFoodsRef(mealIdx, optionKey);
+    if (!foods || !foods[itemIdx]) return;
+    const current = normalizeTrainerDeftFoodItem(foods[itemIdx]);
+    if (!current) return;
+    const step = ['g', 'ml'].includes(current.unitKey) ? 5 : 0.5;
+    const amount = Math.max(0.1, deftRound(current.amount + (deftNumber(delta, 0) * step), ['g', 'ml'].includes(current.unitKey) ? 0 : 1));
+    const row = normalizeFoodCatalogRow({
+        id: current.foodId || current.id || '',
+        name: current.name || '',
+        base_qty: current.baseQty || 100,
+        base_unit: current.baseUnit || 'g',
+        kcal: current.kcalBase || 0,
+        protein: current.proteinBase || 0,
+        carb: current.carbBase || 0,
+        fat: current.fatBase || 0
+    });
+    const calc = computeMacrosByAmount(row, amount, current.unitKey, current.portionId || '');
+    foods[itemIdx] = {
+        ...current,
+        amount: calc.amount,
+        unitKey: calc.unit_key,
+        portionId: calc.portion_id || '',
+        portionLabel: calc.portion_label || '',
+        kcal: calc.kcal,
+        protein: calc.protein,
+        carb: calc.carb,
+        fat: calc.fat
+    };
+    renderTrainerDeftStudio();
+}
+
+function updateTrainerDeftDraftFoodAmount(mealIdx = -1, optionKey = 'A', itemIdx = -1, value = '') {
+    const foods = resolveTrainerDeftDraftFoodsRef(mealIdx, optionKey);
+    if (!foods || !foods[itemIdx]) return;
+    const current = normalizeTrainerDeftFoodItem(foods[itemIdx]);
+    if (!current) return;
+    const parsed = parseAmountAndUnit(value || '', current.unitKey || current.baseUnit || 'g');
+    const amount = Math.max(0.1, deftNumber(parsed.amount, current.amount || 1));
+    const unit = normalizeFoodUnitKey(parsed.unit || current.unitKey || current.baseUnit || 'g');
+    const row = normalizeFoodCatalogRow({
+        id: current.foodId || current.id || '',
+        name: current.name || '',
+        base_qty: current.baseQty || 100,
+        base_unit: current.baseUnit || 'g',
+        kcal: current.kcalBase || 0,
+        protein: current.proteinBase || 0,
+        carb: current.carbBase || 0,
+        fat: current.fatBase || 0
+    });
+    const calc = computeMacrosByAmount(row, amount, unit, current.portionId || '');
+    foods[itemIdx] = {
+        ...current,
+        amount: calc.amount,
+        unitKey: calc.unit_key,
+        portionId: calc.portion_id || '',
+        portionLabel: calc.portion_label || '',
+        kcal: calc.kcal,
+        protein: calc.protein,
+        carb: calc.carb,
+        fat: calc.fat
+    };
+    renderTrainerDeftStudio();
+}
+
+function openTrainerDeftFoodPicker(dayKey = 'sun', mealIdx = -1, optionKey = 'A', itemIdx = -1, mode = 'add') {
+    trainerDeftUiState.foodPicker = {
+        open: true,
+        dayKey: String(dayKey || 'sun'),
+        mealIdx,
+        optionKey: String(optionKey || 'A').toUpperCase() === 'B' ? 'B' : 'A',
+        itemIdx,
+        mode: String(mode || 'add') === 'replace' ? 'replace' : 'add',
+        query: trainerDeftUiState.foodPicker?.query || ''
+    };
+    renderTrainerDeftStudio();
+}
+
+function closeTrainerDeftFoodPicker() {
+    trainerDeftUiState.foodPicker.open = false;
+    trainerDeftUiState.foodPicker.dayKey = '';
+    trainerDeftUiState.foodPicker.mealIdx = -1;
+    trainerDeftUiState.foodPicker.itemIdx = -1;
+    trainerDeftUiState.foodPicker.mode = 'add';
+    trainerDeftUiState.foodPicker.optionKey = 'A';
+}
+
+function updateTrainerDeftFoodPickerQuery(value = '') {
+    trainerDeftUiState.foodPicker.query = sanitizeUserInput(value || '', { maxLen: 80 });
+    renderTrainerDeftStudio();
+}
+
+function applyTrainerDeftFoodPickerResult(resultIdx = -1) {
+    const picker = trainerDeftUiState.foodPicker;
+    if (!picker.open) return;
+    const results = getTrainerDeftFoodPickerResults(80);
+    if (!results[resultIdx]) return;
+    const nextItemBase = getDefaultDeftMealItemFromFood(results[resultIdx]);
+    if (!nextItemBase) return;
+    const foods = resolveTrainerDeftDraftFoodsRef(picker.mealIdx, picker.optionKey);
+    if (!foods) return;
+    if (picker.mode === 'replace' && Number.isInteger(picker.itemIdx) && foods[picker.itemIdx]) {
+        const fitted = fitTrainerDeftReplacementItem(foods[picker.itemIdx], nextItemBase);
+        foods[picker.itemIdx] = fitted;
+    } else {
+        foods.push(nextItemBase);
+    }
+    closeTrainerDeftFoodPicker();
+    renderTrainerDeftStudio();
+}
+
+function openTrainerDeftCopyWizard(sourceKey = 'base') {
+    const safeSource = String(sourceKey || 'base');
+    trainerDeftUiState.copyWizard = {
+        open: true,
+        step: 1,
+        sourceKey: safeSource,
+        targetKeys: []
+    };
+    renderTrainerDeftStudio();
+}
+
+function closeTrainerDeftCopyWizard() {
+    trainerDeftUiState.copyWizard.open = false;
+    trainerDeftUiState.copyWizard.step = 1;
+    trainerDeftUiState.copyWizard.sourceKey = 'base';
+    trainerDeftUiState.copyWizard.targetKeys = [];
+    renderTrainerDeftStudio();
+}
+
+function setTrainerDeftCopyWizardStep(step = 1) {
+    trainerDeftUiState.copyWizard.step = deftClamp(parseIntegerSafe(step) || 1, 1, 3);
+    renderTrainerDeftStudio();
+}
+
+function setTrainerDeftCopyWizardSource(sourceKey = 'base') {
+    trainerDeftUiState.copyWizard.sourceKey = String(sourceKey || 'base');
+    renderTrainerDeftStudio();
+}
+
+function toggleTrainerDeftCopyWizardTarget(dayKey = '', checked = false) {
+    const key = String(dayKey || '').trim();
+    if (!DEFT_WEEK_DAYS.some((day) => day.key === key)) return;
+    const current = Array.isArray(trainerDeftUiState.copyWizard.targetKeys) ? trainerDeftUiState.copyWizard.targetKeys : [];
+    const set = new Set(current);
+    if (checked) set.add(key);
+    else set.delete(key);
+    trainerDeftUiState.copyWizard.targetKeys = Array.from(set);
+    renderTrainerDeftStudio();
+}
+
+function toggleTrainerDeftCopyWizardAllTargets(checked = false) {
+    if (checked) {
+        trainerDeftUiState.copyWizard.targetKeys = DEFT_WEEK_DAYS.map((day) => day.key)
+            .filter((key) => key !== trainerDeftUiState.copyWizard.sourceKey);
+    } else {
+        trainerDeftUiState.copyWizard.targetKeys = [];
+    }
+    renderTrainerDeftStudio();
+}
+
+function getTrainerDeftWizardSourcePlan(sourceKey = 'base') {
+    const state = getTrainerDeftSafeState();
+    if (sourceKey === 'base') return cloneTrainerDeftDayPlan(state.baseDayPlan || { meals: [] });
+    return cloneTrainerDeftDayPlan(state.deftDayMealPlan?.[sourceKey] || state.baseDayPlan || { meals: [] });
+}
+
+function applyTrainerDeftCopyWizard() {
+    const state = getTrainerDeftSafeState();
+    const sourceKey = String(trainerDeftUiState.copyWizard.sourceKey || 'base');
+    const sourcePlan = getTrainerDeftWizardSourcePlan(sourceKey);
+    const targets = (Array.isArray(trainerDeftUiState.copyWizard.targetKeys) ? trainerDeftUiState.copyWizard.targetKeys : [])
+        .filter((key) => DEFT_WEEK_DAYS.some((day) => day.key === key))
+        .filter((key) => key !== sourceKey);
+    if (!targets.length) {
+        showTrainerRuntimeMessage('Selecione ao menos um dia de destino.', 'info');
+        return;
+    }
+    targets.forEach((dayKey) => {
+        state.deftDayMealPlan[dayKey] = cloneTrainerDeftDayPlan(sourcePlan);
+    });
+    closeTrainerDeftCopyWizard();
+    touchTrainerDeftState();
+    showTrainerRuntimeMessage(`Plano copiado para ${targets.length} dia(s).`, 'success');
+}
+
+function renderTrainerDeftPeriodEditorModal(state = {}) {
+    const editor = trainerDeftUiState.periodEditor;
+    if (!editor?.open || !editor?.draft) return '';
+    const draft = editor.draft;
+    const title = draft.isNew ? 'Novo mês' : `Editar — ${draft.name || 'Mês'}`;
+    const safeStrategy = normalizeTrainerDeftStrategyKey(draft.strategy || state.dietStrategy || 'maintenance');
+    return `
+        <div class="trainer-deft-modal-overlay active" onclick="if(event.target===this) closeTrainerDeftPeriodEditor();">
+            <div class="trainer-deft-modal trainer-deft-period-modal">
+                <header class="trainer-deft-modal-head">
+                    <div>
+                        <span class="trainer-deft-kicker">Períodos</span>
+                        <h3>${escHtml(title)}</h3>
+                        <p>Defina a base do mês ativo para a ciclagem semanal.</p>
+                    </div>
+                    <div class="trainer-deft-modal-actions">
+                        <button type="button" class="btn-secondary btn-sm" onclick="closeTrainerDeftPeriodEditor()">Cancelar</button>
+                        <button type="button" class="btn-primary btn-sm" onclick="saveTrainerDeftPeriodEditor()"><i class="ph-bold ph-floppy-disk"></i> Salvar mês</button>
+                    </div>
+                </header>
+                <section class="trainer-deft-period-form">
+                    <label>
+                        <span>Nome do período</span>
+                        <input class="q-input" type="text" value="${escHtml(draft.name || '')}" maxlength="48" oninput="updateTrainerDeftPeriodDraftField('name', this.value)">
+                    </label>
+                    <label>
+                        <span>Estratégia</span>
+                        <select class="q-input" onchange="updateTrainerDeftPeriodDraftField('strategy', this.value)">
+                            <option value="cutting" ${safeStrategy === 'cutting' ? 'selected' : ''}>Cutting</option>
+                            <option value="bulking" ${safeStrategy === 'bulking' ? 'selected' : ''}>Bulking</option>
+                            <option value="maintenance" ${safeStrategy === 'maintenance' ? 'selected' : ''}>Norma Calórica</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Calorias (kcal)</span>
+                        <div class="trainer-deft-period-kcal-input">
+                            <input class="q-input" type="number" min="900" value="${escHtml(draft.kcal || '')}" oninput="updateTrainerDeftPeriodDraftField('kcal', this.value)">
+                            <button type="button" class="btn-secondary btn-sm" onclick="applyTrainerDeftPeriodDraftTdee()"><i class="ph-bold ph-lightning"></i> Usar TDEE (${parseIntegerSafe(state.tdee || 0)} kcal)</button>
+                        </div>
+                    </label>
+                    <div class="trainer-deft-period-macro-form">
+                        <label><span>Proteína (g)</span><input class="q-input" type="number" min="0" value="${escHtml(draft.protein || '')}" oninput="updateTrainerDeftPeriodDraftField('protein', this.value)"></label>
+                        <label><span>Carbo (g)</span><input class="q-input" type="number" min="0" value="${escHtml(draft.carb || '')}" oninput="updateTrainerDeftPeriodDraftField('carb', this.value)"></label>
+                        <label><span>Gordura (g)</span><input class="q-input" type="number" min="0" value="${escHtml(draft.fat || '')}" oninput="updateTrainerDeftPeriodDraftField('fat', this.value)"></label>
+                    </div>
+                    <label>
+                        <span>Observações</span>
+                        <textarea class="q-input" rows="3" placeholder="Instruções e ajustes específicos..." oninput="updateTrainerDeftPeriodDraftField('notes', this.value)">${escHtml(draft.notes || '')}</textarea>
+                    </label>
+                    <label class="trainer-deft-toggle">
+                        <input type="checkbox" ${draft.active ? 'checked' : ''} onchange="updateTrainerDeftPeriodDraftField('active', this.checked)">
+                        <span>Definir este período como ativo</span>
+                    </label>
+                </section>
+            </div>
+        </div>
+    `;
+}
+
+function renderTrainerDeftDayEditorModal(state = {}, student = {}) {
+    const openKey = trainerDeftUiState.openDayEditor;
+    const draft = trainerDeftUiState.dayEditorDraft;
+    if (!openKey || !draft || !draft.plan) return '';
+    const plan = getTrainerDeftEditorDraftPlan();
+    const targetKey = String(openKey || 'sun');
+    const label = targetKey === 'base' ? 'Base' : getDeftDayMeta(targetKey).full;
+    const targetMacro = targetKey === 'base'
+        ? getTrainerDeftDayMacroTargets(state, getDeftTodayKey())
+        : getTrainerDeftDayMacroTargets(state, targetKey);
+    const actual = getTrainerDeftDayPlanActual(plan);
+    const diffKcal = deftRound(actual.kcal - targetMacro.kcal, 0);
+    const diffClass = diffKcal > 120 ? 'over' : (diffKcal < -120 ? 'under' : 'ok');
+    const meals = Array.isArray(plan.meals) ? plan.meals : [];
+    const activePeriod = getTrainerDeftActiveDietPeriod(state, student);
+    const monthLabel = activePeriod?.name || new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+    const mealRows = meals.length
+        ? meals.map((meal, mealIdx) => {
+            const expanded = trainerDeftUiState.dayEditorExpandedMeals?.[mealIdx] !== false;
+            const optionKey = String(meal.activeOption || 'A').toUpperCase() === 'B' ? 'B' : 'A';
+            const foods = Array.isArray(meal.options?.[optionKey]) ? meal.options[optionKey] : [];
+            const hasB = Array.isArray(meal.options?.B) && meal.options.B.length > 0;
+            const foodRows = foods.length
+                ? foods.map((food, itemIdx) => {
+                    const safeFood = normalizeTrainerDeftFoodItem(food);
+                    if (!safeFood) return '';
+                    const targetOptions = DEFT_WEEK_DAYS
+                        .filter((day) => day.key !== targetKey)
+                        .map((day) => `<option value="${day.key}">${day.short}</option>`)
+                        .join('');
+                    return `
+                        <div class="trainer-deft-food-row">
+                            <button type="button" class="trainer-deft-food-name" onclick="replaceTrainerDeftDraftFood(${mealIdx}, '${optionKey}', ${itemIdx})">${escHtml(safeFood.name)}</button>
+                            <input class="q-input" type="text" value="${escHtml(formatFoodQuantity(safeFood.amount, safeFood.unitKey))}" onchange="updateTrainerDeftDraftFoodAmount(${mealIdx}, '${optionKey}', ${itemIdx}, this.value)">
+                            <span>${deftRound(safeFood.kcal, 0)} kcal</span>
+                            <span>P ${deftRound(safeFood.protein, 1)} | C ${deftRound(safeFood.carb, 1)} | G ${deftRound(safeFood.fat, 1)}</span>
+                            <div class="trainer-deft-food-actions">
+                                <button type="button" class="btn-secondary btn-sm" onclick="adjustTrainerDeftDraftFoodAmount(${mealIdx}, '${optionKey}', ${itemIdx}, -1)">-</button>
+                                <button type="button" class="btn-secondary btn-sm" onclick="adjustTrainerDeftDraftFoodAmount(${mealIdx}, '${optionKey}', ${itemIdx}, 1)">+</button>
+                                <button type="button" class="btn-secondary btn-sm" onclick="replaceTrainerDeftDraftFood(${mealIdx}, '${optionKey}', ${itemIdx})">Substituir</button>
+                                <button type="button" class="btn-secondary btn-sm" onclick="removeTrainerDeftDraftFood(${mealIdx}, '${optionKey}', ${itemIdx})">Remover</button>
+                                <select class="q-input" onchange="if(this.value){copyTrainerDeftDraftMealToDay(${mealIdx}, this.value); this.value='';}">
+                                    <option value="">Copiar refeição p/ dia</option>
+                                    ${targetOptions}
+                                </select>
+                            </div>
+                        </div>
+                    `;
+                }).join('')
+                : '<div class="trainer-lite-empty compact"><i class="ph-bold ph-fork-knife"></i><strong>Sem alimentos</strong><span>Adicione alimentos nesta opção.</span></div>';
+
+            return `
+                <article class="trainer-deft-meal-card ${expanded ? 'expanded' : ''}" draggable="true"
+                    ondragstart="handleTrainerDeftDraftMealDragStart(event, ${mealIdx})"
+                    ondragover="handleTrainerDeftDraftMealDragOver(event, ${mealIdx})"
+                    ondrop="handleTrainerDeftDraftMealDrop(event, ${mealIdx})"
+                    ondragend="handleTrainerDeftDraftMealDragEnd()">
+                    <header class="trainer-deft-meal-head">
+                        <button type="button" class="trainer-deft-meal-drag"><i class="ph-bold ph-dots-six-vertical"></i></button>
+                        <input class="q-input" type="text" value="${escHtml(meal.name || `Refeição ${mealIdx + 1}`)}" oninput="updateTrainerDeftDraftMealName(${mealIdx}, this.value)">
+                        <div class="trainer-deft-meal-head-actions">
+                            <div class="trainer-deft-segment">
+                                <button type="button" class="trainer-deft-segment-btn ${optionKey === 'A' ? 'active' : ''}" onclick="setTrainerDeftDraftMealOption(${mealIdx}, 'A')">A</button>
+                                <button type="button" class="trainer-deft-segment-btn ${optionKey === 'B' ? 'active' : ''}" onclick="setTrainerDeftDraftMealOption(${mealIdx}, 'B')">B</button>
+                            </div>
+                            <button type="button" class="btn-secondary btn-sm" onclick="toggleTrainerDeftDraftMealOptionB(${mealIdx})">${hasB ? 'Remover B' : 'Criar B'}</button>
+                            <button type="button" class="btn-secondary btn-sm" onclick="copyTrainerDeftDraftMeal(${mealIdx})">Copiar</button>
+                            <button type="button" class="btn-secondary btn-sm" onclick="moveTrainerDeftDraftMeal(${mealIdx}, -1)">↑</button>
+                            <button type="button" class="btn-secondary btn-sm" onclick="moveTrainerDeftDraftMeal(${mealIdx}, 1)">↓</button>
+                            <button type="button" class="btn-secondary btn-sm" onclick="removeTrainerDeftDraftMeal(${mealIdx})">Excluir</button>
+                            <button type="button" class="btn-secondary btn-sm" onclick="toggleTrainerDeftDraftMealExpanded(${mealIdx})">${expanded ? 'Recolher' : 'Expandir'}</button>
+                        </div>
+                    </header>
+                    <div class="trainer-deft-meal-body">
+                        <div class="trainer-deft-food-list">${foodRows}</div>
+                        <div class="trainer-deft-food-cta">
+                            <button type="button" class="btn-primary btn-sm" onclick="addTrainerDeftDraftFood(${mealIdx}, '${optionKey}')"><i class="ph-bold ph-plus"></i> Adicionar alimento</button>
+                        </div>
+                    </div>
+                </article>
+            `;
+        }).join('')
+        : '<div class="trainer-lite-empty"><i class="ph-bold ph-utensils"></i><strong>Nenhuma refeição no dia</strong><span>Comece adicionando uma refeição preset.</span></div>';
+
+    const presetButtons = DEFT_MEAL_PRESETS.map((preset) => `
+        <button type="button" class="trainer-deft-chip" onclick="addTrainerDeftDraftMeal('${preset.replace(/'/g, "\\'")}')">${escHtml(preset)}</button>
+    `).join('');
+
+    const picker = trainerDeftUiState.foodPicker;
+    const pickerOpen = !!picker.open;
+    const pickerResults = pickerOpen ? getTrainerDeftFoodPickerResults(64) : [];
+    const pickerTitle = picker.mode === 'replace' ? 'Substituir alimento' : 'Adicionar alimento';
+    const pickerPanel = pickerOpen ? `
+        <div class="trainer-deft-food-picker-overlay" onclick="if(event.target === this) closeTrainerDeftFoodPicker(); renderTrainerDeftStudio();">
+            <div class="trainer-deft-food-picker">
+                <div class="trainer-deft-food-picker-head">
+                    <h4>${escHtml(pickerTitle)}</h4>
+                    <button type="button" class="btn-secondary btn-sm" onclick="closeTrainerDeftFoodPicker(); renderTrainerDeftStudio();">Fechar</button>
+                </div>
+                <input class="q-input" type="text" value="${escHtml(picker.query || '')}" placeholder="Buscar alimento..." onchange="updateTrainerDeftFoodPickerQuery(this.value)">
+                <div class="trainer-deft-food-picker-list">
+                    ${pickerResults.map((item, idx) => `
+                        <button type="button" class="trainer-deft-food-picker-item" onclick="applyTrainerDeftFoodPickerResult(${idx})">
+                            <span><strong>${escHtml(item.name || 'Alimento')}</strong><small>${escHtml(item.brand || item.family_key || '')}</small></span>
+                            <span>${deftRound(item.kcal || 0, 0)} kcal</span>
+                        </button>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    ` : '';
+
+    return `
+        <div class="trainer-deft-modal-overlay active" onclick="if(event.target===this) closeTrainerDeftDayEditor();">
+            <div class="trainer-deft-modal">
+                <header class="trainer-deft-modal-head">
+                    <div>
+                        <span class="trainer-deft-kicker">${escHtml(monthLabel)}</span>
+                        <h3>Editor de dieta · ${escHtml(label)}</h3>
+                        <p>${escHtml(student.name || 'Aluno')} · ${actual.kcal} kcal real vs ${targetMacro.kcal} kcal meta</p>
+                    </div>
+                    <div class="trainer-deft-modal-actions">
+                        <button type="button" class="btn-secondary btn-sm" onclick="closeTrainerDeftDayEditor()">Cancelar</button>
+                        <button type="button" class="btn-primary btn-sm" onclick="saveTrainerDeftDayEditor()">Salvar dieta do dia</button>
+                    </div>
+                </header>
+                <section class="trainer-deft-modal-metrics">
+                    <article class="trainer-deft-modal-metric ${diffClass}">
+                        <span>Kcal real</span>
+                        <strong>${actual.kcal}</strong>
+                        <small>Diferença: ${diffKcal > 0 ? '+' : ''}${diffKcal}</small>
+                    </article>
+                    <article class="trainer-deft-modal-metric">
+                        <span>Proteína</span>
+                        <strong>${actual.protein}g</strong>
+                        <small>Meta ${targetMacro.protein}g</small>
+                    </article>
+                    <article class="trainer-deft-modal-metric">
+                        <span>Carbo</span>
+                        <strong>${actual.carb}g</strong>
+                        <small>Meta ${targetMacro.carb}g</small>
+                    </article>
+                    <article class="trainer-deft-modal-metric">
+                        <span>Gordura</span>
+                        <strong>${actual.fat}g</strong>
+                        <small>Meta ${targetMacro.fat}g</small>
+                    </article>
+                </section>
+                <section class="trainer-deft-modal-body">
+                    <div class="trainer-deft-preset-row">${presetButtons}</div>
+                    <div class="trainer-deft-meal-list">${mealRows}</div>
+                </section>
+            </div>
+            ${pickerPanel}
+        </div>
+    `;
+}
+
+function renderTrainerDeftCopyWizardModal(state = {}) {
+    const wizard = trainerDeftUiState.copyWizard;
+    if (!wizard?.open) return '';
+    const sourceKey = String(wizard.sourceKey || 'base');
+    const sourcePlan = getTrainerDeftWizardSourcePlan(sourceKey);
+    const sourcePreview = getTrainerDeftPlanPreview(sourcePlan);
+    const step = deftClamp(parseIntegerSafe(wizard.step) || 1, 1, 3);
+    const sourceOptions = [
+        { key: 'base', label: 'Base' },
+        ...DEFT_WEEK_DAYS.map((day) => ({ key: day.key, label: day.short }))
+    ];
+    const targetSet = new Set(Array.isArray(wizard.targetKeys) ? wizard.targetKeys : []);
+    const sourceLabel = sourceKey === 'base' ? 'Base' : getDeftDayMeta(sourceKey).full;
+    const targetsCount = targetSet.size;
+
+    const step1 = `
+        <div class="trainer-deft-wizard-step">
+            <h4>1) Escolher origem</h4>
+            <div class="trainer-deft-chip-row">
+                ${sourceOptions.map((item) => `
+                    <button type="button" class="trainer-deft-chip ${sourceKey === item.key ? 'active' : ''}" onclick="setTrainerDeftCopyWizardSource('${item.key}')">${escHtml(item.label)}</button>
+                `).join('')}
+            </div>
+        </div>
+    `;
+
+    const step2 = `
+        <div class="trainer-deft-wizard-step">
+            <h4>2) Revisar origem</h4>
+            <div class="trainer-deft-wizard-preview">
+                <span><strong>Origem</strong>${escHtml(sourceLabel)}</span>
+                <span><strong>Refeições</strong>${sourcePreview.mealsCount}</span>
+                <span><strong>Itens</strong>${sourcePreview.items}</span>
+                <span><strong>Kcal</strong>${sourcePreview.kcal}</span>
+                <span><strong>Macros</strong>P ${sourcePreview.protein}g · C ${sourcePreview.carb}g · G ${sourcePreview.fat}g</span>
+            </div>
+            <div class="trainer-deft-actions-row">
+                <button type="button" class="btn-secondary btn-sm" onclick="openTrainerDeftDayEditor('${sourceKey}')"><i class="ph-bold ph-note-pencil"></i> Editar dieta da origem</button>
+            </div>
+        </div>
+    `;
+
+    const step3 = `
+        <div class="trainer-deft-wizard-step">
+            <h4>3) Escolher destinos</h4>
+            <label class="trainer-deft-toggle">
+                <input type="checkbox" ${targetsCount >= (DEFT_WEEK_DAYS.length - (sourceKey !== 'base' ? 1 : 0)) ? 'checked' : ''} onchange="toggleTrainerDeftCopyWizardAllTargets(this.checked)">
+                <span>Selecionar todos</span>
+            </label>
+            <div class="trainer-deft-target-grid">
+                ${DEFT_WEEK_DAYS.map((day) => `
+                    <label class="trainer-deft-target-item ${sourceKey === day.key ? 'disabled' : ''}">
+                        <input type="checkbox" ${sourceKey === day.key ? 'disabled' : ''} ${targetSet.has(day.key) ? 'checked' : ''} onchange="toggleTrainerDeftCopyWizardTarget('${day.key}', this.checked)">
+                        <span>${escHtml(day.full)}</span>
+                    </label>
+                `).join('')}
+            </div>
+            <p class="trainer-deft-muted">${targetsCount} dia(s) selecionado(s)</p>
+        </div>
+    `;
+
+    return `
+        <div class="trainer-deft-modal-overlay active" onclick="if(event.target===this) closeTrainerDeftCopyWizard();">
+            <div class="trainer-deft-modal trainer-deft-wizard-modal">
+                <header class="trainer-deft-modal-head">
+                    <div>
+                        <span class="trainer-deft-kicker">Wizard</span>
+                        <h3>Dieta igual para todos os dias</h3>
+                    </div>
+                    <button type="button" class="btn-secondary btn-sm" onclick="closeTrainerDeftCopyWizard()">Fechar</button>
+                </header>
+                <div class="trainer-deft-wizard-steps">
+                    <button type="button" class="trainer-deft-step-pill ${step === 1 ? 'active' : ''}" onclick="setTrainerDeftCopyWizardStep(1)">1</button>
+                    <button type="button" class="trainer-deft-step-pill ${step === 2 ? 'active' : ''}" onclick="setTrainerDeftCopyWizardStep(2)">2</button>
+                    <button type="button" class="trainer-deft-step-pill ${step === 3 ? 'active' : ''}" onclick="setTrainerDeftCopyWizardStep(3)">3</button>
+                </div>
+                <section class="trainer-deft-wizard-body">
+                    ${step1}
+                    ${step >= 2 ? step2 : ''}
+                    ${step >= 3 ? step3 : ''}
+                </section>
+                <footer class="trainer-deft-wizard-footer">
+                    <button type="button" class="btn-secondary btn-sm" onclick="closeTrainerDeftCopyWizard()">Cancelar</button>
+                    ${step > 1 ? `<button type="button" class="btn-secondary btn-sm" onclick="setTrainerDeftCopyWizardStep(${step - 1})">Voltar</button>` : ''}
+                    ${step < 3 ? `<button type="button" class="btn-primary btn-sm" onclick="setTrainerDeftCopyWizardStep(${step + 1})">Próximo</button>` : '<button type="button" class="btn-primary btn-sm" onclick="applyTrainerDeftCopyWizard()">Aplicar</button>'}
+                </footer>
+            </div>
+        </div>
+    `;
+}
+
+function renderTrainerCheckinTab() {
+    const container = document.getElementById('trainer-checkin-content');
+    if (!container) return;
+    const selection = resolveCurrentTrainerStudentSelection();
+    const student = selection.student || {};
+    const weeklyCheckins = getStudentWeeklyCheckins(student);
+    const weeklyEntries = Object.entries(weeklyCheckins)
+        .sort(([left], [right]) => right.localeCompare(left))
+        .slice(0, 6);
+    const routine = normalizeRoutineShape(student.routine);
+    const routineEntries = Object.entries(routine.checkinsByDate || {})
+        .flatMap(([dateKey, entries]) => (Array.isArray(entries) ? entries : []).map((entry) => ({ dateKey, entry })))
+        .sort((a, b) => String(b.dateKey).localeCompare(String(a.dateKey)))
+        .slice(0, 8);
+
+    const weeklyHtml = weeklyEntries.length
+        ? weeklyEntries.map(([weekKey, entry]) => `
+            <article class="trainer-lite-list-row">
+                <div>
+                    <strong>${escHtml(formatStudentCheckinDateRange(weekKey))}</strong>
+                    <span>${escHtml(entry.notes || 'Check-in registrado sem observação.')}</span>
+                </div>
+                <small>${escHtml(formatProfileDateSafe(entry.completedAt || entry.updatedAt || entry.createdAt || weekKey))}</small>
+            </article>
+        `).join('')
+        : '<div class="trainer-lite-empty compact"><i class="ph-bold ph-check-square"></i><strong>Nenhum check-in semanal</strong><span>Quando o aluno preencher, aparecerá aqui.</span></div>';
+
+    const routineHtml = routineEntries.length
+        ? routineEntries.map(({ dateKey, entry }) => {
+            const habit = (routine.habits || []).find((item) => String(item.id) === String(entry?.habitId));
+            return `
+                <article class="trainer-lite-list-row">
+                    <div>
+                        <strong>${escHtml(habit?.title || entry?.title || 'Hábito')}</strong>
+                        <span>${escHtml(entry?.note || entry?.notes || 'Marcado na rotina.')}</span>
+                    </div>
+                    <small>${escHtml(formatProfileDateSafe(dateKey))}</small>
+                </article>
+            `;
+        }).join('')
+        : '<div class="trainer-lite-empty compact"><i class="ph-bold ph-calendar-check"></i><strong>Sem check-ins de rotina</strong><span>Os registros diários entram nesta lista.</span></div>';
+
+    container.innerHTML = `
+        <div class="trainer-lite-split">
+            <section class="trainer-lite-panel">
+                <h3>Semanais</h3>
+                <div class="trainer-lite-list">${weeklyHtml}</div>
+            </section>
+            <section class="trainer-lite-panel">
+                <h3>Rotina</h3>
+                <div class="trainer-lite-list">${routineHtml}</div>
+            </section>
+        </div>
+    `;
+}
+
+function renderTrainerDadosTab() {
+    const container = document.getElementById('trainer-dados-content');
+    if (!container) return;
+    const selection = resolveCurrentTrainerStudentSelection();
+    const student = selection.student || {};
+    const billing = getStudentBillingSnapshot(student);
+    const status = getTrainerStudentStatusMeta(student);
+    const routine = normalizeRoutineShape(student.routine);
+    const activeHabits = (routine.habits || []).filter((habit) => habit?.active !== false).length;
+    const activeReminders = (routine.reminders || []).filter((reminder) => reminder?.active !== false).length;
+    const cards = [
+        { icon: 'ph-identification-card', label: 'ID', value: String(student.id || '--'), hint: getStudentTrainerCodeValue(student) ? `Coach ${getStudentTrainerCodeValue(student)}` : 'Código não informado' },
+        { icon: 'ph-heartbeat', label: 'Status', value: status.label, hint: student.pending ? 'Aguardando aprovação' : 'Liberado no painel' },
+        { icon: 'ph-target', label: 'Objetivo', value: student.goal || '--', hint: student.consultoriaName || 'Consultoria Fialho' },
+        { icon: 'ph-calendar-plus', label: 'Entrada', value: formatProfileDateSafe(student.joinedAt || student.createdAt), hint: student.email || 'E-mail não informado' },
+        { icon: 'ph-credit-card', label: 'Pagamento', value: billing.statusLabel || '--', hint: getBillingSummaryBadge(billing) },
+        { icon: 'ph-bell', label: 'Rotina', value: `${activeHabits} hábito(s)`, hint: `${activeReminders} lembrete(s) ativo(s)` }
+    ];
+    container.innerHTML = `
+        <div class="trainer-lite-grid">
+            ${cards.map(buildTrainerLiteMetricCard).join('')}
+        </div>
+        <div class="trainer-lite-panel">
+            <h3>Contato e protocolo</h3>
+            <div class="trainer-lite-data-list">
+                <span><strong>WhatsApp</strong>${escHtml(student.whatsapp || student.phone || student.telefone || 'Não informado')}</span>
+                <span><strong>Gênero</strong>${escHtml(getTrainerStudentGenderLabel(student.gender))}</span>
+                <span><strong>Idade</strong>${parseIntegerSafe(student.age) > 0 ? `${parseIntegerSafe(student.age)} anos` : 'Não informada'}</span>
+                <span><strong>Peso / altura</strong>${escHtml(`${student.weight || '--'} kg · ${student.height || '--'} cm`)}</span>
+            </div>
+        </div>
+    `;
+}
+
+async function renderTrainerProfileChatTab() {
+    const container = document.getElementById('trainer-profile-chat-content');
+    if (!container) return;
+    const selection = resolveCurrentTrainerStudentSelection();
+    const student = selection.student;
+    const studentId = String(selection.studentId || student?.id || '').trim();
+    if (!student || !studentId) {
+        container.innerHTML = '<div class="trainer-lite-empty"><i class="ph-bold ph-chat-circle"></i><strong>Aluno indisponível</strong><span>Abra um aluno vinculado ao treinador para carregar o chat.</span></div>';
+        return;
+    }
+    let messages = loadStudentChatMessages(studentId, student.name || 'Aluno');
+    const readResult = markStudentMessagesAsReadForTrainer(messages);
+    if (readResult.changed) {
+        messages = saveStudentChatMessages(studentId, readResult.messages, { syncMode: 'immediate' });
+        broadcastChatThreadUpdate(studentId, 'trainer', 'read-profile-chat');
+    } else {
+        messages = readResult.messages;
+    }
+    const sortedMessages = mergeChatMessagesById(messages);
+    const messagesHtml = sortedMessages.length
+        ? sortedMessages.map((message) => {
+            const safeMsg = normalizeChatMessageRecord(message);
+            if (!safeMsg) return '';
+            const bubbleClass = safeMsg.sender === 'trainer' ? 'trainer' : 'student';
+            const readMeta = safeMsg.sender === 'trainer' && safeMsg.readByStudentAt
+                ? ' <i class="ph-bold ph-checks"></i>'
+                : '';
+            return `
+                <div class="trainer-profile-chat-bubble ${bubbleClass}">
+                    <div class="trainer-profile-chat-message">
+                        ${safeMsg.text ? formatChatMessageText(safeMsg.text) : ''}
+                        ${renderChatMedia(safeMsg.media, bubbleClass, safeMsg.id)}
+                        <span>${escHtml(formatChatTime(safeMsg.createdAt))}${readMeta}</span>
+                    </div>
+                </div>
+            `;
+        }).join('')
+        : '<div class="trainer-lite-empty compact"><i class="ph-bold ph-chat-circle-dots"></i><strong>Nenhuma mensagem ainda</strong><span>Envie a primeira mensagem para este aluno.</span></div>';
+
+    container.innerHTML = `
+        <div class="trainer-profile-chat-thread" id="trainer-profile-chat-thread">${messagesHtml}</div>
+        <div class="trainer-profile-chat-composer">
+            <textarea id="trainer-profile-chat-input" class="q-input" rows="2" placeholder="Digite uma mensagem..." onkeydown="handleTrainerProfileChatKeydown(event)"></textarea>
+            <button id="trainer-profile-chat-send" class="btn-primary" type="button" onclick="sendTrainerProfileChat()">
+                <i class="ph-bold ph-paper-plane-tilt"></i> Enviar
+            </button>
+        </div>
+    `;
+    const thread = document.getElementById('trainer-profile-chat-thread');
+    if (thread) {
+        thread.scrollTop = thread.scrollHeight;
+        optimizeMediaElements(thread);
+        await hydrateChatMediaInScope(thread, sortedMessages);
+        thread.scrollTop = thread.scrollHeight;
+    }
+}
+
+function handleTrainerProfileChatKeydown(event) {
+    if (event?.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendTrainerProfileChat();
+    }
+}
+
+async function sendTrainerProfileChat() {
+    if (trainerChatSendInFlight) return;
+    const selection = resolveCurrentTrainerStudentSelection();
+    const student = selection.student;
+    const studentId = String(selection.studentId || student?.id || '').trim();
+    const input = document.getElementById('trainer-profile-chat-input');
+    const reply = sanitizeUserInput(input?.value || '', { allowNewlines: true, maxLen: 1200 });
+    if (!student || !studentId || !reply) return;
+
+    trainerChatSendInFlight = true;
+    const sendButton = document.getElementById('trainer-profile-chat-send');
+    if (sendButton) sendButton.setAttribute('disabled', 'true');
+    try {
+        const nowIso = new Date().toISOString();
+        const history = loadStudentChatMessages(studentId, student.name || 'Aluno');
+        const readResult = markStudentMessagesAsReadForTrainer(history);
+        const resolved = resolvePendingStudentMessages(readResult.messages, nowIso);
+        const outgoingMessage = {
+            id: createChatMessageId('trainer'),
+            sender: 'trainer',
+            text: reply,
+            media: null,
+            createdAt: nowIso,
+            readByTrainerAt: nowIso
+        };
+        saveStudentChatMessages(studentId, [...resolved.messages, outgoingMessage], { syncMode: 'immediate' });
+        if (input) input.value = '';
+        broadcastChatThreadUpdate(studentId, 'trainer', 'profile-chat-sent');
+        await renderTrainerProfileChatTab();
+        renderDuvidas();
+        updateTrainerStats();
+    } finally {
+        trainerChatSendInFlight = false;
+        if (sendButton) sendButton.removeAttribute('disabled');
     }
 }
 
@@ -22178,46 +27608,141 @@ function renderTrainerCardioPlanEditor() {
     const container = document.getElementById('trainer-cardio-plan-editor');
     if (!container) return;
     trainerCardioPlan = normalizeCardioPlanShape(trainerCardioPlan);
-    const zoneLabelMap = { z1: 'Zona 1 — Leve', z2: 'Zona 2 — Moderada', z3: 'Zona 3 — Vigorosa' };
-    const zoneLabel = zoneLabelMap[trainerCardioPlan.baseZoneKey] || zoneLabelMap.z2;
+    const selection = resolveCurrentTrainerStudentSelection();
+    const student = selection.student || {};
+    const daysForUi = getCardioDaysDomFirst(trainerCardioPlan.days);
+    const totalPlannedMin = daysForUi.reduce((sum, day) => sum + Math.max(0, parseIntegerSafe(day?.durationMin) || 0), 0);
+    const weeklyGoal = Math.max(30, parseIntegerSafe(trainerCardioPlan.weeklyGoalMin) || 120);
+    const weeklyRemaining = Math.max(0, weeklyGoal - totalPlannedMin);
+    const activeSessions = daysForUi.filter((day) => parseIntegerSafe(day?.durationMin) > 0 || day?.type || day?.notes).length;
+    const hrCtx = resolveCardioHrMaxContext(trainerCardioPlan, student);
+    const hrLabel = hrCtx.effective ? `${hrCtx.effective} bpm` : '--';
     container.innerHTML = `
-        <div class="trainer-cardio-studio">
-            <div class="settings-card-header">
-                <h2>Cardio Premium</h2>
-                <p class="subtitle">Defina meta semanal, zona base e sessões por dia.</p>
+        <div class="trainer-cardio-premium">
+            <div class="trainer-cardio-premium-head">
+                <div class="settings-card-header" style="margin-bottom:0;">
+                    <h2>Cardio</h2>
+                    <p class="subtitle">Prescrição semanal premium com nível + zona por dia.</p>
+                </div>
+                <div class="trainer-cardio-hr-chip">
+                    <span>FC máx</span>
+                    <strong>${hrLabel}</strong>
+                    <small>${escHtml(hrCtx.sourceLabel)}</small>
+                </div>
             </div>
+
+            <div class="trainer-cardio-hr-panel">
+                <div class="trainer-cardio-mode-toggle">
+                    <button type="button" class="btn-secondary btn-sm ${trainerCardioPlan.hrMaxMode === 'auto' ? 'active' : ''}" onclick="updateTrainerCardioPlanField('hrMaxMode','auto')">Auto (Tanaka)</button>
+                    <button type="button" class="btn-secondary btn-sm ${trainerCardioPlan.hrMaxMode === 'manual' ? 'active' : ''}" onclick="updateTrainerCardioPlanField('hrMaxMode','manual')">Manual</button>
+                </div>
+                ${trainerCardioPlan.hrMaxMode === 'manual' ? `
+                    <div class="settings-field trainer-cardio-manual-hr-field">
+                        <label>FC máx manual (bpm)</label>
+                        <input class="q-input" type="number" min="90" max="240" placeholder="Ex: 190" value="${trainerCardioPlan.hrMaxManual || ''}" oninput="updateTrainerCardioPlanField('hrMaxManual', this.value)">
+                    </div>
+                ` : ''}
+                <p class="subtitle">Tanaka: <strong>208 - 0.7 × idade</strong> ${hrCtx.tanakaValue ? `= ${hrCtx.tanakaValue} bpm` : '(idade pendente)'}</p>
+            </div>
+
+            <div class="trainer-cardio-summary-grid">
+                <div class="trainer-cardio-summary-item">
+                    <span>Meta semanal</span>
+                    <strong>${weeklyGoal} min</strong>
+                </div>
+                <div class="trainer-cardio-summary-item">
+                    <span>Planejado</span>
+                    <strong>${totalPlannedMin} min</strong>
+                </div>
+                <div class="trainer-cardio-summary-item">
+                    <span>Faltam</span>
+                    <strong>${weeklyRemaining} min</strong>
+                </div>
+                <div class="trainer-cardio-summary-item">
+                    <span>Sessões ativas</span>
+                    <strong>${activeSessions}/7</strong>
+                </div>
+            </div>
+
             <div class="settings-field">
                 <label>Meta semanal (min)</label>
                 <input class="q-input" type="number" min="30" max="600" value="${trainerCardioPlan.weeklyGoalMin}" oninput="updateTrainerCardioPlanField('weeklyGoalMin', this.value)">
             </div>
             <div class="settings-field">
-                <label>Zona base de intensidade</label>
+                <label>Zona padrão (fallback)</label>
                 <div class="trainer-cardio-zone-pills">
-                    <button type="button" class="btn-secondary btn-sm ${trainerCardioPlan.baseZoneKey === 'z1' ? 'active' : ''}" onclick="updateTrainerCardioPlanField('baseZoneKey','z1')">Zona 1</button>
-                    <button type="button" class="btn-secondary btn-sm ${trainerCardioPlan.baseZoneKey === 'z2' ? 'active' : ''}" onclick="updateTrainerCardioPlanField('baseZoneKey','z2')">Zona 2</button>
-                    <button type="button" class="btn-secondary btn-sm ${trainerCardioPlan.baseZoneKey === 'z3' ? 'active' : ''}" onclick="updateTrainerCardioPlanField('baseZoneKey','z3')">Zona 3</button>
+                    ${CARDIO_ZONE_DEFS.map((zone) => `
+                        <button type="button" class="btn-secondary btn-sm ${trainerCardioPlan.baseZoneKey === zone.key ? 'active' : ''}" onclick="updateTrainerCardioPlanField('baseZoneKey','${zone.key}')">${zone.title.replace(' — ', ' ')}</button>
+                    `).join('')}
                 </div>
             </div>
             <div class="settings-field">
                 <label>Recomendação do coach</label>
                 <textarea class="q-input" rows="2" placeholder="Ex: cardio moderado em esteira com ritmo estável." oninput="updateTrainerCardioPlanField('coachRecommendation', this.value)">${escHtml(trainerCardioPlan.coachRecommendation || '')}</textarea>
             </div>
-            <div class="trainer-cardio-preview">
-                <p><strong>Preview aluno:</strong> ${trainerCardioPlan.weeklyGoalMin} min/semana • ${zoneLabel}</p>
-                <p>${escHtml(trainerCardioPlan.coachRecommendation || 'Sem observação adicional.')}</p>
-            </div>
-            <div class="trainer-cardio-grid">
-                ${trainerCardioPlan.days.map((entry, idx) => `
-                    <div class="trainer-cardio-row">
-                        <strong>${escHtml(entry.dayLabel || 'Dia')}</strong>
-                        <input class="q-input" type="text" value="${escHtml(entry.type || '')}" placeholder="Ex: Caminhada inclinada" oninput="updateTrainerCardioDayField(${idx}, 'type', this.value)">
-                        <div class="trainer-cardio-inline">
-                            <input class="q-input" type="number" min="0" value="${escHtml(entry.durationMin || '')}" placeholder="Min" oninput="updateTrainerCardioDayField(${idx}, 'durationMin', this.value)">
-                            <input class="q-input" type="text" value="${escHtml(entry.intensity || '')}" placeholder="Intensidade (leve/moderado/alto)" oninput="updateTrainerCardioDayField(${idx}, 'intensity', this.value)">
-                        </div>
-                        <textarea class="q-input" rows="2" placeholder="Observações para o aluno" oninput="updateTrainerCardioDayField(${idx}, 'notes', this.value)">${escHtml(entry.notes || '')}</textarea>
+
+            <div class="trainer-cardio-quick-tools">
+                <div class="trainer-cardio-quick-row">
+                    <label>Aplicar para todos</label>
+                    <div class="trainer-cardio-quick-actions">
+                        <select class="q-input" onchange="applyTrainerCardioPlanPreset('intensityKey', this.value)">
+                            <option value="">Nível</option>
+                            ${CARDIO_INTENSITY_OPTIONS.map((opt) => `<option value="${opt.key}">${opt.label}</option>`).join('')}
+                        </select>
+                        <select class="q-input" onchange="applyTrainerCardioPlanPreset('zoneKey', this.value)">
+                            <option value="">Zona</option>
+                            ${CARDIO_ZONE_DEFS.map((zone) => `<option value="${zone.key}">${zone.title}</option>`).join('')}
+                        </select>
                     </div>
-                `).join('')}
+                </div>
+                <div class="trainer-cardio-quick-row">
+                    <label>Copiar configuração de um dia</label>
+                    <div class="trainer-cardio-quick-actions">
+                        <select id="trainer-cardio-copy-day" class="q-input">
+                            ${daysForUi.map((day) => `<option value="${day.dayKey}">${escHtml(day.dayLabel || 'Dia')}</option>`).join('')}
+                        </select>
+                        <button type="button" class="btn-secondary btn-sm" onclick="copyTrainerCardioDayToAll()">Copiar para todos</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="trainer-cardio-grid">
+                ${daysForUi.map((entry) => {
+                    const dayKey = escHtml(entry.dayKey || '');
+                    const intensityMeta = getCardioIntensityMeta(entry.intensityKey);
+                    const zoneMeta = getCardioZoneMeta(entry.zoneKey || trainerCardioPlan.baseZoneKey);
+                    return `
+                        <div class="trainer-cardio-row">
+                            <div class="trainer-cardio-row-head">
+                                <strong>${escHtml(entry.dayLabel || 'Dia')}</strong>
+                                <span class="trainer-cardio-row-meta">${escHtml(entry.type || 'Cardio livre')}</span>
+                            </div>
+                            <div class="trainer-cardio-inline">
+                                <input class="q-input" type="number" min="0" max="240" value="${escHtml(entry.durationMin || '')}" placeholder="Min" onchange="updateTrainerCardioDayField('${dayKey}', 'durationMin', this.value)">
+                                <input class="q-input" type="text" value="${escHtml(entry.type || '')}" placeholder="Tipo (esteira, bike, corrida...)" onchange="updateTrainerCardioDayField('${dayKey}', 'type', this.value)">
+                            </div>
+                            <div class="trainer-cardio-pill-group">
+                                ${CARDIO_INTENSITY_OPTIONS.map((opt) => `
+                                    <button
+                                        type="button"
+                                        class="btn-secondary btn-sm ${intensityMeta.key === opt.key ? 'active' : ''}"
+                                        onclick="updateTrainerCardioDayField('${dayKey}', 'intensityKey', '${opt.key}')"
+                                    >${opt.label}</button>
+                                `).join('')}
+                            </div>
+                            <div class="trainer-cardio-pill-group trainer-cardio-zone-group">
+                                ${CARDIO_ZONE_DEFS.map((zone) => `
+                                    <button
+                                        type="button"
+                                        class="btn-secondary btn-sm ${zoneMeta.key === zone.key ? 'active' : ''}"
+                                        onclick="updateTrainerCardioDayField('${dayKey}', 'zoneKey', '${zone.key}')"
+                                    >${zone.key.toUpperCase()}</button>
+                                `).join('')}
+                            </div>
+                            <textarea class="q-input" rows="2" placeholder="Observações para o aluno" onchange="updateTrainerCardioDayField('${dayKey}', 'notes', this.value)">${escHtml(entry.notes || '')}</textarea>
+                        </div>
+                    `;
+                }).join('')}
             </div>
         </div>
     `;
@@ -22230,10 +27755,17 @@ function updateTrainerCardioPlanField(field, value) {
         const parsed = parseIntegerSafe(value);
         trainerCardioPlan.weeklyGoalMin = Number.isFinite(parsed) ? Math.min(600, Math.max(30, parsed)) : 120;
     } else if (safeField === 'baseZoneKey') {
-        const safeZone = String(value || '').trim().toLowerCase();
-        trainerCardioPlan.baseZoneKey = ['z1', 'z2', 'z3'].includes(safeZone) ? safeZone : 'z2';
+        trainerCardioPlan.baseZoneKey = normalizeCardioZoneKey(value, 'z2');
     } else if (safeField === 'coachRecommendation') {
         trainerCardioPlan.coachRecommendation = sanitizeUserInput(value || '', { maxLen: 220 });
+    } else if (safeField === 'hrMaxMode') {
+        trainerCardioPlan.hrMaxMode = String(value || '').trim().toLowerCase() === 'manual' ? 'manual' : 'auto';
+        if (trainerCardioPlan.hrMaxMode !== 'manual') trainerCardioPlan.hrMaxManual = '';
+    } else if (safeField === 'hrMaxManual') {
+        const parsed = parseIntegerSafe(value);
+        trainerCardioPlan.hrMaxManual = Number.isFinite(parsed)
+            ? Math.min(240, Math.max(90, parsed))
+            : '';
     } else {
         return;
     }
@@ -22241,18 +27773,85 @@ function updateTrainerCardioPlanField(field, value) {
     signalStudentPlanDirty();
 }
 
-function updateTrainerCardioDayField(idx, field, value) {
+function updateTrainerCardioDayField(dayRef, field, value) {
     trainerCardioPlan = normalizeCardioPlanShape(trainerCardioPlan);
-    if (!Array.isArray(trainerCardioPlan.days) || !trainerCardioPlan.days[idx]) return;
+    const dayKey = sanitizeUserInput(dayRef || '', { maxLen: 8 }).toLowerCase();
+    const dayIdx = Array.isArray(trainerCardioPlan.days)
+        ? trainerCardioPlan.days.findIndex((entry) => String(entry?.dayKey || '').toLowerCase() === dayKey)
+        : -1;
+    if (dayIdx < 0) return;
     const safeField = String(field || '').trim();
-    if (!['type', 'durationMin', 'intensity', 'notes'].includes(safeField)) return;
-    trainerCardioPlan.days[idx][safeField] = sanitizeUserInput(value || '', {
-        allowNewlines: safeField === 'notes',
-        maxLen: safeField === 'notes' ? 280 : 80
-    });
+    if (!['type', 'durationMin', 'intensity', 'intensityKey', 'zoneKey', 'notes'].includes(safeField)) return;
+    const day = { ...trainerCardioPlan.days[dayIdx] };
     if (safeField === 'durationMin') {
-        trainerCardioPlan.days[idx][safeField] = sanitizeUserInput(value || '', { maxLen: 6 });
+        day.durationMin = sanitizeUserInput(value || '', { maxLen: 6 });
+    } else if (safeField === 'intensityKey') {
+        day.intensityKey = normalizeCardioIntensityKey(value, day.intensityKey);
+        const isDayConfigured = [day.type, day.durationMin, day.notes].some(Boolean);
+        day.intensity = isDayConfigured ? getCardioIntensityMeta(day.intensityKey).legacyLabel : '';
+    } else if (safeField === 'zoneKey') {
+        day.zoneKey = normalizeCardioZoneKey(value, trainerCardioPlan.baseZoneKey);
+    } else if (safeField === 'intensity') {
+        day.intensity = sanitizeUserInput(value || '', { maxLen: 40 });
+        day.intensityKey = normalizeCardioIntensityKey(day.intensityKey, inferCardioIntensityKeyFromLegacy(day.intensity));
+    } else {
+        day[safeField] = sanitizeUserInput(value || '', {
+            allowNewlines: safeField === 'notes',
+            maxLen: safeField === 'notes' ? 280 : 80
+        });
     }
+    if (safeField === 'type' || safeField === 'durationMin' || safeField === 'notes') {
+        const isDayConfigured = [day.type, day.durationMin, day.notes].some(Boolean);
+        if (isDayConfigured) {
+            day.intensityKey = normalizeCardioIntensityKey(day.intensityKey, 'medium');
+            day.intensity = day.intensity || getCardioIntensityMeta(day.intensityKey).legacyLabel;
+        } else {
+            day.intensity = '';
+        }
+    }
+    trainerCardioPlan.days[dayIdx] = day;
+    renderTrainerCardioPlanEditor();
+    signalStudentPlanDirty();
+}
+
+function applyTrainerCardioPlanPreset(field, value) {
+    const safeField = String(field || '').trim();
+    if (!['intensityKey', 'zoneKey'].includes(safeField)) return;
+    if (!value) return;
+    trainerCardioPlan = normalizeCardioPlanShape(trainerCardioPlan);
+    trainerCardioPlan.days = (Array.isArray(trainerCardioPlan.days) ? trainerCardioPlan.days : []).map((day) => {
+        const nextDay = { ...day };
+        if (safeField === 'intensityKey') {
+            nextDay.intensityKey = normalizeCardioIntensityKey(value, nextDay.intensityKey);
+            if ([nextDay.type, nextDay.durationMin, nextDay.notes].some(Boolean)) {
+                nextDay.intensity = getCardioIntensityMeta(nextDay.intensityKey).legacyLabel;
+            }
+        } else {
+            nextDay.zoneKey = normalizeCardioZoneKey(value, trainerCardioPlan.baseZoneKey);
+        }
+        return nextDay;
+    });
+    renderTrainerCardioPlanEditor();
+    signalStudentPlanDirty();
+}
+
+function copyTrainerCardioDayToAll() {
+    const sourceSelect = document.getElementById('trainer-cardio-copy-day');
+    const sourceKey = sanitizeUserInput(sourceSelect?.value || '', { maxLen: 8 }).toLowerCase();
+    if (!sourceKey) return;
+    trainerCardioPlan = normalizeCardioPlanShape(trainerCardioPlan);
+    const sourceDay = (trainerCardioPlan.days || []).find((day) => String(day?.dayKey || '').toLowerCase() === sourceKey);
+    if (!sourceDay) return;
+    trainerCardioPlan.days = (trainerCardioPlan.days || []).map((day) => ({
+        ...day,
+        type: sourceDay.type || '',
+        durationMin: sourceDay.durationMin || '',
+        intensityKey: normalizeCardioIntensityKey(sourceDay.intensityKey, 'medium'),
+        intensity: sourceDay.intensity || '',
+        zoneKey: normalizeCardioZoneKey(sourceDay.zoneKey, trainerCardioPlan.baseZoneKey),
+        notes: sourceDay.notes || ''
+    }));
+    renderTrainerCardioPlanEditor();
     signalStudentPlanDirty();
 }
 
@@ -22584,6 +28183,45 @@ function toggleTrainerRoutineWeekday(kind, idx, weekday, checked) {
 
 // â”€â”€â”€ Workout Blocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+function getWorkoutBlockQuickStats(block = {}) {
+    const exercises = Array.isArray(block.exercises) ? block.exercises : [];
+    let setCount = 0;
+    let totalSeconds = 0;
+    exercises.forEach((exercise) => {
+        const templates = getExerciseSetTemplates(exercise);
+        setCount += templates.length;
+        const restSeconds = templates.reduce((sum, tpl) => sum + parseRestToSeconds(tpl.rest || exercise.descanso), 0);
+        const workSeconds = templates.length * 40;
+        totalSeconds += workSeconds + restSeconds;
+    });
+    if (exercises.length > 0) {
+        totalSeconds += (exercises.length - 1) * 20;
+    }
+    const estimatedMinutes = Math.max(0, Math.round(totalSeconds / 60));
+    return {
+        exerciseCount: exercises.length,
+        setCount,
+        estimatedMinutes
+    };
+}
+
+function renderWorkoutBlockSummaryChips(block = {}, options = {}) {
+    const stats = getWorkoutBlockQuickStats(block);
+    const completedCount = Math.max(0, parseInt(options?.completedCount, 10) || 0);
+    const chips = [
+        `${stats.exerciseCount} ${stats.exerciseCount === 1 ? 'exercício' : 'exercícios'}`,
+        `${stats.setCount} ${stats.setCount === 1 ? 'série' : 'séries'}`,
+        `${completedCount}/${stats.exerciseCount || 0} prontos`
+    ];
+    if (stats.estimatedMinutes > 0) {
+        chips.push(`${stats.estimatedMinutes} min estimado`);
+    }
+    return chips.map((label, idx) => {
+        const extraClass = idx === 2 ? 'progress' : '';
+        return `<span class="wb-summary-chip ${extraClass}">${escHtml(label)}</span>`;
+    }).join('');
+}
+
 function renderWorkoutBlocks() {
     const container = document.getElementById('workout-blocks-container');
     if (!container) return;
@@ -22598,14 +28236,17 @@ function renderWorkoutBlocks() {
     }
 
     workoutBlocks.forEach(block => {
+        if (!Array.isArray(block.exercises)) block.exercises = [];
         block.exercises.forEach((ex, exIdx) => {
             if (!Array.isArray(ex.substitutes)) ex.substitutes = ['', ''];
             if (typeof ex.supersetWithNext !== 'boolean') ex.supersetWithNext = false;
             if (exIdx === block.exercises.length - 1 && ex.supersetWithNext) {
                 ex.supersetWithNext = false;
             }
+            syncExerciseLegacyFieldsFromTemplates(ex);
         });
     });
+    syncTrainerWorkoutUiStateWithData();
 
     if (workoutBlocks.length === 0) {
         container.innerHTML = `
@@ -22618,8 +28259,13 @@ function renderWorkoutBlocks() {
         return;
     }
 
-    container.innerHTML = workoutBlocks.map((block, bIdx) => `
-    <div class="workout-block" id="wb-${bIdx}" draggable="true"
+    container.innerHTML = workoutBlocks.map((block, bIdx) => {
+        const exercises = Array.isArray(block.exercises) ? block.exercises : [];
+        const blockOpen = isTrainerBlockOpen(bIdx);
+        const activeExerciseIdx = getTrainerActiveExerciseIndexForBlock(bIdx, exercises);
+        const completedCount = exercises.reduce((acc, _, exIdx) => acc + (isTrainerExerciseCompleted(bIdx, exIdx) ? 1 : 0), 0);
+        return `
+    <div class="workout-block ${blockOpen ? 'is-open' : 'is-closed'}" id="wb-${bIdx}" draggable="true"
         ondragstart="handleBlockDragStart(event, ${bIdx})"
         ondragover="handleBlockDragOver(event, ${bIdx})"
         ondrop="handleBlockDrop(event, ${bIdx})"
@@ -22646,22 +28292,84 @@ function renderWorkoutBlocks() {
                 <button class="btn-icon-minimal" onclick="deleteWorkoutBlock(${bIdx})" title="Remover bloco">
                     <i class="ph-bold ph-trash" style="color:#ef4444"></i>
                 </button>
+                <button type="button" class="wb-toggle ${blockOpen ? 'active' : ''}" onclick="toggleTrainerWorkoutBlockAccordion(${bIdx})" title="${blockOpen ? 'Recolher bloco' : 'Abrir bloco'}">
+                    <i class="ph-bold ${blockOpen ? 'ph-caret-up' : 'ph-caret-down'}"></i>
+                </button>
             </div>
         </div>
-        ${block.exercises.length ? `
-        <div class="ex-table-head">
+        <div class="wb-summary">
+            ${renderWorkoutBlockSummaryChips(block, { completedCount })}
+        </div>
+        <div class="wb-body ${blockOpen ? 'is-open' : ''}">
+        ${exercises.length ? `
+        <div class="ex-table-head detailed-sets-head">
             <span class="col-ex-name">Exercício</span>
-            <span>Séries</span>
-            <span>Reps</span>
-            <span>Carga</span>
-            <span>Descanso</span>
+            <span>Séries prescritas</span>
             <span class="col-ex-actions">Ações</span>
         </div>` : ''}
 
-        ${block.exercises.length === 0
+        ${exercises.length === 0
             ? `<div class="ex-empty-block">Nenhum exercício ainda. Clique em "Adicionar Exercício".</div>`
-            : block.exercises.map((ex, eIdx) => `
-        <div class="ex-row ${ex.supersetWithNext ? 'is-superset' : ''}" id="ex-${bIdx}-${eIdx}" draggable="true"
+            : exercises.map((ex, eIdx) => {
+                const setCount = getExerciseSetTemplates(ex).length;
+                const setSummary = getExerciseSetSummary(ex);
+                const isExpanded = blockOpen && activeExerciseIdx === eIdx;
+                const isCompleted = isTrainerExerciseCompleted(bIdx, eIdx);
+                const isNameEditing = isTrainerExerciseNameEditing(bIdx, eIdx);
+                if (!isExpanded) {
+                    return `
+        <div class="ex-row ex-row-detailed is-collapsed ${ex.supersetWithNext ? 'is-superset' : ''} ${isCompleted ? 'is-complete' : ''}" id="ex-${bIdx}-${eIdx}" draggable="true"
+            ondragstart="handleExerciseDragStart(event, ${bIdx}, ${eIdx})"
+            ondragover="handleExerciseDragOver(event, ${bIdx}, ${eIdx})"
+            ondrop="handleExerciseDrop(event, ${bIdx}, ${eIdx})"
+            ondragend="handleExerciseDragEnd(event)">
+            <span class="ex-grab" title="Arraste para reordenar exercício">
+                <i class="ph-bold ph-dots-six-vertical"></i>
+            </span>
+            <div class="ex-info ex-info-compact">
+                <button type="button" class="ex-compact-open" onclick="activateTrainerExerciseEditor(${bIdx}, ${eIdx})" title="Abrir exercício para editar">
+                    <div class="ex-compact-main">
+                        <strong>${escHtml(ex.nome || `Exercício ${eIdx + 1}`)}</strong>
+                        <div class="trainer-set-summary">
+                            <span class="trainer-set-chip">${setCount} ${setCount === 1 ? 'série' : 'séries'}</span>
+                            ${setSummary ? `<span>${escHtml(setSummary)}</span>` : ''}
+                        </div>
+                        ${ex.obs ? `<small class="ex-compact-note">${escHtml(ex.obs)}</small>` : ''}
+                    </div>
+                    <span class="ex-compact-status ${isCompleted ? 'done' : 'pending'}">${isCompleted ? 'Concluído' : 'Editar'}</span>
+                </button>
+            </div>
+            <div class="ex-actions">
+                <button type="button" class="btn-exercise-complete ${isCompleted ? 'is-completed' : ''}" onclick="toggleTrainerExerciseDoneAndAdvance(${bIdx}, ${eIdx})" title="${isCompleted ? 'Reabrir exercício para edição' : 'Concluir exercício e abrir o próximo'}">
+                    <i class="ph-bold ${isCompleted ? 'ph-arrow-counter-clockwise' : 'ph-check-circle'}"></i>
+                    ${isCompleted ? 'Reabrir' : 'Concluir'}
+                </button>
+                <div class="trainer-inline-actions">
+                    <button class="btn-icon-minimal btn-menu-trigger" onclick="toggleTrainerExerciseMoreMenu(${bIdx}, ${eIdx}, event)" title="Mais ações">
+                        <i class="ph-bold ph-dots-three-outline"></i>
+                    </button>
+                    ${isTrainerExerciseMoreMenuOpen(bIdx, eIdx) ? `
+                    <div class="trainer-inline-menu">
+                        <button type="button" ${eIdx === 0 ? 'disabled' : ''} onclick="moveExercise(${bIdx},${eIdx},-1); closeTrainerExerciseMoreMenu();">
+                            <i class="ph-bold ph-arrow-up"></i> Mover para cima
+                        </button>
+                        <button type="button" ${eIdx === exercises.length - 1 ? 'disabled' : ''} onclick="moveExercise(${bIdx},${eIdx},1); closeTrainerExerciseMoreMenu();">
+                            <i class="ph-bold ph-arrow-down"></i> Mover para baixo
+                        </button>
+                        <button type="button" onclick="duplicateExerciseInline(${bIdx}, ${eIdx})">
+                            <i class="ph-bold ph-copy"></i> Duplicar exercício
+                        </button>
+                        <button type="button" class="danger" onclick="deleteExercise(${bIdx},${eIdx})">
+                            <i class="ph-bold ph-trash"></i> Remover exercício
+                        </button>
+                    </div>
+                    ` : ''}
+                </div>
+            </div>
+        </div>`;
+                }
+                return `
+        <div class="ex-row ex-row-detailed ${ex.supersetWithNext ? 'is-superset' : ''}" id="ex-${bIdx}-${eIdx}" draggable="true"
             ondragstart="handleExerciseDragStart(event, ${bIdx}, ${eIdx})"
             ondragover="handleExerciseDragOver(event, ${bIdx}, ${eIdx})"
             ondrop="handleExerciseDrop(event, ${bIdx}, ${eIdx})"
@@ -22670,58 +28378,82 @@ function renderWorkoutBlocks() {
                 <i class="ph-bold ph-dots-six-vertical"></i>
             </span>
             <div class="ex-info">
-                <strong>${escHtml(ex.nome)}</strong>
-                ${ex.obs ? `<span class="ex-obs">${escHtml(ex.obs)}</span>` : ''}
-                <div class="ex-advanced-row">
-                    <input type="text" class="ex-sub-input" value="${escHtml(ex.substitutes?.[0] || '')}"
-                        oninput="updateExerciseSubstitute(${bIdx}, ${eIdx}, 0, this.value)" placeholder="Substituto 1 (opcional)">
-                    <input type="text" class="ex-sub-input" value="${escHtml(ex.substitutes?.[1] || '')}"
-                        oninput="updateExerciseSubstitute(${bIdx}, ${eIdx}, 1, this.value)" placeholder="Substituto 2 (opcional)">
-                    <label class="ex-superset-toggle ${eIdx === block.exercises.length - 1 ? 'disabled' : ''}">
-                        <input type="checkbox" ${ex.supersetWithNext ? 'checked' : ''} ${eIdx === block.exercises.length - 1 ? 'disabled' : ''}
-                            onchange="toggleSupersetWithNext(${bIdx}, ${eIdx}, this.checked)">
-                        Super série com próximo
-                    </label>
+                <div class="ex-info-head">
+                    <div class="ex-name-compact-shell">
+                        ${isNameEditing
+                            ? `<input type="text" class="ex-name-compact-input" value="${escHtml(ex.nome || '')}"
+                                oninput="updateExerciseName(${bIdx}, ${eIdx}, this.value)"
+                                onblur="setTrainerExerciseNameEditingState(${bIdx}, ${eIdx}, false)"
+                                onkeydown="handleTrainerExerciseNameFieldKeydown(event, ${bIdx}, ${eIdx})"
+                                placeholder="Nome do exercício">`
+                            : `<strong class="ex-name-compact-value">${escHtml(ex.nome || `Exercício ${eIdx + 1}`)}</strong>`
+                        }
+                    </div>
+                    <div class="ex-info-badges">
+                        <button type="button" class="btn-icon-minimal btn-edit-ex-name" onclick="setTrainerExerciseNameEditingState(${bIdx}, ${eIdx}, ${isNameEditing ? 'false' : 'true'})" title="${isNameEditing ? 'Fechar edição do nome' : 'Editar nome do exercício'}">
+                            <i class="ph-bold ph-pencil-simple"></i>
+                        </button>
+                        ${ex.supersetWithNext ? '<span class="ex-info-badge">Super série</span>' : ''}
+                        ${isCompleted ? '<span class="ex-info-badge done">Concluído</span>' : ''}
+                    </div>
                 </div>
+                <div class="trainer-set-summary">
+                    <span class="trainer-set-chip">${setCount} ${setCount === 1 ? 'série' : 'séries'}</span>
+                    ${setSummary ? `<span>${escHtml(setSummary)}</span>` : ''}
+                </div>
+                <details class="ex-extra-details">
+                    <summary><i class="ph-bold ph-sliders-horizontal"></i> Ajustes do exercício</summary>
+                    <div class="ex-advanced-row">
+                        <input type="text" class="ex-sub-input" value="${escHtml(ex.substitutes?.[0] || '')}"
+                            oninput="updateExerciseSubstitute(${bIdx}, ${eIdx}, 0, this.value)" placeholder="Substituto 1 (opcional)">
+                        <input type="text" class="ex-sub-input" value="${escHtml(ex.substitutes?.[1] || '')}"
+                            oninput="updateExerciseSubstitute(${bIdx}, ${eIdx}, 1, this.value)" placeholder="Substituto 2 (opcional)">
+                        <label class="ex-superset-toggle ${eIdx === exercises.length - 1 ? 'disabled' : ''}">
+                            <input type="checkbox" ${ex.supersetWithNext ? 'checked' : ''} ${eIdx === exercises.length - 1 ? 'disabled' : ''}
+                                onchange="toggleSupersetWithNext(${bIdx}, ${eIdx}, this.checked)">
+                            Super série com próximo
+                        </label>
+                    </div>
+                    <textarea class="ex-notes-input" rows="2" placeholder="Observação da execução para o aluno (opcional)"
+                        oninput="updateExerciseNotes(${bIdx}, ${eIdx}, this.value)">${escHtml(ex.obs || '')}</textarea>
+                </details>
             </div>
-            <div class="ex-stats">
-                <div class="ex-stat">
-                    <span class="ex-stat-label">SÉRIES</span>
-                    <input type="number" class="ex-stat-input" value="${ex.series || ''}"
-                        oninput="workoutBlocks[${bIdx}].exercises[${eIdx}].series=this.value;updateSummaryBar()" placeholder="4">
-                </div>
-                <div class="ex-stat">
-                    <span class="ex-stat-label">REPS</span>
-                    <input type="text" class="ex-stat-input" value="${escHtml(ex.reps || '')}"
-                        oninput="workoutBlocks[${bIdx}].exercises[${eIdx}].reps=this.value;updateSummaryBar()" placeholder="10-12">
-                </div>
-                <div class="ex-stat">
-                    <span class="ex-stat-label">CARGA</span>
-                    <input type="text" class="ex-stat-input" value="${escHtml(ex.carga || '')}"
-                        oninput="workoutBlocks[${bIdx}].exercises[${eIdx}].carga=this.value;updateSummaryBar()" placeholder="30kg">
-                </div>
-                <div class="ex-stat">
-                    <span class="ex-stat-label">DESCANSO</span>
-                    <input type="text" class="ex-stat-input" value="${escHtml(ex.descanso || '')}"
-                        oninput="workoutBlocks[${bIdx}].exercises[${eIdx}].descanso=this.value;updateSummaryBar()" placeholder="60s">
-                </div>
+            <div class="trainer-set-template-panel">
+                ${renderTrainerSetTemplates(bIdx, eIdx, ex)}
             </div>
             <div class="ex-actions">
-                <div class="ex-move-buttons">
-                    <button class="btn-icon-minimal" ${eIdx === 0 ? 'disabled' : ''} onclick="moveExercise(${bIdx},${eIdx},-1)" title="Mover para cima">
-                        <i class="ph-bold ph-arrow-up"></i>
-                    </button>
-                    <button class="btn-icon-minimal" ${eIdx === block.exercises.length - 1 ? 'disabled' : ''} onclick="moveExercise(${bIdx},${eIdx},1)" title="Mover para baixo">
-                        <i class="ph-bold ph-arrow-down"></i>
-                    </button>
-                </div>
-                <button class="btn-icon-minimal" onclick="deleteExercise(${bIdx},${eIdx})" title="Remover">
-                    <i class="ph-bold ph-trash" style="color:#ef4444;font-size:1rem;"></i>
+                <button type="button" class="btn-exercise-complete ${isCompleted ? 'is-completed' : ''}" onclick="toggleTrainerExerciseDoneAndAdvance(${bIdx}, ${eIdx})" title="${isCompleted ? 'Reabrir exercício para edição' : 'Concluir exercício e abrir o próximo'}">
+                    <i class="ph-bold ${isCompleted ? 'ph-arrow-counter-clockwise' : 'ph-check-circle'}"></i>
+                    ${isCompleted ? 'Reabrir' : 'Concluir'}
                 </button>
+                <div class="trainer-inline-actions">
+                    <button class="btn-icon-minimal btn-menu-trigger" onclick="toggleTrainerExerciseMoreMenu(${bIdx}, ${eIdx}, event)" title="Mais ações">
+                        <i class="ph-bold ph-dots-three-outline"></i>
+                    </button>
+                    ${isTrainerExerciseMoreMenuOpen(bIdx, eIdx) ? `
+                    <div class="trainer-inline-menu">
+                        <button type="button" ${eIdx === 0 ? 'disabled' : ''} onclick="moveExercise(${bIdx},${eIdx},-1); closeTrainerExerciseMoreMenu();">
+                            <i class="ph-bold ph-arrow-up"></i> Mover para cima
+                        </button>
+                        <button type="button" ${eIdx === exercises.length - 1 ? 'disabled' : ''} onclick="moveExercise(${bIdx},${eIdx},1); closeTrainerExerciseMoreMenu();">
+                            <i class="ph-bold ph-arrow-down"></i> Mover para baixo
+                        </button>
+                        <button type="button" onclick="duplicateExerciseInline(${bIdx}, ${eIdx})">
+                            <i class="ph-bold ph-copy"></i> Duplicar exercício
+                        </button>
+                        <button type="button" class="danger" onclick="deleteExercise(${bIdx},${eIdx})">
+                            <i class="ph-bold ph-trash"></i> Remover exercício
+                        </button>
+                    </div>
+                    ` : ''}
+                </div>
             </div>
-        </div>`).join('')
+        </div>`;
+            }).join('')
         }
-    </div>`).join('');
+        </div>
+    </div>`;
+    }).join('');
 
     updateSummaryBar();
 }
@@ -22733,8 +28465,43 @@ function queueWorkoutPlanAutosave() {
 function addWorkoutBlock() {
     const letter = String.fromCharCode(65 + workoutBlocks.length); // A, B, C ...
     workoutBlocks.push({ name: `Treino ${letter}`, exercises: [] });
+    trainerWorkoutUiState.openBlockKey = getTrainerBlockUiKey(workoutBlocks.length - 1);
     renderWorkoutBlocks();
     signalStudentPlanDirty();
+}
+
+function getLastWorkoutBlockIndexOrCreate() {
+    if (!Array.isArray(workoutBlocks)) workoutBlocks = [];
+    if (workoutBlocks.length === 0) {
+        const letter = String.fromCharCode(65 + workoutBlocks.length);
+        workoutBlocks.push({ name: `Treino ${letter}`, exercises: [] });
+        renderWorkoutBlocks();
+        signalStudentPlanDirty();
+    }
+    return Math.max(0, workoutBlocks.length - 1);
+}
+
+function openExerciseModalForLastWorkoutBlock() {
+    const blockIdx = getLastWorkoutBlockIndexOrCreate();
+    switchProfileTab('treino');
+    setTimeout(() => openExModal(blockIdx), 0);
+}
+
+function duplicateLastWorkoutBlock() {
+    if (!Array.isArray(workoutBlocks) || workoutBlocks.length === 0) {
+        addWorkoutBlock();
+        return;
+    }
+    const source = workoutBlocks[workoutBlocks.length - 1] || {};
+    const copy = JSON.parse(JSON.stringify(source));
+    copy.name = sanitizeUserInput(`${copy.name || 'Treino'} cópia`, { maxLen: 80 }) || 'Treino cópia';
+    copy.exercises = Array.isArray(copy.exercises) ? copy.exercises : [];
+    workoutBlocks.push(copy);
+    trainerWorkoutUiState.openBlockKey = getTrainerBlockUiKey(workoutBlocks.length - 1);
+    renderWorkoutBlocks();
+    signalStudentPlanDirty();
+    queueWorkoutPlanAutosave();
+    switchProfileTab('treino');
 }
 
 function deleteWorkoutBlock(bIdx) {
@@ -22757,6 +28524,8 @@ function deleteWorkoutBlock(bIdx) {
 function deleteExercise(bIdx, eIdx) {
     const rowEl = document.getElementById(`ex-${bIdx}-${eIdx}`);
     const removeExercise = () => {
+        closeTrainerExerciseMoreMenu();
+        closeTrainerSetMoreMenu();
         workoutBlocks[bIdx].exercises.splice(eIdx, 1);
         renderWorkoutBlocks();
         signalStudentPlanDirty();
@@ -22778,6 +28547,22 @@ function updateExerciseSubstitute(bIdx, eIdx, subIdx, value) {
     queueWorkoutPlanAutosave();
 }
 
+function updateExerciseName(bIdx, eIdx, value) {
+    const ex = workoutBlocks?.[bIdx]?.exercises?.[eIdx];
+    if (!ex) return;
+    ex.nome = sanitizeUserInput(value || '', { maxLen: 120 });
+    signalStudentPlanDirty();
+    queueWorkoutPlanAutosave();
+}
+
+function updateExerciseNotes(bIdx, eIdx, value) {
+    const ex = workoutBlocks?.[bIdx]?.exercises?.[eIdx];
+    if (!ex) return;
+    ex.obs = sanitizeUserInput(value || '', { allowNewlines: true, maxLen: 260 });
+    signalStudentPlanDirty();
+    queueWorkoutPlanAutosave();
+}
+
 function toggleSupersetWithNext(bIdx, eIdx, checked) {
     const ex = workoutBlocks?.[bIdx]?.exercises?.[eIdx];
     if (!ex) return;
@@ -22796,16 +28581,17 @@ function updateSummaryBar() {
     let totalVolumeKg = 0;
     workoutBlocks.forEach((block) => {
         block.exercises.forEach((exercise) => {
-            const series = Math.max(0, parseInt(exercise.series, 10) || 0);
-            const restPerSet = parseRestToSeconds(exercise.descanso);
-            const avgReps = parseRepsAverage(exercise.reps);
-            const cargaKg = parseCargaToKg(exercise.carga);
+            const templates = getExerciseSetTemplates(exercise);
+            const series = templates.length;
+            const restSeconds = templates.reduce((sum, tpl) => sum + parseRestToSeconds(tpl.rest || exercise.descanso), 0);
+            const repsTotal = templates.reduce((sum, tpl) => sum + parseRepsAverage(tpl.reps || exercise.reps), 0);
+            const avgReps = series > 0 ? (repsTotal / series) : parseRepsAverage(exercise.reps);
             totalSeries += series;
             totalExercises += 1;
-            totalReps += series * avgReps;
+            totalReps += repsTotal || (series * avgReps);
             totalWorkSeconds += series * 40;
-            totalRestSeconds += series * restPerSet;
-            totalVolumeKg += series * avgReps * cargaKg;
+            totalRestSeconds += restSeconds;
+            totalVolumeKg += 0;
         });
     });
     const transitionSeconds = totalExercises * 20 + workoutBlocks.length * 90;
@@ -22827,7 +28613,7 @@ function updateSummaryBar() {
     const intensityEl = document.getElementById('summary-intensidade');
     if (intensityEl) {
         intensityEl.dataset.intensity = normalizeText(intensity || '');
-        intensityEl.title = `Volume estimado: ${Math.round(totalVolumeKg)}kg · Repetições estimadas: ${Math.round(totalReps)}`;
+        intensityEl.title = `Repetições estimadas: ${Math.round(totalReps)} · Carga fica para o aluno registrar na execução`;
     }
     queueWorkoutPlanAutosave();
 }
@@ -22839,7 +28625,7 @@ function openExModal(blockIdx) {
     const overlay = document.getElementById('ex-modal-overlay');
     if (!modal || !overlay) return;
     pendingBlockIdx = blockIdx;
-    ['ex-nome', 'ex-obs', 'ex-series', 'ex-reps', 'ex-carga', 'ex-descanso'].forEach(id => {
+    ['ex-nome', 'ex-obs', 'ex-series', 'ex-reps', 'ex-descanso'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
     });
 
@@ -22897,6 +28683,977 @@ function parseCargaToKg(cargaValue) {
     if (!match) return 0;
     const value = parseFloat(match[1].replace(',', '.'));
     return Number.isFinite(value) ? value : 0;
+}
+
+function getPrescriptionSetTypeOptions() {
+    try {
+        if (Array.isArray(SET_TYPE_OPTIONS) && SET_TYPE_OPTIONS.length) return SET_TYPE_OPTIONS;
+    } catch (_) {
+        // SET_TYPE_OPTIONS is declared later in this legacy file.
+    }
+    return [
+        { value: 'normal', label: 'Normal', short: '' },
+        { value: 'warmup', label: 'Aquecimento', short: 'A' },
+        { value: 'drop', label: 'Drop-set', short: 'D' },
+        { value: 'failure', label: 'Falha', short: 'F' },
+        { value: 'restpause', label: 'Rest-pause', short: 'R' },
+        { value: 'tempo', label: 'Preparatória', short: 'P' },
+        { value: 'cluster', label: 'Cluster', short: 'C' }
+    ];
+}
+
+function normalizePrescriptionSetType(type) {
+    const raw = String(type || 'normal').trim().toLowerCase();
+    const allowed = getPrescriptionSetTypeOptions().some(opt => opt.value === raw);
+    if (allowed) return raw;
+    if (['aquecimento', 'warm-up', 'warm_up'].includes(raw)) return 'warmup';
+    if (['drop-set', 'dropset'].includes(raw)) return 'drop';
+    if (['falha', 'failure'].includes(raw)) return 'failure';
+    return 'normal';
+}
+
+function getPrescriptionSetTypeOption(type) {
+    const normalized = normalizePrescriptionSetType(type);
+    return getPrescriptionSetTypeOptions().find(opt => opt.value === normalized)
+        || getPrescriptionSetTypeOptions()[0];
+}
+
+function getPrescriptionSetTypeLabel(type, context = 'trainer') {
+    const option = getPrescriptionSetTypeOption(type);
+    if (context === 'student' && option.value === 'normal') return 'Principal';
+    return option.label || 'Normal';
+}
+
+function normalizeTargetRirValue(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw || raw === '--') return '';
+    const parsed = Number(raw.replace(',', '.'));
+    if (!Number.isFinite(parsed)) return '';
+    return String(Math.max(0, Math.min(5, Math.round(parsed))));
+}
+
+function formatTargetRirLabel(value) {
+    const normalized = normalizeTargetRirValue(value);
+    return normalized === '' ? 'RIR --' : `RIR ${normalized}`;
+}
+
+function normalizeSetTemplateWeight(value) {
+    const raw = sanitizeUserInput(String(value ?? '').trim(), { maxLen: 20 });
+    if (!raw) return '';
+    const numericMatch = raw.match(/-?\d+(?:[.,]\d+)?/);
+    if (!numericMatch) return raw;
+    const parsed = parseFloat(String(numericMatch[0]).replace(',', '.'));
+    if (!Number.isFinite(parsed) || parsed < 0) return '';
+    const unitHint = raw.toLowerCase();
+    const rounded = Number.isInteger(parsed) ? String(parsed) : parsed.toFixed(1).replace(/\.0$/, '');
+    if (unitHint.includes('%')) return `${rounded}%`;
+    if (unitHint.includes('kg')) return `${rounded}kg`;
+    return `${rounded}kg`;
+}
+
+function normalizeSetTemplateLoadPct(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '';
+    const cleaned = raw.replace('%', '').replace(',', '.');
+    const parsed = parseFloat(cleaned);
+    if (!Number.isFinite(parsed)) return '';
+    const bounded = Math.max(0, Math.min(100, parsed));
+    if (Number.isInteger(bounded)) return String(bounded);
+    return bounded.toFixed(1).replace(/\.0$/, '');
+}
+
+function getSetTemplateIntensityBadge(template) {
+    const pct = parseFloat(String(template?.loadPct ?? '').replace(',', '.'));
+    if (!Number.isFinite(pct) || pct <= 0) return null;
+    if (pct >= 80) return { label: 'Série válida', tone: 'work' };
+    return { label: 'Aquecimento', tone: 'warmup' };
+}
+
+function buildSetTemplateClipboardPayload(template = {}) {
+    return {
+        type: normalizePrescriptionSetType(template.type || 'normal'),
+        reps: String(template.reps || '').trim(),
+        targetRir: normalizeTargetRirValue(template.targetRir),
+        rest: String(template.rest || '').trim(),
+        instructions: sanitizeUserInput(template.instructions || '', { maxLen: 260 }),
+        weight: normalizeSetTemplateWeight(template.weight || ''),
+        loadPct: normalizeSetTemplateLoadPct(template.loadPct || '')
+    };
+}
+
+function makeSetTemplateId(index) {
+    return `tpl-${Date.now().toString(36)}-${index}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function normalizeSetTemplate(rawTemplate = {}, index = 0, exercise = {}) {
+    const template = rawTemplate && typeof rawTemplate === 'object' ? rawTemplate : {};
+    const fallbackRest = exercise.descanso || '60s';
+    const instructions = template.instructions
+        ?? template.seriesNote
+        ?? template.instruction
+        ?? template.note
+        ?? template.obs
+        ?? '';
+    const weight = template.weight
+        ?? template.suggestedWeight
+        ?? template.suggested_weight
+        ?? template.carga
+        ?? '';
+    const loadPct = template.loadPct
+        ?? template.load_pct
+        ?? template.percent
+        ?? template.loadPercent
+        ?? template.workloadPct
+        ?? '';
+    return {
+        id: template.id || makeSetTemplateId(index),
+        type: normalizePrescriptionSetType(template.type || template.setType || 'normal'),
+        reps: String(template.reps ?? template.repRange ?? exercise.reps ?? '').trim(),
+        targetRir: normalizeTargetRirValue(template.targetRir ?? template.target_rir ?? template.rirTarget ?? ''),
+        rest: String(template.rest ?? template.descanso ?? template.targetRest ?? template.target_rest ?? fallbackRest).trim() || '60s',
+        instructions: sanitizeUserInput(String(instructions || ''), { maxLen: 260 }),
+        weight: normalizeSetTemplateWeight(weight),
+        loadPct: normalizeSetTemplateLoadPct(loadPct)
+    };
+}
+
+function createSetTemplatesFromLegacy(exercise = {}) {
+    const seriesCount = Math.max(1, parseInt(exercise.series, 10) || 1);
+    const legacyInstruction = sanitizeUserInput(String(exercise.obs || exercise.observacao || ''), { maxLen: 260 });
+    const legacyWeight = normalizeSetTemplateWeight(exercise.carga || '');
+    return Array.from({ length: seriesCount }, (_, index) => normalizeSetTemplate({
+        type: 'normal',
+        reps: exercise.reps || '',
+        targetRir: '',
+        rest: exercise.descanso || '60s',
+        instructions: index === 0 ? legacyInstruction : '',
+        weight: index === 0 ? legacyWeight : '',
+        loadPct: ''
+    }, index, exercise));
+}
+
+function summarizeTemplateValues(values, fallback = '') {
+    const unique = [];
+    (values || []).forEach(value => {
+        const text = String(value ?? '').trim();
+        if (text && !unique.includes(text)) unique.push(text);
+    });
+    if (unique.length === 0) return String(fallback || '');
+    if (unique.length === 1) return unique[0];
+    if (unique.length <= 3) return unique.join(' / ');
+    return 'variavel';
+}
+
+function syncExerciseLegacyFieldsFromTemplates(exercise) {
+    if (!exercise) return [];
+    const templates = Array.isArray(exercise.setTemplates) && exercise.setTemplates.length
+        ? exercise.setTemplates.map((tpl, index) => normalizeSetTemplate(tpl, index, exercise))
+        : createSetTemplatesFromLegacy(exercise);
+    exercise.setTemplates = templates;
+    exercise.series = String(templates.length);
+    exercise.reps = summarizeTemplateValues(templates.map(tpl => tpl.reps), exercise.reps || '');
+    exercise.descanso = summarizeTemplateValues(templates.map(tpl => tpl.rest), exercise.descanso || '60s');
+    exercise.carga = summarizeTemplateValues(templates.map(tpl => tpl.weight), exercise.carga || '');
+    return templates;
+}
+
+function getExerciseSetTemplates(exercise) {
+    return syncExerciseLegacyFieldsFromTemplates(exercise);
+}
+
+function getExerciseSetSummary(exercise) {
+    const templates = getExerciseSetTemplates(exercise);
+    const repsSummary = summarizeTemplateValues(templates.map(tpl => tpl.reps), exercise?.reps || '');
+    const restSummary = summarizeTemplateValues(templates.map(tpl => tpl.rest), exercise?.descanso || '');
+    const rirSummary = summarizeTemplateValues(templates.map(tpl => tpl.targetRir).filter(v => v !== ''), '');
+    const loadSummary = summarizeTemplateValues(templates.map(tpl => tpl.loadPct).filter(v => v !== ''), '');
+    const parts = [];
+    if (repsSummary) parts.push(`${repsSummary} reps`);
+    if (rirSummary) parts.push(`RIR ${rirSummary}`);
+    if (loadSummary) parts.push(`${loadSummary}% carga`);
+    if (restSummary) parts.push(`${restSummary} descanso`);
+    return parts.join(' · ');
+}
+
+const trainerWorkoutUiState = {
+    advancedByExercise: Object.create(null),
+    openBlockKey: '',
+    activeExerciseByBlock: Object.create(null),
+    completedExercises: Object.create(null),
+    editingExerciseNames: Object.create(null),
+    openExerciseMenuKey: '',
+    openSetMenuKey: '',
+    mobileDrawer: {
+        open: false,
+        exerciseKey: '',
+        setIdx: -1
+    }
+};
+
+const trainerWorkoutUiIds = {
+    seq: 0,
+    blocks: new WeakMap(),
+    exercises: new WeakMap()
+};
+
+function getTrainerObjectUiKey(store, target, prefix, fallback = '') {
+    if (!target || typeof target !== 'object') return `${prefix}:${fallback || 'na'}`;
+    const existing = store.get(target);
+    if (existing) return existing;
+    trainerWorkoutUiIds.seq += 1;
+    const nextKey = `${prefix}:${trainerWorkoutUiIds.seq.toString(36)}`;
+    store.set(target, nextKey);
+    return nextKey;
+}
+
+function getTrainerBlockUiKey(bIdx) {
+    const block = workoutBlocks?.[bIdx];
+    return getTrainerObjectUiKey(trainerWorkoutUiIds.blocks, block, 'blk', String(bIdx));
+}
+
+function getTrainerExerciseUiKey(bIdx, eIdx) {
+    const exercise = workoutBlocks?.[bIdx]?.exercises?.[eIdx];
+    return getTrainerObjectUiKey(trainerWorkoutUiIds.exercises, exercise, 'ex', `${bIdx}:${eIdx}`);
+}
+
+function getTrainerSetMenuKey(bIdx, eIdx, sIdx) {
+    return `${getTrainerExerciseUiKey(bIdx, eIdx)}:${sIdx}`;
+}
+
+function resetTrainerWorkoutUiRuntimeState() {
+    trainerWorkoutUiState.advancedByExercise = Object.create(null);
+    trainerWorkoutUiState.openBlockKey = '';
+    trainerWorkoutUiState.activeExerciseByBlock = Object.create(null);
+    trainerWorkoutUiState.completedExercises = Object.create(null);
+    trainerWorkoutUiState.editingExerciseNames = Object.create(null);
+    trainerWorkoutUiState.openExerciseMenuKey = '';
+    trainerWorkoutUiState.openSetMenuKey = '';
+    trainerWorkoutUiState.mobileDrawer = {
+        open: false,
+        exerciseKey: '',
+        setIdx: -1
+    };
+}
+
+function isTrainerExerciseAdvancedOpen(bIdx, eIdx) {
+    const key = getTrainerExerciseUiKey(bIdx, eIdx);
+    return !!trainerWorkoutUiState.advancedByExercise[key];
+}
+
+function setTrainerExerciseAdvancedState(bIdx, eIdx, forceOpen) {
+    const key = getTrainerExerciseUiKey(bIdx, eIdx);
+    const nextState = typeof forceOpen === 'boolean'
+        ? forceOpen
+        : !trainerWorkoutUiState.advancedByExercise[key];
+    if (nextState) trainerWorkoutUiState.advancedByExercise[key] = true;
+    else delete trainerWorkoutUiState.advancedByExercise[key];
+    renderWorkoutBlocks();
+}
+
+function isTrainerExerciseCompleted(bIdx, eIdx) {
+    const key = getTrainerExerciseUiKey(bIdx, eIdx);
+    return !!trainerWorkoutUiState.completedExercises[key];
+}
+
+function setTrainerExerciseCompletedState(bIdx, eIdx, completed) {
+    const key = getTrainerExerciseUiKey(bIdx, eIdx);
+    if (completed) trainerWorkoutUiState.completedExercises[key] = true;
+    else delete trainerWorkoutUiState.completedExercises[key];
+}
+
+function isTrainerExerciseNameEditing(bIdx, eIdx) {
+    const key = getTrainerExerciseUiKey(bIdx, eIdx);
+    return !!trainerWorkoutUiState.editingExerciseNames[key];
+}
+
+function setTrainerExerciseNameEditingState(bIdx, eIdx, editing, options = {}) {
+    const key = getTrainerExerciseUiKey(bIdx, eIdx);
+    if (editing) trainerWorkoutUiState.editingExerciseNames[key] = true;
+    else delete trainerWorkoutUiState.editingExerciseNames[key];
+    if (options?.render !== false) renderWorkoutBlocks();
+}
+
+function handleTrainerExerciseNameFieldKeydown(event, bIdx, eIdx) {
+    const key = String(event?.key || '');
+    if (key === 'Enter') {
+        event.preventDefault();
+        setTrainerExerciseNameEditingState(bIdx, eIdx, false);
+    } else if (key === 'Escape') {
+        event.preventDefault();
+        setTrainerExerciseNameEditingState(bIdx, eIdx, false);
+    }
+}
+
+function toggleTrainerExerciseMoreMenu(bIdx, eIdx, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    const key = getTrainerExerciseUiKey(bIdx, eIdx);
+    trainerWorkoutUiState.openExerciseMenuKey = trainerWorkoutUiState.openExerciseMenuKey === key ? '' : key;
+    if (trainerWorkoutUiState.openExerciseMenuKey) trainerWorkoutUiState.openSetMenuKey = '';
+    renderWorkoutBlocks();
+}
+
+function isTrainerExerciseMoreMenuOpen(bIdx, eIdx) {
+    return trainerWorkoutUiState.openExerciseMenuKey === getTrainerExerciseUiKey(bIdx, eIdx);
+}
+
+function closeTrainerExerciseMoreMenu() {
+    trainerWorkoutUiState.openExerciseMenuKey = '';
+}
+
+function toggleTrainerSetMoreMenu(bIdx, eIdx, sIdx, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    const key = getTrainerSetMenuKey(bIdx, eIdx, sIdx);
+    trainerWorkoutUiState.openSetMenuKey = trainerWorkoutUiState.openSetMenuKey === key ? '' : key;
+    if (trainerWorkoutUiState.openSetMenuKey) trainerWorkoutUiState.openExerciseMenuKey = '';
+    renderWorkoutBlocks();
+}
+
+function isTrainerSetMoreMenuOpen(bIdx, eIdx, sIdx) {
+    return trainerWorkoutUiState.openSetMenuKey === getTrainerSetMenuKey(bIdx, eIdx, sIdx);
+}
+
+function closeTrainerSetMoreMenu() {
+    trainerWorkoutUiState.openSetMenuKey = '';
+}
+
+function duplicateExerciseInline(bIdx, eIdx) {
+    const exercises = workoutBlocks?.[bIdx]?.exercises;
+    if (!Array.isArray(exercises) || !exercises[eIdx]) return;
+    const cloned = JSON.parse(JSON.stringify(exercises[eIdx]));
+    cloned.nome = sanitizeUserInput(`${cloned.nome || 'Exercício'} cópia`, { maxLen: 120 }) || 'Exercício cópia';
+    exercises.splice(eIdx + 1, 0, cloned);
+    const blockKey = getTrainerBlockUiKey(bIdx);
+    delete trainerWorkoutUiState.activeExerciseByBlock[blockKey];
+    closeTrainerExerciseMoreMenu();
+    renderWorkoutBlocks();
+    signalStudentPlanDirty();
+    queueWorkoutPlanAutosave();
+}
+
+function getTrainerActiveExerciseIndexForBlock(bIdx, exercises = null) {
+    const blockExercises = Array.isArray(exercises) ? exercises : (workoutBlocks?.[bIdx]?.exercises || []);
+    if (!blockExercises.length) return -1;
+    const blockKey = getTrainerBlockUiKey(bIdx);
+    const activeExerciseKey = trainerWorkoutUiState.activeExerciseByBlock[blockKey];
+    let activeIdx = -1;
+    if (activeExerciseKey) {
+        activeIdx = blockExercises.findIndex((_, idx) => getTrainerExerciseUiKey(bIdx, idx) === activeExerciseKey);
+    }
+    if (activeIdx >= 0) return activeIdx;
+    const firstIncompleteIdx = blockExercises.findIndex((_, idx) => !isTrainerExerciseCompleted(bIdx, idx));
+    const safeIdx = firstIncompleteIdx >= 0 ? firstIncompleteIdx : 0;
+    trainerWorkoutUiState.activeExerciseByBlock[blockKey] = getTrainerExerciseUiKey(bIdx, safeIdx);
+    return safeIdx;
+}
+
+function setTrainerActiveExercise(bIdx, eIdx, options = {}) {
+    const blockKey = getTrainerBlockUiKey(bIdx);
+    const exercises = workoutBlocks?.[bIdx]?.exercises || [];
+    if (!exercises.length || eIdx < 0 || eIdx >= exercises.length) {
+        delete trainerWorkoutUiState.activeExerciseByBlock[blockKey];
+    } else {
+        trainerWorkoutUiState.activeExerciseByBlock[blockKey] = getTrainerExerciseUiKey(bIdx, eIdx);
+    }
+    if (options?.render) renderWorkoutBlocks();
+}
+
+function isTrainerBlockOpen(bIdx) {
+    return trainerWorkoutUiState.openBlockKey === getTrainerBlockUiKey(bIdx);
+}
+
+function syncTrainerWorkoutUiStateWithData() {
+    if (!Array.isArray(workoutBlocks) || workoutBlocks.length === 0) {
+        trainerWorkoutUiState.openBlockKey = '';
+        trainerWorkoutUiState.activeExerciseByBlock = Object.create(null);
+        trainerWorkoutUiState.completedExercises = Object.create(null);
+        trainerWorkoutUiState.editingExerciseNames = Object.create(null);
+        trainerWorkoutUiState.openExerciseMenuKey = '';
+        trainerWorkoutUiState.openSetMenuKey = '';
+        trainerWorkoutUiState.mobileDrawer = {
+            open: false,
+            exerciseKey: '',
+            setIdx: -1
+        };
+        return;
+    }
+
+    const blockKeys = workoutBlocks.map((_, bIdx) => getTrainerBlockUiKey(bIdx));
+    if (!blockKeys.includes(trainerWorkoutUiState.openBlockKey)) {
+        trainerWorkoutUiState.openBlockKey = blockKeys[0];
+    }
+
+    const validBlockSet = new Set(blockKeys);
+    Object.keys(trainerWorkoutUiState.activeExerciseByBlock).forEach((blockKey) => {
+        if (!validBlockSet.has(blockKey)) delete trainerWorkoutUiState.activeExerciseByBlock[blockKey];
+    });
+
+    const validExerciseKeys = new Set();
+    workoutBlocks.forEach((block, bIdx) => {
+        const exercises = Array.isArray(block?.exercises) ? block.exercises : [];
+        exercises.forEach((_, eIdx) => {
+            validExerciseKeys.add(getTrainerExerciseUiKey(bIdx, eIdx));
+        });
+    });
+    Object.keys(trainerWorkoutUiState.completedExercises).forEach((exerciseKey) => {
+        if (!validExerciseKeys.has(exerciseKey)) delete trainerWorkoutUiState.completedExercises[exerciseKey];
+    });
+    Object.keys(trainerWorkoutUiState.editingExerciseNames).forEach((exerciseKey) => {
+        if (!validExerciseKeys.has(exerciseKey)) delete trainerWorkoutUiState.editingExerciseNames[exerciseKey];
+    });
+
+    if (trainerWorkoutUiState.mobileDrawer?.open && !validExerciseKeys.has(trainerWorkoutUiState.mobileDrawer.exerciseKey)) {
+        trainerWorkoutUiState.mobileDrawer = {
+            open: false,
+            exerciseKey: '',
+            setIdx: -1
+        };
+    }
+    if (trainerWorkoutUiState.openExerciseMenuKey && !validExerciseKeys.has(trainerWorkoutUiState.openExerciseMenuKey)) {
+        trainerWorkoutUiState.openExerciseMenuKey = '';
+    }
+    if (trainerWorkoutUiState.openSetMenuKey) {
+        const menuExerciseKey = trainerWorkoutUiState.openSetMenuKey.split(':').slice(0, 2).join(':');
+        if (!validExerciseKeys.has(menuExerciseKey)) trainerWorkoutUiState.openSetMenuKey = '';
+    }
+
+    workoutBlocks.forEach((block, bIdx) => {
+        const exercises = Array.isArray(block?.exercises) ? block.exercises : [];
+        if (!exercises.length) return;
+        const blockKey = getTrainerBlockUiKey(bIdx);
+        const activeExerciseKey = trainerWorkoutUiState.activeExerciseByBlock[blockKey];
+        const activeExists = !!(activeExerciseKey && exercises.some((_, idx) => getTrainerExerciseUiKey(bIdx, idx) === activeExerciseKey));
+        if (!activeExists) {
+            getTrainerActiveExerciseIndexForBlock(bIdx, exercises);
+        }
+    });
+}
+
+function toggleTrainerWorkoutBlockAccordion(bIdx) {
+    const nextBlockKey = getTrainerBlockUiKey(bIdx);
+    if (trainerWorkoutUiState.openBlockKey === nextBlockKey) return;
+    trainerWorkoutUiState.openBlockKey = nextBlockKey;
+    trainerWorkoutUiState.openExerciseMenuKey = '';
+    trainerWorkoutUiState.openSetMenuKey = '';
+    getTrainerActiveExerciseIndexForBlock(bIdx);
+    renderWorkoutBlocks();
+}
+
+function activateTrainerExerciseEditor(bIdx, eIdx, options = {}) {
+    trainerWorkoutUiState.openBlockKey = getTrainerBlockUiKey(bIdx);
+    setTrainerActiveExercise(bIdx, eIdx, { render: false });
+    if (options?.markPending) setTrainerExerciseCompletedState(bIdx, eIdx, false);
+    trainerWorkoutUiState.openExerciseMenuKey = '';
+    trainerWorkoutUiState.openSetMenuKey = '';
+    renderWorkoutBlocks();
+}
+
+function getNextTrainerExercisePosition(bIdx, eIdx) {
+    for (let blockIdx = bIdx; blockIdx < workoutBlocks.length; blockIdx += 1) {
+        const exercises = workoutBlocks?.[blockIdx]?.exercises || [];
+        const startIdx = blockIdx === bIdx ? eIdx + 1 : 0;
+        if (startIdx < exercises.length) {
+            return { bIdx: blockIdx, eIdx: startIdx };
+        }
+    }
+    return null;
+}
+
+function concludeTrainerExerciseAndAdvance(bIdx, eIdx) {
+    setTrainerExerciseCompletedState(bIdx, eIdx, true);
+    const currentExerciseKey = getTrainerExerciseUiKey(bIdx, eIdx);
+    delete trainerWorkoutUiState.editingExerciseNames[currentExerciseKey];
+    trainerWorkoutUiState.openExerciseMenuKey = '';
+    trainerWorkoutUiState.openSetMenuKey = '';
+    if (trainerWorkoutUiState.mobileDrawer?.open && trainerWorkoutUiState.mobileDrawer.exerciseKey === currentExerciseKey) {
+        trainerWorkoutUiState.mobileDrawer = {
+            open: false,
+            exerciseKey: '',
+            setIdx: -1
+        };
+    }
+    const nextPosition = getNextTrainerExercisePosition(bIdx, eIdx);
+    if (nextPosition) {
+        trainerWorkoutUiState.openBlockKey = getTrainerBlockUiKey(nextPosition.bIdx);
+        setTrainerActiveExercise(nextPosition.bIdx, nextPosition.eIdx, { render: false });
+    } else {
+        const currentBlockKey = getTrainerBlockUiKey(bIdx);
+        delete trainerWorkoutUiState.activeExerciseByBlock[currentBlockKey];
+    }
+    renderWorkoutBlocks();
+}
+
+function toggleTrainerExerciseDoneAndAdvance(bIdx, eIdx) {
+    if (isTrainerExerciseCompleted(bIdx, eIdx)) {
+        activateTrainerExerciseEditor(bIdx, eIdx, { markPending: true });
+        return;
+    }
+    concludeTrainerExerciseAndAdvance(bIdx, eIdx);
+}
+
+function isTrainerWorkoutMobileViewport() {
+    return typeof window !== 'undefined'
+        && typeof window.matchMedia === 'function'
+        && window.matchMedia('(max-width: 768px)').matches;
+}
+
+function openTrainerSetMobileDrawer(bIdx, eIdx, sIdx) {
+    const exercise = workoutBlocks?.[bIdx]?.exercises?.[eIdx];
+    if (!exercise) return;
+    const templates = getExerciseSetTemplates(exercise);
+    const safeSetIdx = Math.max(0, Math.min(templates.length - 1, parseInt(sIdx, 10) || 0));
+    trainerWorkoutUiState.mobileDrawer = {
+        open: true,
+        exerciseKey: getTrainerExerciseUiKey(bIdx, eIdx),
+        setIdx: safeSetIdx
+    };
+    renderWorkoutBlocks();
+}
+
+function closeTrainerSetMobileDrawer() {
+    trainerWorkoutUiState.mobileDrawer = {
+        open: false,
+        exerciseKey: '',
+        setIdx: -1
+    };
+    renderWorkoutBlocks();
+}
+
+function applyExerciseSetTemplateFieldFromFirst(bIdx, eIdx, field) {
+    commitExerciseSetTemplateMutation(bIdx, eIdx, (templates) => {
+        const source = templates.find((tpl) => {
+            if (field === 'targetRir') return normalizeTargetRirValue(tpl?.targetRir) !== '';
+            if (field === 'reps') return String(tpl?.reps || '').trim() !== '';
+            if (field === 'rest') return String(tpl?.rest || '').trim() !== '';
+            if (field === 'weight') return normalizeSetTemplateWeight(tpl?.weight || '') !== '';
+            if (field === 'loadPct') return normalizeSetTemplateLoadPct(tpl?.loadPct || '') !== '';
+            return false;
+        });
+        if (!source) return;
+        const value = source[field];
+        templates.forEach((tpl) => {
+            if (field === 'targetRir') tpl.targetRir = normalizeTargetRirValue(value);
+            else if (field === 'reps') tpl.reps = String(value || '').trim();
+            else if (field === 'rest') tpl.rest = String(value || '').trim();
+            else if (field === 'weight') tpl.weight = normalizeSetTemplateWeight(value);
+            else if (field === 'loadPct') tpl.loadPct = normalizeSetTemplateLoadPct(value);
+        });
+    }, true);
+}
+
+function renderTrainerSetTemplates(bIdx, eIdx, exercise) {
+    const templates = getExerciseSetTemplates(exercise);
+    const hasClipboard = !!trainerSetTemplateClipboard;
+    const advancedOpen = isTrainerExerciseAdvancedOpen(bIdx, eIdx);
+    const exerciseKey = getTrainerExerciseUiKey(bIdx, eIdx);
+    const isMobile = isTrainerWorkoutMobileViewport();
+    const isDrawerForExercise = !!(
+        trainerWorkoutUiState.mobileDrawer?.open
+        && trainerWorkoutUiState.mobileDrawer?.exerciseKey === exerciseKey
+    );
+    const drawerSetIdx = isDrawerForExercise
+        ? Math.max(0, Math.min(templates.length - 1, Number(trainerWorkoutUiState.mobileDrawer.setIdx) || 0))
+        : -1;
+    const drawerTemplate = drawerSetIdx >= 0 ? templates[drawerSetIdx] : null;
+
+    const desktopRows = templates.map((tpl, sIdx) => {
+        const typeSelect = getPrescriptionSetTypeOptions().map((opt) => `
+            <option value="${escHtml(opt.value)}" ${tpl.type === opt.value ? 'selected' : ''}>${escHtml(opt.label)}</option>
+        `).join('');
+        return `
+            <tr class="trainer-matrix-main-row">
+                <td>
+                    <div class="trainer-matrix-series-cell">
+                        <span class="trainer-matrix-series-pill">Série ${sIdx + 1}</span>
+                        <small>${escHtml(getPrescriptionSetTypeLabel(tpl.type))}</small>
+                    </div>
+                </td>
+                <td>
+                    <select class="trainer-matrix-input"
+                        onchange="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${sIdx}, 'type', this.value)">
+                        ${typeSelect}
+                    </select>
+                </td>
+                <td>
+                    <input type="text" class="trainer-matrix-input" value="${escHtml(tpl.reps || '')}"
+                        placeholder="8-10"
+                        oninput="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${sIdx}, 'reps', this.value)">
+                </td>
+                <td>
+                    <input type="text" inputmode="numeric" pattern="[0-5]*" class="trainer-matrix-input" value="${escHtml(tpl.targetRir || '')}"
+                        placeholder="2"
+                        oninput="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${sIdx}, 'targetRir', this.value)">
+                </td>
+                <td>
+                    <input type="text" class="trainer-matrix-input" value="${escHtml(tpl.rest || '')}"
+                        placeholder="60s"
+                        oninput="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${sIdx}, 'rest', this.value)">
+                </td>
+                <td>
+                    <div class="trainer-matrix-actions">
+                        <button type="button" class="trainer-matrix-action" ${sIdx === 0 ? 'disabled' : ''} onclick="moveExerciseSetTemplate(${bIdx}, ${eIdx}, ${sIdx}, -1)" title="Mover série para cima">
+                            <i class="ph-bold ph-arrow-up"></i>
+                        </button>
+                        <button type="button" class="trainer-matrix-action" ${sIdx === templates.length - 1 ? 'disabled' : ''} onclick="moveExerciseSetTemplate(${bIdx}, ${eIdx}, ${sIdx}, 1)" title="Mover série para baixo">
+                            <i class="ph-bold ph-arrow-down"></i>
+                        </button>
+                        <button type="button" class="trainer-matrix-action btn-menu-trigger" onclick="toggleTrainerSetMoreMenu(${bIdx}, ${eIdx}, ${sIdx}, event)" title="Mais ações da série">
+                            <i class="ph-bold ph-dots-three-outline"></i>
+                        </button>
+                        ${isTrainerSetMoreMenuOpen(bIdx, eIdx, sIdx) ? `
+                        <div class="trainer-inline-menu trainer-inline-menu-row">
+                            <button type="button" onclick="duplicateExerciseSetTemplate(${bIdx}, ${eIdx}, ${sIdx})">
+                                <i class="ph-bold ph-copy"></i> Duplicar série
+                            </button>
+                            <button type="button" onclick="copyExerciseSetTemplateConfig(${bIdx}, ${eIdx}, ${sIdx})">
+                                <i class="ph-bold ph-copy-simple"></i> Copiar configuração
+                            </button>
+                            <button type="button" ${hasClipboard ? '' : 'disabled'} onclick="pasteExerciseSetTemplateConfig(${bIdx}, ${eIdx}, ${sIdx})">
+                                <i class="ph-bold ph-clipboard-text"></i> Colar configuração
+                            </button>
+                            <button type="button" class="danger" ${templates.length <= 1 ? 'disabled' : ''} onclick="removeExerciseSetTemplate(${bIdx}, ${eIdx}, ${sIdx})">
+                                <i class="ph-bold ph-trash"></i> Remover série
+                            </button>
+                        </div>
+                        ` : ''}
+                    </div>
+                </td>
+            </tr>
+            <tr class="trainer-matrix-note-row">
+                <td colspan="6">
+                    <label class="trainer-matrix-note-field">
+                        <span>Nota do treinador para a Série ${sIdx + 1}</span>
+                        <input type="text" class="trainer-matrix-input trainer-matrix-note-input" value="${escHtml(tpl.instructions || '')}"
+                            placeholder="Ex: 2s na descida, sem perder a execução."
+                            oninput="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${sIdx}, 'instructions', this.value)">
+                    </label>
+                </td>
+            </tr>
+            ${advancedOpen ? `
+                <tr class="trainer-matrix-advanced-row">
+                    <td colspan="6">
+                        <div class="trainer-matrix-advanced-grid">
+                            <label>
+                                <span>Peso sugerido</span>
+                                <input type="text" class="trainer-matrix-input" value="${escHtml(tpl.weight || '')}"
+                                    placeholder="ex: 80kg"
+                                    oninput="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${sIdx}, 'weight', this.value)">
+                            </label>
+                            <label>
+                                <span>% da carga total</span>
+                                <div class="trainer-matrix-input-wrap">
+                                    <input type="number" min="0" max="100" step="0.5" class="trainer-matrix-input trainer-matrix-input-pct" value="${escHtml(tpl.loadPct || '')}"
+                                        placeholder="60"
+                                        oninput="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${sIdx}, 'loadPct', this.value)">
+                                    <em>%</em>
+                                </div>
+                            </label>
+                        </div>
+                    </td>
+                </tr>
+            ` : ''}
+        `;
+    }).join('');
+
+    const mobileRows = templates.map((tpl, sIdx) => {
+        const parts = [];
+        if (tpl.reps) parts.push(`${tpl.reps} reps`);
+        if (tpl.targetRir !== '') parts.push(`RIR ${tpl.targetRir}`);
+        if (tpl.rest) parts.push(tpl.rest);
+        const extra = [];
+        if (tpl.loadPct) extra.push(`${tpl.loadPct}% carga`);
+        if (tpl.weight) extra.push(`Peso ${tpl.weight}`);
+        if (tpl.instructions) extra.push(`Nota: ${tpl.instructions}`);
+        return `
+            <button type="button" class="trainer-matrix-mobile-row" onclick="openTrainerSetMobileDrawer(${bIdx}, ${eIdx}, ${sIdx})">
+                <div class="trainer-matrix-mobile-main">
+                    <strong>Série ${sIdx + 1} · ${escHtml(getPrescriptionSetTypeLabel(tpl.type))}</strong>
+                    <span>${escHtml(parts.join(' · ') || 'Prescrição livre')}</span>
+                    ${extra.length ? `<small>${escHtml(extra.join(' · '))}</small>` : ''}
+                </div>
+                <i class="ph-bold ph-pencil-simple"></i>
+            </button>
+        `;
+    }).join('');
+
+    const mobileDrawer = (!isMobile || !drawerTemplate) ? '' : `
+        <div class="trainer-matrix-mobile-drawer ${isDrawerForExercise ? 'active' : ''}">
+            <div class="trainer-matrix-mobile-sheet" onclick="event.stopPropagation()">
+                <div class="trainer-matrix-mobile-head">
+                    <strong>Série ${drawerSetIdx + 1}</strong>
+                    <button type="button" class="trainer-matrix-action" onclick="closeTrainerSetMobileDrawer()" title="Fechar">
+                        <i class="ph-bold ph-x"></i>
+                    </button>
+                </div>
+                <div class="trainer-matrix-mobile-form">
+                    <label><span>Tipo</span>
+                        <select class="trainer-matrix-input" onchange="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${drawerSetIdx}, 'type', this.value)">
+                            ${getPrescriptionSetTypeOptions().map((opt) => `
+                                <option value="${escHtml(opt.value)}" ${drawerTemplate.type === opt.value ? 'selected' : ''}>${escHtml(opt.label)}</option>
+                            `).join('')}
+                        </select>
+                    </label>
+                    <label><span>Reps</span>
+                        <input type="text" class="trainer-matrix-input" value="${escHtml(drawerTemplate.reps || '')}" placeholder="8-10"
+                            oninput="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${drawerSetIdx}, 'reps', this.value)">
+                    </label>
+                    <label><span>RIR alvo</span>
+                        <input type="text" inputmode="numeric" pattern="[0-5]*" class="trainer-matrix-input" value="${escHtml(drawerTemplate.targetRir || '')}" placeholder="2"
+                            oninput="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${drawerSetIdx}, 'targetRir', this.value)">
+                    </label>
+                    <label><span>Descanso</span>
+                        <input type="text" class="trainer-matrix-input" value="${escHtml(drawerTemplate.rest || '')}" placeholder="60s"
+                            oninput="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${drawerSetIdx}, 'rest', this.value)">
+                    </label>
+                    <label class="full"><span>Nota do treinador</span>
+                        <input type="text" class="trainer-matrix-input" value="${escHtml(drawerTemplate.instructions || '')}"
+                            placeholder="Ex: segurar 1s no topo."
+                            oninput="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${drawerSetIdx}, 'instructions', this.value)">
+                    </label>
+                    <label><span>Peso sugerido</span>
+                        <input type="text" class="trainer-matrix-input" value="${escHtml(drawerTemplate.weight || '')}" placeholder="ex: 80kg"
+                            oninput="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${drawerSetIdx}, 'weight', this.value)">
+                    </label>
+                    <label><span>% da carga total</span>
+                        <div class="trainer-matrix-input-wrap">
+                            <input type="number" min="0" max="100" step="0.5" class="trainer-matrix-input trainer-matrix-input-pct" value="${escHtml(drawerTemplate.loadPct || '')}" placeholder="60"
+                                oninput="updateExerciseSetTemplateField(${bIdx}, ${eIdx}, ${drawerSetIdx}, 'loadPct', this.value)">
+                            <em>%</em>
+                        </div>
+                    </label>
+                </div>
+                <div class="trainer-matrix-mobile-footer">
+                    <button type="button" class="btn-secondary btn-sm" onclick="closeTrainerSetMobileDrawer()">Voltar</button>
+                    <button type="button" class="btn-primary btn-sm" onclick="closeTrainerSetMobileDrawer()">Salvar</button>
+                    <button type="button" class="btn-secondary btn-sm" onclick="toggleTrainerSetMoreMenu(${bIdx}, ${eIdx}, ${drawerSetIdx}, event)">Mais ações</button>
+                    <button type="button" class="btn-complete-mobile btn-sm ${isTrainerExerciseCompleted(bIdx, eIdx) ? 'is-completed' : ''}" onclick="toggleTrainerExerciseDoneAndAdvance(${bIdx}, ${eIdx})">
+                        ${isTrainerExerciseCompleted(bIdx, eIdx) ? 'Reabrir exercício' : 'Concluir exercício'}
+                    </button>
+                </div>
+                ${isTrainerSetMoreMenuOpen(bIdx, eIdx, drawerSetIdx) ? `
+                <div class="trainer-mobile-extra-actions">
+                    <button type="button" onclick="duplicateExerciseSetTemplate(${bIdx}, ${eIdx}, ${drawerSetIdx})"><i class="ph-bold ph-copy"></i> Duplicar série</button>
+                    <button type="button" onclick="copyExerciseSetTemplateConfig(${bIdx}, ${eIdx}, ${drawerSetIdx})"><i class="ph-bold ph-copy-simple"></i> Copiar configuração</button>
+                    <button type="button" ${hasClipboard ? '' : 'disabled'} onclick="pasteExerciseSetTemplateConfig(${bIdx}, ${eIdx}, ${drawerSetIdx})"><i class="ph-bold ph-clipboard-text"></i> Colar configuração</button>
+                    <button type="button" class="danger" ${templates.length <= 1 ? 'disabled' : ''} onclick="removeExerciseSetTemplate(${bIdx}, ${eIdx}, ${drawerSetIdx})"><i class="ph-bold ph-trash"></i> Remover série</button>
+                </div>
+                ` : ''}
+            </div>
+            <button type="button" class="trainer-matrix-mobile-overlay" onclick="closeTrainerSetMobileDrawer()" aria-label="Fechar gaveta"></button>
+        </div>
+    `;
+
+    return `
+        <div class="trainer-matrix-shell">
+            <div class="trainer-matrix-toolbar">
+                <div class="trainer-matrix-toolbar-left">
+                    <button type="button" class="trainer-matrix-toggle ${advancedOpen ? 'active' : ''}"
+                        onclick="setTrainerExerciseAdvancedState(${bIdx}, ${eIdx})"
+                        title="Mostrar ou ocultar campos avançados da prescrição">
+                        <i class="ph-bold ph-sliders-horizontal"></i>
+                        ${advancedOpen ? 'Ocultar avançado' : 'Mostrar avançado'}
+                    </button>
+                    <span class="trainer-matrix-set-count">${templates.length} ${templates.length === 1 ? 'série' : 'séries'}</span>
+                    <span class="trainer-matrix-toolbar-hint">Preencha a nota de cada série com orientação prática para o aluno.</span>
+                </div>
+                <div class="trainer-matrix-toolbar-actions">
+                    <button type="button" class="trainer-matrix-chip-action subtle" onclick="applyExerciseSetTemplateFieldFromFirst(${bIdx}, ${eIdx}, 'reps')" title="Aplicar a faixa de reps configurada para todas as séries">
+                        <i class="ph-bold ph-repeat"></i> Reps em todas
+                    </button>
+                    <button type="button" class="trainer-matrix-chip-action subtle" onclick="applyExerciseSetTemplateFieldFromFirst(${bIdx}, ${eIdx}, 'targetRir')" title="Aplicar o RIR configurado para todas as séries">
+                        <i class="ph-bold ph-repeat"></i> RIR em todas
+                    </button>
+                    <button type="button" class="trainer-matrix-chip-action subtle" onclick="applyExerciseSetTemplateFieldFromFirst(${bIdx}, ${eIdx}, 'rest')" title="Aplicar o descanso configurado para todas as séries">
+                        <i class="ph-bold ph-repeat"></i> Descanso em todas
+                    </button>
+                    ${hasClipboard ? `
+                        <button type="button" class="trainer-matrix-chip-action subtle" onclick="pasteExerciseSetTemplateToAllSets(${bIdx}, ${eIdx})" title="Colar a configuração copiada em todas as séries">
+                            <i class="ph-bold ph-clipboard-text"></i> Colar em todas
+                        </button>
+                    ` : ''}
+                    <button type="button" class="trainer-matrix-chip-action primary" onclick="addExerciseSetTemplate(${bIdx}, ${eIdx})" title="Adicionar nova série">
+                        <i class="ph-bold ph-plus"></i> Série
+                    </button>
+                </div>
+            </div>
+            <div class="trainer-matrix-table-wrap">
+                <table class="trainer-matrix-table" aria-label="Matriz de séries do exercício">
+                    <thead>
+                        <tr>
+                            <th>Série</th>
+                            <th>Tipo</th>
+                            <th>Reps</th>
+                            <th>RIR alvo</th>
+                            <th>Descanso</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${desktopRows}
+                    </tbody>
+                </table>
+                <div class="trainer-matrix-mobile-list" aria-label="Lista mobile de séries">
+                    ${mobileRows}
+                </div>
+            </div>
+            ${mobileDrawer}
+        </div>
+    `;
+}
+
+function renderStudentExercisePrescription(exercise) {
+    const templates = getExerciseSetTemplates(exercise);
+    return `
+        <div class="student-prescription-list">
+            ${templates.map((tpl, idx) => {
+                const parts = [
+                    `Série ${idx + 1}`,
+                    getPrescriptionSetTypeLabel(tpl.type, 'student')
+                ];
+                const primaryMeta = [];
+                if (tpl.reps) primaryMeta.push(`${tpl.reps} reps`);
+                if (tpl.targetRir !== '') primaryMeta.push(formatTargetRirLabel(tpl.targetRir));
+                if (tpl.rest) primaryMeta.push(tpl.rest);
+                const secondaryMeta = [];
+                if (tpl.loadPct) secondaryMeta.push(`${tpl.loadPct}% carga`);
+                if (tpl.weight) secondaryMeta.push(`Peso sugerido ${tpl.weight}`);
+                return `
+                    <div class="student-prescription-row type-${escHtml(tpl.type)}">
+                        <div class="student-prescription-meta">
+                            <span class="student-prescription-chip">${escHtml(parts[0])}</span>
+                            <span>${escHtml(parts.slice(1).join(' · '))}</span>
+                        </div>
+                        <div class="student-prescription-meta student-prescription-meta-primary">
+                            <span>${escHtml(primaryMeta.join(' · ') || 'Sem meta definida')}</span>
+                        </div>
+                        ${secondaryMeta.length ? `<div class="student-prescription-meta student-prescription-meta-secondary"><span>${escHtml(secondaryMeta.join(' · '))}</span></div>` : ''}
+                        ${tpl.instructions ? `<p class="student-prescription-note">${escHtml(tpl.instructions)}</p>` : ''}
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
+function commitExerciseSetTemplateMutation(bIdx, eIdx, mutator, shouldRender = false) {
+    const exercise = workoutBlocks?.[bIdx]?.exercises?.[eIdx];
+    if (!exercise) return;
+    const templates = getExerciseSetTemplates(exercise);
+    mutator(templates, exercise);
+    exercise.setTemplates = templates.map((tpl, index) => normalizeSetTemplate(tpl, index, exercise));
+    syncExerciseLegacyFieldsFromTemplates(exercise);
+    signalStudentPlanDirty();
+    updateSummaryBar();
+    queueWorkoutPlanAutosave();
+    if (shouldRender) renderWorkoutBlocks();
+}
+
+function updateExerciseSetTemplateField(bIdx, eIdx, sIdx, field, value) {
+    commitExerciseSetTemplateMutation(bIdx, eIdx, (templates) => {
+        const tpl = templates[sIdx];
+        if (!tpl) return;
+        if (field === 'type') tpl.type = normalizePrescriptionSetType(value);
+        else if (field === 'targetRir') tpl.targetRir = normalizeTargetRirValue(value);
+        else if (field === 'instructions') tpl.instructions = sanitizeUserInput(value || '', { maxLen: 260 });
+        else if (field === 'weight') tpl.weight = normalizeSetTemplateWeight(value);
+        else if (field === 'loadPct') tpl.loadPct = normalizeSetTemplateLoadPct(value);
+        else if (field === 'rest') tpl.rest = String(value || '').trim();
+        else if (field === 'reps') tpl.reps = String(value || '').trim();
+    }, false);
+}
+
+function applyExerciseSetTemplateFieldToAll(bIdx, eIdx, sIdx, field) {
+    commitExerciseSetTemplateMutation(bIdx, eIdx, (templates) => {
+        const source = templates[sIdx];
+        if (!source) return;
+        const value = source[field];
+        templates.forEach((tpl, idx) => {
+            if (idx === sIdx) return;
+            if (field === 'targetRir') tpl.targetRir = normalizeTargetRirValue(value);
+            else if (field === 'reps') tpl.reps = String(value || '').trim();
+            else if (field === 'weight') tpl.weight = normalizeSetTemplateWeight(value);
+            else if (field === 'loadPct') tpl.loadPct = normalizeSetTemplateLoadPct(value);
+            else if (field === 'rest') tpl.rest = String(value || '').trim();
+            else if (field === 'instructions') tpl.instructions = sanitizeUserInput(value || '', { maxLen: 260 });
+        });
+    }, true);
+}
+
+function copyExerciseSetTemplateConfig(bIdx, eIdx, sIdx) {
+    const exercise = workoutBlocks?.[bIdx]?.exercises?.[eIdx];
+    if (!exercise) return;
+    const templates = getExerciseSetTemplates(exercise);
+    const source = templates[sIdx];
+    if (!source) return;
+    trainerSetTemplateClipboard = buildSetTemplateClipboardPayload(source);
+    closeTrainerSetMoreMenu();
+    renderWorkoutBlocks();
+}
+
+function pasteExerciseSetTemplateConfig(bIdx, eIdx, sIdx) {
+    if (!trainerSetTemplateClipboard) return;
+    commitExerciseSetTemplateMutation(bIdx, eIdx, (templates) => {
+        const target = templates[sIdx];
+        if (!target) return;
+        Object.assign(target, buildSetTemplateClipboardPayload(trainerSetTemplateClipboard));
+    }, true);
+    closeTrainerSetMoreMenu();
+}
+
+function pasteExerciseSetTemplateToAllSets(bIdx, eIdx) {
+    if (!trainerSetTemplateClipboard) return;
+    commitExerciseSetTemplateMutation(bIdx, eIdx, (templates) => {
+        templates.forEach((tpl) => {
+            Object.assign(tpl, buildSetTemplateClipboardPayload(trainerSetTemplateClipboard));
+        });
+    }, true);
+    closeTrainerSetMoreMenu();
+}
+
+function addExerciseSetTemplate(bIdx, eIdx) {
+    commitExerciseSetTemplateMutation(bIdx, eIdx, (templates, exercise) => {
+        const source = templates[templates.length - 1] || normalizeSetTemplate({}, 0, exercise);
+        templates.push({
+            ...source,
+            id: makeSetTemplateId(templates.length),
+            instructions: ''
+        });
+    }, true);
+    closeTrainerSetMoreMenu();
+}
+
+function duplicateExerciseSetTemplate(bIdx, eIdx, sIdx) {
+    commitExerciseSetTemplateMutation(bIdx, eIdx, (templates) => {
+        const source = templates[sIdx];
+        if (!source) return;
+        templates.splice(sIdx + 1, 0, {
+            ...source,
+            id: makeSetTemplateId(sIdx + 1)
+        });
+    }, true);
+    closeTrainerSetMoreMenu();
+}
+
+function removeExerciseSetTemplate(bIdx, eIdx, sIdx) {
+    commitExerciseSetTemplateMutation(bIdx, eIdx, (templates) => {
+        if (templates.length <= 1) return;
+        templates.splice(sIdx, 1);
+    }, true);
+    closeTrainerSetMoreMenu();
+}
+
+function moveExerciseSetTemplate(bIdx, eIdx, sIdx, direction) {
+    commitExerciseSetTemplateMutation(bIdx, eIdx, (templates) => {
+        const nextIdx = sIdx + direction;
+        if (nextIdx < 0 || nextIdx >= templates.length) return;
+        const [item] = templates.splice(sIdx, 1);
+        templates.splice(nextIdx, 0, item);
+    }, true);
 }
 
 function formatDurationLabel(totalMinutes) {
@@ -23192,18 +29949,26 @@ function confirmAddExercise() {
     const typedName = (document.getElementById('ex-nome').value || '').trim();
     const nome = (typedName || selectedExerciseCatalogItem || '').trim();
     if (!nome) { document.getElementById('ex-nome').focus(); return; }
+    const series = document.getElementById('ex-series').value || '4';
+    const reps = document.getElementById('ex-reps').value || '10-12';
+    const descanso = document.getElementById('ex-descanso').value || '60s';
     const ex = {
         nome,
         obs: document.getElementById('ex-obs').value.trim(),
-        series: document.getElementById('ex-series').value || '4',
-        reps: document.getElementById('ex-reps').value || '10-12',
-        carga: document.getElementById('ex-carga').value || '--',
-        descanso: document.getElementById('ex-descanso').value || '60s',
+        series,
+        reps,
+        carga: '',
+        descanso,
         substitutes: ['', ''],
-        supersetWithNext: false
+        supersetWithNext: false,
+        setTemplates: []
     };
+    ex.setTemplates = createSetTemplatesFromLegacy(ex);
+    syncExerciseLegacyFieldsFromTemplates(ex);
     if (pendingBlockIdx !== null) {
         workoutBlocks[pendingBlockIdx].exercises.push(ex);
+        trainerWorkoutUiState.openBlockKey = getTrainerBlockUiKey(pendingBlockIdx);
+        setTrainerActiveExercise(pendingBlockIdx, workoutBlocks[pendingBlockIdx].exercises.length - 1, { render: false });
     }
     closeExModal('confirm');
     renderWorkoutBlocks();
@@ -23321,7 +30086,7 @@ function addMeal() {
     mealBlocks.push({ name: finalName, items: [] });
     renderMeals();
     signalStudentPlanDirty();
-    switchProfileTab('dieta');
+    switchProfileTab('refeicoes');
 }
 
 function deleteMeal(mIdx) {
@@ -24469,7 +31234,8 @@ function toggleFoodManualMacros() {
 async function saveStudentPlan() {
     const selection = resolveCurrentTrainerStudentSelection();
     if (selection.idx < 0 || !selection.student) return;
-    const activeDietTab = document.getElementById('p-tab-nutricao')?.classList.contains('active')
+    const activeDietTab = document.getElementById('p-tab-deft')?.classList.contains('active')
+        || document.getElementById('p-tab-nutricao')?.classList.contains('active')
         || document.getElementById('p-tab-config')?.classList.contains('active');
     if (activeDietTab && navigator.onLine === false) {
         setStudentSyncState('offline', 'Sem conexão');
@@ -24519,6 +31285,7 @@ async function saveStudentPlan() {
         students[targetIdx].waterPlan = JSON.parse(JSON.stringify(normalizeWaterPlanShape(trainerWaterPlan)));
         students[targetIdx].routine = JSON.parse(JSON.stringify(normalizeRoutineShape(trainerRoutinePlan)));
         students[targetIdx].dietMeta = diet;
+        applyTrainerDeftStateToStudent(students[targetIdx]);
         students[targetIdx].billingStartDate = billingStartDate;
         students[targetIdx].billingCurrentStatus = billingCurrentStatus;
         students[targetIdx].billingMonthlyAmount = billingMonthlyAmount;
@@ -24654,9 +31421,10 @@ const SET_TYPE_OPTIONS = [
     { value: 'drop', label: 'Drop-set', short: 'D' },
     { value: 'failure', label: 'Falha', short: 'F' },
     { value: 'restpause', label: 'Rest-pause', short: 'R' },
-    { value: 'tempo', label: 'Preparatoria', short: 'P' },
+    { value: 'tempo', label: 'Preparatória', short: 'P' },
     { value: 'cluster', label: 'Cluster', short: 'C' }
 ];
+let trainerSetTemplateClipboard = null;
 
 function readRestAutoStartPreference() {
     const raw = String(memoryGetItem(REST_AUTO_START_STORAGE_KEY) || '').trim().toLowerCase();
@@ -24731,7 +31499,15 @@ function normalizeWorkoutStateSnapshot(rawState) {
                 id: safeSet.id || `set-${exIdx}-${setIdx}`,
                 weight: safeSet.weight ?? safeSet.peso ?? '',
                 reps: safeSet.reps ?? '',
+                prescribedReps: safeSet.prescribedReps ?? safeSet.prescribed_reps ?? safeSet.targetReps ?? '',
                 type: safeSet.type || 'normal',
+                targetRir: normalizeTargetRirValue(safeSet.targetRir ?? safeSet.target_rir ?? safeSet.rirTarget ?? ''),
+                targetRest: safeSet.targetRest ?? safeSet.target_rest ?? safeSet.rest ?? '',
+                rest: safeSet.rest ?? safeSet.targetRest ?? safeSet.target_rest ?? '',
+                prescriptionNote: sanitizeUserInput(safeSet.prescriptionNote || safeSet.prescription_note || safeSet.instructions || '', { maxLen: 260 }),
+                instructions: sanitizeUserInput(safeSet.instructions || safeSet.prescriptionNote || safeSet.prescription_note || '', { maxLen: 260 }),
+                suggestedWeight: normalizeSetTemplateWeight(safeSet.suggestedWeight ?? safeSet.suggested_weight ?? safeSet.targetWeight ?? safeSet.weightSuggestion ?? ''),
+                loadPct: normalizeSetTemplateLoadPct(safeSet.loadPct ?? safeSet.load_pct ?? safeSet.targetLoadPct ?? ''),
                 intensityLevel: safeSet.intensityLevel ?? mapped.intensityLevel ?? 0,
                 rpe: Number.isFinite(Number(safeSet.rpe)) ? Number(safeSet.rpe) : mapped.rpe,
                 rir: Number.isFinite(Number(safeSet.rir)) ? Number(safeSet.rir) : mapped.rir,
@@ -24956,53 +31732,46 @@ function startWorkoutSession(blockIdx = 0) {
         startTime: Date.now(),
         title: blockTitle || 'Meu Treino',
         exercises: block.exercises.map((ex, idx) => {
-            const templateSets = Array.isArray(ex.setTemplates) && ex.setTemplates.length
-                ? ex.setTemplates
-                : null;
+            const templateSets = getExerciseSetTemplates(ex);
             const prevInfo = getPreviousSessionSets(studentId, ex.nome);
             const prevSets = prevInfo?.sets || null;
-            const sets = templateSets
-                ? templateSets.map((tpl, sIdx) => {
-                    const setType = tpl.type || 'normal';
-                    return {
-                        id: `set-${idx}-${sIdx}`,
-                        weight: tpl.weight ?? ex.carga ?? '',
-                        reps: tpl.reps ?? ex.reps ?? '',
-                        type: setType,
-                        intensityLevel: 0,
-                        rpe: '',
-                        rir: '',
-                        setNote: '',
-                        execucao: 0,
-                        logged: false,
-                        completed: false,
-                        brokenPRs: { weight: false, volume: false, oneRM: false },
-                        prev: pickPreviousSet(prevSets, sIdx, setType)
-                    };
-                })
-                : Array.from({ length: parseInt(ex.series) || 3 }, (_, sIdx) => {
-                    const setType = 'normal';
-                    return {
-                        id: `set-${idx}-${sIdx}`,
-                        weight: ex.carga || '',
-                        reps: ex.reps || '',
-                        type: setType,
-                        intensityLevel: 0,
-                        rpe: '',
-                        rir: '',
-                        setNote: '',
-                        execucao: 0,
-                        logged: false,
-                        completed: false,
-                        brokenPRs: { weight: false, volume: false, oneRM: false },
-                        prev: pickPreviousSet(prevSets, sIdx, setType)
-                    };
-                });
+            const sets = templateSets.map((tpl, sIdx) => {
+                const setType = normalizePrescriptionSetType(tpl.type || 'normal');
+                const prescribedReps = String(tpl.reps ?? ex.reps ?? '').trim();
+                const targetRest = String(tpl.rest || ex.descanso || '60s').trim() || '60s';
+                const prescriptionNote = sanitizeUserInput(tpl.instructions || '', { maxLen: 260 });
+                const suggestedWeight = normalizeSetTemplateWeight(tpl.weight || '');
+                const loadPct = normalizeSetTemplateLoadPct(tpl.loadPct || '');
+                return {
+                    id: `set-${idx}-${sIdx}`,
+                    weight: '',
+                    reps: '',
+                    prescribedReps,
+                    type: setType,
+                    targetRir: normalizeTargetRirValue(tpl.targetRir),
+                    targetRest,
+                    rest: targetRest,
+                    prescriptionNote,
+                    instructions: prescriptionNote,
+                    suggestedWeight,
+                    loadPct,
+                    intensityLevel: 0,
+                    rpe: '',
+                    rir: '',
+                    setNote: '',
+                    execucao: 0,
+                    logged: false,
+                    completed: false,
+                    brokenPRs: { weight: false, volume: false, oneRM: false },
+                    prev: pickPreviousSet(prevSets, sIdx, setType)
+                };
+            });
 
             return {
                 id: `ex-${idx}`,
                 nome: ex.nome,
                 baseNome: ex.nome,
+                descanso: ex.descanso || '',
                 substitutes: Array.isArray(ex.substitutes) ? ex.substitutes.filter(Boolean) : [],
                 showSubstitutes: false,
                 supersetGroup: supersetGroups[idx] || 0,
@@ -25130,7 +31899,7 @@ function renderWorkoutLog() {
                 <input type="text" class="exercise-notes-input"
                     placeholder="Notas do exercicio..."
                     value="${escHtml(ex.notes || '')}"
-                    oninput="updateExerciseNotes(${exIdx}, this.value)">
+                    oninput="updateWorkoutLogExerciseNotes(${exIdx}, this.value)">
                 ${prevNote ? `<div class="exercise-prev-note">${escHtml(prevNote)}</div>` : ''}`;
             })()}
 
@@ -25154,15 +31923,15 @@ function renderWorkoutLog() {
             const prTypes = hasPR ? getSetPRTypes(set) : [];
             const prLabel = prTypes.length ? prTypes.join(' + ') : '';
             const prBadgeText = prLabel ? `Recorde! ${prLabel}` : 'Recorde!';
-            const setType = set.type || 'normal';
-            const typeOption = SET_TYPE_OPTIONS.find(t => t.value === setType) || SET_TYPE_OPTIONS[0];
+            const setType = normalizePrescriptionSetType(set.type || 'normal');
+            const typeOption = getPrescriptionSetTypeOption(setType);
             const typeShort = typeOption.short || '';
             const setTitle = hasPR ? prTooltip : `Série ${setIdx + 1} · ${typeOption.label}`;
             const setNumberHtml = hasPR
                 ? `<span class="set-pr-icon" title="${prTooltip}">${uiSvgIcon('trophy')}</span>`
                 : `${typeShort || (setIdx + 1)}`;
             const prevTypeValue = prevMetrics.type || set.type || 'normal';
-            const prevTypeOption = SET_TYPE_OPTIONS.find(t => t.value === prevTypeValue) || null;
+            const prevTypeOption = getPrescriptionSetTypeOption(prevTypeValue);
             const prevTypeLabel = prevTypeOption ? prevTypeOption.label : '';
             const prevIndex = Number.isFinite(prevMetrics.index) ? prevMetrics.index + 1 : setIdx + 1;
             const prevSessionLabel = prevMetrics.sessionLabel || 'Sessão anterior';
@@ -25172,16 +31941,37 @@ function renderWorkoutLog() {
             const prevLine = hasPrev
                 ? `${prevSessionLabel} · Série ${prevIndex}${prevTypeLabel ? ` · ${prevTypeLabel}` : ''}: ${prevWeightLabel} x ${prevRepsLabel}`
                 : 'Sem histórico de série';
+            const prescribedReps = String(set.prescribedReps ?? '').trim();
+            const targetRirText = formatTargetRirLabel(set.targetRir);
+            const restText = String(set.targetRest || set.rest || ex.descanso || '60s').trim();
+            const prescriptionNote = sanitizeUserInput(set.prescriptionNote || set.instructions || '', { maxLen: 260 });
+            const suggestedWeight = normalizeSetTemplateWeight(set.suggestedWeight || '');
+            const loadPct = normalizeSetTemplateLoadPct(set.loadPct || '');
+            const prescriptionParts = [
+                getPrescriptionSetTypeLabel(setType, 'student'),
+                prescribedReps ? `${prescribedReps} reps` : '',
+                targetRirText !== 'RIR --' ? targetRirText : '',
+                restText ? `${restText} descanso` : ''
+            ].filter(Boolean);
 
             return `
+                    <div class="set-prescription-row type-${escHtml(setType)}">
+                        <div class="set-prescription-main">
+                            <span class="set-prescription-pill">Série ${setIdx + 1}</span>
+                            <span>${escHtml(prescriptionParts.join(' · ') || 'Prescrição livre')}</span>
+                            ${suggestedWeight ? `<span class="set-prescription-badge">Peso sug. ${escHtml(suggestedWeight)}</span>` : ''}
+                            ${loadPct ? `<span class="set-prescription-badge">Carga ${escHtml(loadPct)}%</span>` : ''}
+                        </div>
+                        ${prescriptionNote ? `<p class="set-prescription-note">${escHtml(prescriptionNote)}</p>` : ''}
+                    </div>
                     <div class="log-set-row ${set.completed ? 'completed' : ''} ${hasPR ? 'pr-hit' : ''}" id="row-${exIdx}-${setIdx}">
                         <div class="set-number ${hasPR ? 'has-pr' : ''} type-${setType}" title="${setTitle}" role="button" onclick="openSetTypePopover(event, ${exIdx}, ${setIdx})">${setNumberHtml}</div>
 
                         <div class="set-value-stack">
                             <div class="set-input-row">
-                                <input type="number" inputmode="decimal" pattern="[0-9]*" min="0" step="0.5" class="set-input log-input-tactile compact-value" value="${set.weight}" 
+                                <input type="number" inputmode="decimal" pattern="[0-9]*" min="0" step="0.5" class="set-input log-input-tactile compact-value" value="${escHtml(set.weight || '')}" 
                                     data-workout-focus="weight-${exIdx}-${setIdx}"
-                                    placeholder="KG" oninput="updateSetData(${exIdx}, ${setIdx}, 'weight', this.value)"
+                                    placeholder="${suggestedWeight ? escHtml(suggestedWeight) : 'KG'}" oninput="updateSetData(${exIdx}, ${setIdx}, 'weight', this.value)"
                                     ${set.completed ? 'disabled' : ''}>
                                 <span class="set-progress-flag ${weightUp ? 'up' : ''}" aria-hidden="true">
                                     ${weightUp ? uiSvgIcon('lightning') : ''}
@@ -25191,9 +31981,9 @@ function renderWorkoutLog() {
 
                         <div class="set-value-stack">
                             <div class="set-input-row">
-                                <input type="number" inputmode="decimal" pattern="[0-9]*" min="0" step="1" class="set-input log-input-tactile compact-value" value="${set.reps}" 
+                                <input type="number" inputmode="decimal" pattern="[0-9]*" min="0" step="1" class="set-input log-input-tactile compact-value" value="${escHtml(set.reps || '')}" 
                                     data-workout-focus="reps-${exIdx}-${setIdx}"
-                                    placeholder="REPS" oninput="updateSetData(${exIdx}, ${setIdx}, 'reps', this.value)"
+                                    placeholder="${prescribedReps ? escHtml(prescribedReps) : 'REPS'}" oninput="updateSetData(${exIdx}, ${setIdx}, 'reps', this.value)"
                                     ${set.completed ? 'disabled' : ''}>
                                 <span class="set-progress-flag ${repsUp ? 'up' : ''}" aria-hidden="true">
                                     ${repsUp ? uiSvgIcon('arrow-up-right') : ''}
@@ -25248,7 +32038,7 @@ function renderWorkoutLog() {
     optimizeMediaElements(container);
 }
 
-function updateExerciseNotes(exIdx, notes) {
+function updateWorkoutLogExerciseNotes(exIdx, notes) {
     if (!workoutState || !workoutState.exercises[exIdx]) return;
     workoutState.exercises[exIdx].notes = notes;
     saveWorkoutBackup();
@@ -25514,7 +32304,7 @@ function toggleSetCompletion(exIdx, setIdx) {
 
     if (set.completed) {
         if (restAutoStartEnabled) {
-            startRestTimer(60); // Default 60s
+            startRestTimer(parseRestToSeconds(set.targetRest || set.rest || exercise.descanso || '60s'));
         } else {
             hideRestTimer();
         }
@@ -25528,6 +32318,19 @@ function toggleSetCompletion(exIdx, setIdx) {
                 serie: setIdx + 1,
                 peso: parseFloat(set.weight) || 0,
                 reps: parseInt(set.reps) || 0,
+                prescribed_reps: set.prescribedReps || '',
+                prescribedReps: set.prescribedReps || '',
+                type: set.type || 'normal',
+                target_rir: Number.isFinite(Number(set.targetRir)) ? Number(set.targetRir) : null,
+                targetRir: Number.isFinite(Number(set.targetRir)) ? Number(set.targetRir) : null,
+                target_rest: set.targetRest || set.rest || '',
+                targetRest: set.targetRest || set.rest || '',
+                prescription_note: sanitizeUserInput(set.prescriptionNote || set.instructions || '', { maxLen: 260 }),
+                prescriptionNote: sanitizeUserInput(set.prescriptionNote || set.instructions || '', { maxLen: 260 }),
+                suggested_weight: normalizeSetTemplateWeight(set.suggestedWeight || ''),
+                suggestedWeight: normalizeSetTemplateWeight(set.suggestedWeight || ''),
+                load_pct: normalizeSetTemplateLoadPct(set.loadPct || ''),
+                loadPct: normalizeSetTemplateLoadPct(set.loadPct || ''),
                 intensidade: set.intensityLevel || 0,
                 rpe: Number.isFinite(Number(set.rpe)) ? Number(set.rpe) : null,
                 rir: Number.isFinite(Number(set.rir)) ? Number(set.rir) : null,
@@ -25648,11 +32451,11 @@ function openSetTypePopover(event, exIdx, setIdx) {
 
     const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
     if (!set) return;
-    const currentType = set.type || 'normal';
+    const currentType = normalizePrescriptionSetType(set.type || 'normal');
 
     const popover = document.createElement('div');
     popover.className = 'set-type-popover';
-    const optionsHtml = SET_TYPE_OPTIONS.map(opt => {
+    const optionsHtml = getPrescriptionSetTypeOptions().map(opt => {
         const active = opt.value === currentType ? 'active' : '';
         const chip = opt.short ? `<span class="set-type-chip">${opt.short}</span>` : '';
         return `<button type="button" class="set-type-option ${active}" onclick="selectSetType(${exIdx}, ${setIdx}, '${opt.value}')">${chip}<span>${opt.label}</span></button>`;
@@ -25691,8 +32494,7 @@ function selectSetType(exIdx, setIdx, type) {
     if (!workoutState) return;
     const set = workoutState.exercises?.[exIdx]?.sets?.[setIdx];
     if (!set) return;
-    const allowed = SET_TYPE_OPTIONS.some(opt => opt.value === type);
-    set.type = allowed ? type : 'normal';
+    set.type = normalizePrescriptionSetType(type);
     const prevSets = workoutState.exercises?.[exIdx]?.prevSets || null;
     set.prev = pickPreviousSet(prevSets, setIdx, set.type);
     saveWorkoutBackup();
@@ -25865,9 +32667,17 @@ function addSetToExercise(exIdx) {
     const prevSets = ex.prevSets || null;
     ex.sets.push({
         id: `set-${exIdx}-${nextIdx}`,
-        weight: lastSet ? lastSet.weight : '',
-        reps: lastSet ? lastSet.reps : '',
+        weight: '',
+        reps: '',
+        prescribedReps: lastSet ? (lastSet.prescribedReps || '') : '',
         type: nextType,
+        targetRir: lastSet ? (lastSet.targetRir || '') : '',
+        targetRest: lastSet ? (lastSet.targetRest || lastSet.rest || '') : '',
+        rest: lastSet ? (lastSet.rest || lastSet.targetRest || '') : '',
+        prescriptionNote: lastSet ? (lastSet.prescriptionNote || '') : '',
+        instructions: lastSet ? (lastSet.instructions || lastSet.prescriptionNote || '') : '',
+        suggestedWeight: lastSet ? normalizeSetTemplateWeight(lastSet.suggestedWeight || '') : '',
+        loadPct: lastSet ? normalizeSetTemplateLoadPct(lastSet.loadPct || '') : '',
         intensityLevel: 0,
         rpe: '',
         rir: '',
@@ -26031,7 +32841,19 @@ function finalizeWorkoutWithFeedback(feedback = {}) {
                 .map(s => ({
                     peso: parseFloat(s.weight) || 0,
                     reps: parseInt(s.reps) || 0,
+                    prescribed_reps: s.prescribedReps || '',
+                    prescribedReps: s.prescribedReps || '',
                     type: s.type || 'normal',
+                    target_rir: Number.isFinite(Number(s.targetRir)) ? Number(s.targetRir) : null,
+                    targetRir: Number.isFinite(Number(s.targetRir)) ? Number(s.targetRir) : null,
+                    target_rest: s.targetRest || s.rest || '',
+                    targetRest: s.targetRest || s.rest || '',
+                    prescription_note: sanitizeUserInput(s.prescriptionNote || s.instructions || '', { maxLen: 260 }),
+                    prescriptionNote: sanitizeUserInput(s.prescriptionNote || s.instructions || '', { maxLen: 260 }),
+                    suggested_weight: normalizeSetTemplateWeight(s.suggestedWeight || ''),
+                    suggestedWeight: normalizeSetTemplateWeight(s.suggestedWeight || ''),
+                    load_pct: normalizeSetTemplateLoadPct(s.loadPct || ''),
+                    loadPct: normalizeSetTemplateLoadPct(s.loadPct || ''),
                     intensidade: s.intensityLevel || null,
                     rpe: Number.isFinite(Number(s.rpe)) ? Number(s.rpe) : null,
                     rir: Number.isFinite(Number(s.rir)) ? Number(s.rir) : null,
@@ -26178,7 +33000,7 @@ function applyLastWorkoutAsTemplate() {
         return;
     }
 
-    if (!confirm('Deseja substituir o modelo padrao pelo ultimo treino realizado?')) {
+    if (!confirm('Deseja substituir o modelo padrão pelo último treino realizado?')) {
         return;
     }
 
@@ -26202,24 +33024,24 @@ function applyLastWorkoutAsTemplate() {
         const past = historyExercises.find(e => e.nome === ex.nome);
         if (!past || !Array.isArray(past.sets) || past.sets.length === 0) return;
 
-        const templates = past.sets.map((s) => {
-            const weight = Number.isFinite(s.peso)
-                ? s.peso
-                : (Number.isFinite(s.weight) ? s.weight : (ex.carga || ''));
+        const templates = past.sets.map((s, index) => {
             const reps = Number.isFinite(s.reps)
-                ? s.reps
-                : (Number.isFinite(s.rep) ? s.rep : (ex.reps || ''));
-            return {
-                weight,
+                ? String(s.reps)
+                : (Number.isFinite(s.rep) ? String(s.rep) : (s.prescribedReps || s.prescribed_reps || ex.reps || ''));
+            return normalizeSetTemplate({
                 reps,
-                type: s.type || s.setType || 'normal'
-            };
+                type: s.type || s.setType || 'normal',
+                targetRir: s.targetRir ?? s.target_rir ?? '',
+                rest: s.targetRest || s.target_rest || s.rest || ex.descanso || '60s',
+                instructions: s.prescriptionNote || s.prescription_note || s.instructions || '',
+                weight: s.suggestedWeight || s.suggested_weight || '',
+                loadPct: s.loadPct || s.load_pct || ''
+            }, index, ex);
         });
 
         ex.setTemplates = templates;
-        ex.series = String(templates.length);
-        ex.carga = templates[0]?.weight ?? '';
-        ex.reps = templates[0]?.reps ?? '';
+        ex.carga = '';
+        syncExerciseLegacyFieldsFromTemplates(ex);
     });
 
     students[sIdx].workoutBlocks = blocks;

@@ -1,6 +1,22 @@
-﻿(function registerPWA() {
+(function registerPWA() {
   if (!("serviceWorker" in navigator)) return;
-  if (location.protocol !== "https:" && location.hostname !== "localhost") return;
+
+  const isLocalDevHost = ["localhost", "127.0.0.1", "::1"].includes(String(location.hostname || "").toLowerCase());
+  const isSecureContext = location.protocol === "https:";
+
+  // Em ambiente local/de desenvolvimento, removemos SWs ativos para evitar travamentos no hard refresh.
+  if (isLocalDevHost || !isSecureContext) {
+    window.addEventListener("load", async () => {
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        if (!registrations.length) return;
+        await Promise.all(registrations.map((registration) => registration.unregister().catch(() => false)));
+      } catch (err) {
+        console.warn("Falha ao limpar Service Workers locais:", err);
+      }
+    });
+    return;
+  }
 
   window.addEventListener("load", async () => {
     const hadController = !!navigator.serviceWorker.controller;

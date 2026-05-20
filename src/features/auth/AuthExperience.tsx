@@ -43,6 +43,7 @@ type LoadingAction =
 type AuthExperienceProps = {
   externalFeedback: AuthFeedback | null;
   legacyReady: boolean;
+  onHideAuth: () => void;
   onOpenLegacySignup: () => Promise<void>;
   onRouteAuthenticatedUser: (user: User) => Promise<void>;
   onViewChange: (view: AuthView) => void;
@@ -100,6 +101,7 @@ function useThemeDocumentSync() {
 export function AuthExperience({
   externalFeedback,
   legacyReady,
+  onHideAuth,
   onOpenLegacySignup,
   onRouteAuthenticatedUser,
   onViewChange,
@@ -350,7 +352,8 @@ export function AuthExperience({
         if (typeof window.openTrainerEvaluationDashboard !== 'function') {
           throw new Error('Sandbox do treinador ainda nao esta pronto.');
         }
-        showFeedback('Abrindo Treinador Demo...', 'info');
+        showFeedback('Abrindo Treinador Teste...', 'info');
+        onHideAuth();
         await window.openTrainerEvaluationDashboard();
         return;
       }
@@ -359,7 +362,8 @@ export function AuthExperience({
         if (typeof window.openStudentEvaluationDashboard !== 'function') {
           throw new Error('Sandbox do aluno ainda nao esta pronto.');
         }
-        showFeedback('Abrindo Aluno Demo...', 'info');
+        showFeedback('Abrindo Aluno Teste...', 'info');
+        onHideAuth();
         await window.openStudentEvaluationDashboard();
         return;
       }
@@ -371,7 +375,7 @@ export function AuthExperience({
       const message =
         result && typeof result === 'object' && 'message' in result && result.message
           ? String(result.message)
-          : 'Sandbox restaurado com dados demo.';
+          : 'Sandbox restaurado com dados teste.';
       const ok = !(result && typeof result === 'object' && result.ok === false);
       showFeedback(message, ok ? 'success' : 'error');
     } catch (error) {
@@ -575,7 +579,7 @@ export function AuthExperience({
                       <span className="authx-test-tile-icon">
                         <CoachIcon />
                       </span>
-                      <strong>Treinador Demo</strong>
+                      <strong>Treinador Teste</strong>
                       <small>Editar alunos</small>
                     </button>
                     <button
@@ -587,7 +591,7 @@ export function AuthExperience({
                       <span className="authx-test-tile-icon">
                         <StudentIcon />
                       </span>
-                      <strong>Aluno Demo</strong>
+                      <strong>Aluno Teste</strong>
                       <small>Ver plano</small>
                     </button>
                     <button

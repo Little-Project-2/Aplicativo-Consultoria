@@ -7,17 +7,25 @@
         <div class="logo-icon inactive-icon lg brand-mark-shell">
             <img src="assets/logo-small.svg" alt="Logo Aplicativo Consultoria" class="brand-mark-img">
         </div>
-        <h2 id="student-connect-title">Área do Aluno</h2>
-        <p id="student-connect-subtitle" class="subtitle">Insira o código enviado pelo seu treinador</p>
+        <h2 id="student-connect-title">Area do aluno</h2>
+        <p id="student-connect-subtitle" class="subtitle">Para usar como aluno, voce precisa de um convite do seu treinador.</p>
+        <p id="student-connect-helper" class="student-connect-helper">Peca o link da consultoria ao seu treinador.</p>
 
-        <form class="login-form" onsubmit="event.preventDefault(); connectStudent();">
-            <div class="input-group">
-                <label for="trainer-code">CÓDIGO DO TREINADOR</label>
-                <input type="tel" id="trainer-code" placeholder="00000" maxlength="5" autocomplete="off"
-                    inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'').substring(0,5)"
-                    style="letter-spacing:0.4rem; font-size:1.5rem; text-align:center; font-family:monospace;">
-            </div>
-            <button type="submit" class="btn-primary">Conectar</button>
-        </form>
+        <div id="student-connect-empty-state" class="student-connect-empty-state">
+            <button type="button" class="btn-primary" onclick="openStudentInviteCodeEntry()">Tenho um convite</button>
+        </div>
+
+        <div id="student-connect-form-wrap" class="student-connect-form-wrap" style="display:none;">
+            <form class="login-form" onsubmit="event.preventDefault(); connectStudent();">
+                <div class="input-group">
+                    <label for="trainer-code">CODIGO DO TREINADOR</label>
+                    <input type="tel" id="trainer-code" placeholder="00000" maxlength="5" autocomplete="off"
+                        inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'').substring(0,5)"
+                        style="letter-spacing:0.4rem; font-size:1.5rem; text-align:center; font-family:monospace;">
+                </div>
+                <button type="submit" class="btn-primary">Validar convite</button>
+            </form>
+            <button type="button" class="btn-link student-connect-secondary" onclick="showTrainerConnectScreen({ mode: 'invite_required' })">Voltar para instrucoes</button>
+        </div>
     </div>
 </div>

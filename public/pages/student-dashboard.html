@@ -58,6 +58,9 @@
                     </nav>
 
                     <div class="sidebar-footer">
+                        <button class="nav-item test-account-return-sidebar" type="button" data-test-account-switcher="student" onclick="returnToTrainerFromTestStudent()" style="display:none">
+                            <i class="ph-bold ph-arrow-counter-clockwise"></i> Voltar treinador
+                        </button>
                         <button class="nav-item btn-logout" type="button" aria-label="Sair da conta" onclick="logout()">
                             <i class="ph-bold ph-sign-out"></i> Sair
                         </button>
@@ -66,6 +69,15 @@
 
                 <!-- Main Content -->
                 <main class="main-content">
+                    <div id="student-test-switch-banner" class="student-test-switch-banner" data-test-account-switcher="student" style="display:none" role="status" aria-live="polite">
+                        <div>
+                            <span>Modo teste</span>
+                            <strong>Você está visualizando como aluno teste</strong>
+                        </div>
+                        <button class="btn-secondary btn-sm" type="button" onclick="returnToTrainerFromTestStudent()">
+                            <i class="ph-bold ph-arrow-counter-clockwise"></i> Voltar para treinador
+                        </button>
+                    </div>
                     <div id="view-student-home" class="view-section">
                         <div class="dashboard-header student-routine-hero" data-motion="hero">
                             <div class="user-info">

@@ -1,5 +1,6 @@
 import type { User } from '@supabase/supabase-js';
 import { useCallback, useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
 
 import { AuthExperience } from '../features/auth/AuthExperience';
 import type { AuthFeedback, AuthFeedbackType, AuthView } from '../features/auth/legacyBridge';
@@ -17,6 +18,12 @@ export function App() {
   const [authView, setAuthView] = useState<AuthView>(() => getInitialAuthView());
   const [bridgeFeedback, setBridgeFeedback] = useState<AuthFeedback | null>(null);
 
+  const hideAuth = useCallback(() => {
+    flushSync(() => {
+      setAuthVisible(false);
+    });
+  }, []);
+
   const showAuthHome = useCallback(() => {
     setBridgeFeedback(null);
     setAuthView('home');
@@ -31,14 +38,14 @@ export function App() {
 
   const openLegacySignup = useCallback(async () => {
     const goToProfileCreate = await waitForLegacySignup();
-    setAuthVisible(false);
+    hideAuth();
     await goToProfileCreate();
-  }, []);
+  }, [hideAuth]);
 
   const routeAuthenticatedUser = useCallback(async (user: User) => {
     try {
       const routeAuthenticatedSessionUser = await waitForLegacyAuthRouter();
-      setAuthVisible(false);
+      hideAuth();
       await routeAuthenticatedSessionUser(user, { force: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Nao foi possivel abrir seu painel.';
@@ -47,11 +54,11 @@ export function App() {
       setAuthVisible(true);
       throw error;
     }
-  }, []);
+  }, [hideAuth]);
 
   useEffect(() => {
     window.__CONSULTORIA_REACT_AUTH__ = {
-      hide: () => setAuthVisible(false),
+      hide: hideAuth,
       isHomeVisible: () => authVisible && authView === 'home',
       setFeedback: (message: string, type: AuthFeedbackType = 'info') => {
         setBridgeFeedback(message ? { message, type } : null);
@@ -65,7 +72,7 @@ export function App() {
     return () => {
       delete window.__CONSULTORIA_REACT_AUTH__;
     };
-  }, [authView, authVisible, showAuthHome, showAuthLogin]);
+  }, [authView, authVisible, hideAuth, showAuthHome, showAuthLogin]);
 
   return (
     <>
@@ -73,6 +80,7 @@ export function App() {
         <AuthExperience
           externalFeedback={bridgeFeedback}
           legacyReady={legacyReady}
+          onHideAuth={hideAuth}
           onOpenLegacySignup={openLegacySignup}
           onRouteAuthenticatedUser={routeAuthenticatedUser}
           onViewChange={setAuthView}

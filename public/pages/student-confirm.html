@@ -1,18 +1,15 @@
 <div id="student-confirm-screen" class="screen">
-    <div class="student-login-container" style="margin-top: 0; justify-content: center; min-height: 80vh;">
-        <div id="confirm-trainer-avatar" class="logo-icon inactive-icon"
-            style="width: 72px; height: 72px; font-size: 28px; border-radius: 18px; margin-bottom: 1.25rem; overflow: hidden;">
+    <div class="student-login-container student-confirm-container">
+        <div id="confirm-trainer-avatar" class="logo-icon inactive-icon student-confirm-avatar">
             <i class="ph-bold ph-user"></i>
         </div>
-        <p id="confirm-trainer-question" class="subtitle" style="margin-bottom: 0.5rem; font-size: 0.86rem;">
-            Esse é seu treinador?
-        </p>
-        <h2 id="confirm-trainer-name" style="margin-bottom: 0.5rem; font-size: 1.5rem; font-weight: 700;">Treinador</h2>
-        <p id="confirm-consultoria-name" class="subtitle"
-            style="margin-bottom: 0.3rem; color: var(--primary-color); font-weight: 500;">Consultoria</p>
-        <p id="confirm-trainer-code" class="subtitle" style="margin-bottom: 1.8rem; font-size: 0.82rem;">Código: 00000</p>
+        <p id="confirm-trainer-question" class="subtitle student-confirm-question">Convite para entrar na consultoria</p>
+        <h2 id="confirm-trainer-name" class="student-confirm-name">Treinador</h2>
+        <p id="confirm-consultoria-name" class="subtitle student-confirm-consultoria">Consultoria</p>
+        <p id="confirm-trainer-code" class="subtitle student-confirm-code">Codigo: 00000</p>
+        <p id="confirm-trainer-helper" class="student-confirm-helper">Ao continuar, sua conta de aluno sera vinculada automaticamente.</p>
 
-        <button class="btn-primary" onclick="confirmConnection()" style="margin-bottom: 1rem;">Sim, é meu treinador</button>
-        <button class="btn-link" onclick="rejectTrainerConnectionCandidate()">Não, voltar</button>
+        <button id="confirm-connection-btn" class="btn-primary" onclick="confirmConnection()" style="margin-bottom: 1rem;">Entrar na consultoria</button>
+        <button id="confirm-back-btn" class="btn-link" onclick="rejectTrainerConnectionCandidate()">Tenho outro convite</button>
     </div>
 </div>
